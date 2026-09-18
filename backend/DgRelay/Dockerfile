@@ -33,8 +33,7 @@ WORKDIR /app
 COPY --from=build /app/publish .
 
 EXPOSE 10000
-# Start the virtual display explicitly instead of wrapping the process in
-# xvfb-run. This keeps the .NET process as PID 1 and lets Render observe its
-# stdout and its HTTP listener reliably while still providing a display for
-# MT's non-headless Edge session.
-ENTRYPOINT ["/bin/sh", "-c", "Xvfb :99 -screen 0 1920x1080x24 -ac >/tmp/xvfb.log 2>&1 & sleep 1; export DISPLAY=:99; exec dotnet /app/DgRelay.dll"]
+# Start the virtual display only when MT is enabled. DG uses a headless Edge
+# session, so keeping Xvfb alive while MT is paused wastes memory on Render's
+# Free instance. This keeps the .NET process as PID 1 for reliable logs.
+ENTRYPOINT ["/bin/sh", "-c", "if [ \"${MT_RELAY_ENABLED:-false}\" = \"true\" ]; then Xvfb :99 -screen 0 1920x1080x24 -ac >/tmp/xvfb.log 2>&1 & sleep 1; export DISPLAY=:99; fi; exec dotnet /app/DgRelay.dll"]

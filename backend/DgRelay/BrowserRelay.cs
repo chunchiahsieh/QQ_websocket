@@ -91,7 +91,12 @@ static class BrowserRelay
 
     static async Task Capture(IConfiguration configuration, Func<object, CancellationToken, Task> publish, CancellationToken ct)
     {
-        var packets = Channel.CreateBounded<byte[]>(new BoundedChannelOptions(256) { SingleReader = true, FullMode = BoundedChannelFullMode.Wait });
+        // DG can open several fail-over sockets. Keep the raw frame queue
+        // deliberately small so a stalled decoder cannot retain hundreds of
+        // megabytes of protobuf/control frames in a Free Render instance.
+        var packets = Channel.CreateBounded<byte[]>(new BoundedChannelOptions(64) {
+            SingleReader = true, FullMode = BoundedChannelFullMode.DropOldest
+        });
         Interlocked.Increment(ref active);
         var budgetAcquired = false;
         try
@@ -129,8 +134,8 @@ static class BrowserRelay
                 ws.FrameReceived += (_, frame) =>
                 {
                     var bytes = frame.Binary;
-                    if (bytes is null || bytes.Length > 1024 * 1024) return;
-                    if (!packets.Writer.TryWrite(bytes)) packets.Writer.TryComplete(new InvalidDataException("Packet queue exceeded"));
+                    if (bytes is null || bytes.Length > 256 * 1024) return;
+                    packets.Writer.TryWrite(bytes);
                 };
             };
             context.Page += (_, openedPage) => AttachPage(openedPage);
