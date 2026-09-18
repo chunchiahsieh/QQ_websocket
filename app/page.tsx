@@ -13,6 +13,17 @@ import { RegressionTest } from '@/components/regression-test';
 
 type ConnectionStatus = 'idle' | 'connecting' | 'authenticating' | 'connected' | 'error';
 
+// crypto.randomUUID() is restricted to secure contexts. The LAN demo runs on
+// plain HTTP, so keep the same UUID-v4 format with getRandomValues() fallback.
+const createBrowserUuid = () => {
+  if (typeof globalThis.crypto?.randomUUID === 'function') return globalThis.crypto.randomUUID();
+  const bytes = globalThis.crypto.getRandomValues(new Uint8Array(16));
+  bytes[6] = (bytes[6] & 0x0f) | 0x40;
+  bytes[8] = (bytes[8] & 0x3f) | 0x80;
+  const hex = Array.from(bytes, byte => byte.toString(16).padStart(2, '0')).join('');
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
+};
+
 const payoutPools = [
   { code: 'GRAND', name: 'ULTIMATE POWER', amount: 323846.67, base: 100000, cap: 500000, color: 'from-red-950/90 to-rose-800/70', border: 'border-amber-300/60', menu: 'border-red-400/60 bg-red-950/35', bar: 'bg-red-400' },
   { code: 'MAJOR', name: 'SUPER POWER', amount: 86214.32, base: 20000, cap: 100000, color: 'from-fuchsia-950/90 to-purple-800/70', border: 'border-amber-300/60', menu: 'border-fuchsia-400/60 bg-fuchsia-950/35', bar: 'bg-fuchsia-400' },
@@ -425,7 +436,7 @@ export default function Home() {
       const deviceKey = 'mt-tz-device-id';
       let deviceId = localStorage.getItem(deviceKey);
       if (!deviceId) {
-        deviceId = crypto.randomUUID();
+        deviceId = createBrowserUuid();
         localStorage.setItem(deviceKey, deviceId);
       }
       const response = await fetch('/api/mt-login', {
