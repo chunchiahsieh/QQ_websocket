@@ -143,21 +143,41 @@ static class BrowserRelay
             await loginButton.ClickAsync(new() { Force = true });
             // The official site may render the post-login action in either
             // simplified or traditional Chinese, and it is not always a
-            // semantic button (some versions use an anchor).  Match the
-            // visible label instead of assuming one exact role/locale.
-            ILocator enter = page.GetByText("進入遊戲", new() { Exact = true }).First;
-            try { await enter.WaitForAsync(new() { State = WaitForSelectorState.Visible, Timeout = 20000 }); }
-            catch (System.TimeoutException)
+            // semantic button (some versions use an anchor).  Login can also
+            // open the account page in a second tab, so scan every page in
+            // the context instead of assuming the original page is reused.
+            IPage? entryPage = null;
+            ILocator? enter = null;
+            var entryDeadline = DateTimeOffset.UtcNow.AddSeconds(30);
+            while (!ct.IsCancellationRequested && DateTimeOffset.UtcNow < entryDeadline && entryPage is null)
             {
-                enter = page.GetByText("进入游戏", new() { Exact = true }).First;
-                try { await enter.WaitForAsync(new() { State = WaitForSelectorState.Visible, Timeout = 10000 }); }
-                catch (System.TimeoutException)
+                foreach (var candidate in context.Pages.Where(p => !p.IsClosed))
                 {
-                    await publish( new { type = "error", message = "dg18.cc 登入未完成，請確認專用帳密或是否需要人工驗證。" }, ct);
-                    throw new DgLoginRequiredException();
+                    foreach (var label in new[] { "進入遊戲", "进入游戏" })
+                    {
+                        var candidateEnter = candidate.GetByText(label, new() { Exact = true }).First;
+                        try
+                        {
+                            if (await candidateEnter.IsVisibleAsync())
+                            {
+                                entryPage = candidate;
+                                enter = candidateEnter;
+                                break;
+                            }
+                        }
+                        catch (PlaywrightException) { }
+                    }
+                    if (entryPage is not null) break;
                 }
+                if (entryPage is null) await Task.Delay(500, ct);
             }
-            await enter.ClickAsync();
+            if (entryPage is null || enter is null)
+            {
+                await publish( new { type = "error", message = "dg18.cc 登入未完成，請確認專用帳密或是否需要人工驗證。" }, ct);
+                throw new DgLoginRequiredException();
+            }
+            gamePage = entryPage;
+            await enter.ClickAsync(new() { Force = true });
             await publish( new { type = "status", message = "官方 DG 頁面已開啟，等待百家樂桌況…" }, ct);
             var decoder = new DgTableDecoder();
             var lastTables = DateTimeOffset.UtcNow;
