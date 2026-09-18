@@ -1,6 +1,7 @@
 'use client';
 import { useEffect, useState } from 'react';
 import { abCard, type LiveAbTable } from '@/lib/ab-card';
+import { readJsonResponse } from '@/lib/safe-response-json';
 import { BaccaratTableCard, type TableInfo } from '@/components/baccarat-table-card';
 import { CardLayoutSelect, cardGridColumns, type CardColumns } from '@/components/card-layout';
 
@@ -21,7 +22,7 @@ export function AbMonitor({ onStatus, onTables, onFocusTable, cardColumns, onCar
     void (async () => {
       try {
         const response = await fetch('/api/ab/start', { method: 'POST', signal: abort.signal, cache: 'no-store' });
-        const result = await response.json() as { wsUrl?: string; ticket?: string; message?: string };
+        const result = await readJsonResponse<{ wsUrl?: string; ticket?: string; message?: string }>(response);
         if (!response.ok || !result.wsUrl || !result.ticket) throw new Error(result.message || '歐博 工作階段建立失敗。');
         if (abort.signal.aborted) return;
         socket = new WebSocket(result.wsUrl);

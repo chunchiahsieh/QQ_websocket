@@ -10,6 +10,7 @@ import { AbMonitor } from '@/components/ab-monitor';
 import { ContactLinks } from '@/components/contact-links';
 import { CardLayoutSelect, cardGridColumns, type CardColumns } from '@/components/card-layout';
 import { RegressionTest } from '@/components/regression-test';
+import { readJsonResponse } from '@/lib/safe-response-json';
 
 type ConnectionStatus = 'idle' | 'connecting' | 'authenticating' | 'connected' | 'error';
 
@@ -481,7 +482,7 @@ export default function Home() {
     void (async () => {
       try {
         const response = await fetch('/api/mt/start', { method: 'POST', signal: abort.signal, cache: 'no-store' });
-        const result = await response.json() as { wsUrl?: string; ticket?: string };
+        const result = await readJsonResponse<{ wsUrl?: string; ticket?: string; message?: string }>(response);
         if (!response.ok || !result.wsUrl || !result.ticket) throw new Error('MT start failed');
         if (abort.signal.aborted) return;
         ws = new WebSocket(result.wsUrl);
