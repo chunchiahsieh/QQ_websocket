@@ -446,7 +446,12 @@ export default function Home() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ username: username.trim(), password, deviceId }),
       });
-      const result = await response.json() as { token?: string; message?: string; platforms?: { MT: { ready: boolean; error?: string }; DG: { ready: boolean; error?: string } } };
+      // Some reverse proxies return a plain-text error page for a 5xx. Read
+      // once and parse defensively so the UI shows the real error instead of
+      // masking it with "Unexpected token ... is not valid JSON".
+      const raw = await response.text();
+      let result: { token?: string; message?: string; platforms?: { MT: { ready: boolean; error?: string }; DG: { ready: boolean; error?: string } } } = {};
+      try { result = raw ? JSON.parse(raw) : {}; } catch { result = { message: raw.trim() || `登入服務回應錯誤（HTTP ${response.status}）。` }; }
       if (!response.ok || !result.platforms?.MT.ready) throw new Error(result.message || '平台後台尚未設定。');
       localStorage.removeItem('table-monitor-token');
       setPassword('');

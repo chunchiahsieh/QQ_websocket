@@ -10,6 +10,16 @@ type LoginBody = {
 
 type LocalAccount = { id?: string; username?: string; stamp?: string };
 
+// A deployment that only contains the frontend has no local AccountAdmin
+// process to validate the demo account. Keep the fallback opt-in and entirely
+// environment-based so it cannot silently create a production backdoor.
+const loginDemoAccount = (username: string, password: string): LocalAccount | null => {
+  const demoUsername = process.env.DEMO_LOGIN_USERNAME?.trim();
+  const demoPassword = process.env.DEMO_LOGIN_PASSWORD;
+  if (!demoUsername || !demoPassword || username !== demoUsername || password !== demoPassword) return null;
+  return { id: `demo-${demoUsername}`, username: demoUsername, stamp: 'demo' };
+};
+
 const extractMessage = (payload: unknown, fallback: string) => {
   if (!payload || typeof payload !== 'object') return fallback;
   const data = payload as Record<string, unknown>;
@@ -69,15 +79,16 @@ export async function POST(request: Request) {
       return Response.json({ message: '缺少帳號、密碼或裝置識別碼。' }, { status: 400 });
     }
 
-    const localAccount = await loginLocalAccount(username, password);
+    const localAccount = await loginLocalAccount(username, password) || loginDemoAccount(username, password);
     if (localAccount) {
       const dgReady = !!(process.env.DG_RELAY_URL && process.env.DG_RELAY_API_KEY);
+      const demoReady = localAccount.stamp === 'demo';
       return Response.json({
-        platforms: { MT: { ready: dgReady }, DG: { ready: dgReady, error: dgReady ? undefined : '平台後台尚未設定。' } },
+        platforms: { MT: { ready: dgReady || demoReady }, DG: { ready: dgReady, error: dgReady ? undefined : '平台後台尚未設定。' } },
         account: { username: localAccount.username },
       }, { headers: {
         'Set-Cookie': await sessionCookie(request, {
-          dgDirectLogin: dgReady,
+          dgDirectLogin: dgReady || demoReady,
           accountId: localAccount.id,
           accountUsername: localAccount.username,
           accountStamp: localAccount.stamp,
