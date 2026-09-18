@@ -328,8 +328,14 @@ static class MtRelay
             var loginInputs = page.Locator("input");
             if (await loginInputs.CountAsync() < 2)
                 throw new PlaywrightException("MT Assistant login inputs were not found.");
-            await loginInputs.Nth(0).FillAsync(username, new() { Timeout = 5000 });
-            await loginInputs.Nth(1).FillAsync(password, new() { Timeout = 5000 });
+            // React Native Web's inputs can remain behind a hydration overlay
+            // for a moment in the Render virtual display. Force the fill after
+            // a short settle delay so the form receives the same DOM events as
+            // a real Edge user without leaking the credential into Playwright
+            // call logs.
+            await page.WaitForTimeoutAsync(1000);
+            await loginInputs.Nth(0).FillAsync(username, new() { Force = true, Timeout = 5000 });
+            await loginInputs.Nth(1).FillAsync(password, new() { Force = true, Timeout = 5000 });
             await page.GetByText("安全登入", new() { Exact = true }).ClickAsync(new() { Force = true, Timeout = 5000 });
             // The MT Assistant keeps this page open and creates the official
             // WebSocket from its React client; no game URL navigation is needed.
