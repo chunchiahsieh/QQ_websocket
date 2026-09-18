@@ -8,6 +8,8 @@ import { BaccaratTableCard, type TableInfo } from '@/components/baccarat-table-c
 import { DgMonitor } from '@/components/dg-monitor';
 import { AbMonitor } from '@/components/ab-monitor';
 import { ContactLinks } from '@/components/contact-links';
+import { CardLayoutSelect, cardGridColumns, type CardColumns } from '@/components/card-layout';
+import { RegressionTest } from '@/components/regression-test';
 
 type ConnectionStatus = 'idle' | 'connecting' | 'authenticating' | 'connected' | 'error';
 
@@ -141,19 +143,7 @@ function TableCompare({ tablesByPlatform, connected, activePlatform, selected, o
 
 void TableCompare;
 
-const focusGridColumns: Record<number, string> = {
-  1: 'grid-cols-1',
-  2: 'grid-cols-1 sm:grid-cols-2',
-  3: 'grid-cols-1 sm:grid-cols-2 lg:grid-cols-3',
-  4: 'grid-cols-1 sm:grid-cols-2 lg:grid-cols-4',
-  5: 'grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5',
-  6: 'grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6',
-  7: 'grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-7',
-  8: 'grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-8',
-};
-
-function FocusedTableCompare({ tablesByPlatform, connected, selected, onSelectedChange }: { tablesByPlatform: Record<'MT' | 'DG' | 'AB', TableInfo[]>; connected: boolean; selected: string[]; onSelectedChange: (next: string[]) => void }) {
-  const [cardsPerRow, setCardsPerRow] = useState(3);
+function FocusedTableCompare({ tablesByPlatform, connectedByPlatform, selected, onSelectedChange, cardsPerRow, onCardsPerRowChange, onFocusTable }: { tablesByPlatform: Record<'MT' | 'DG' | 'AB', TableInfo[]>; connectedByPlatform: Record<'MT' | 'DG' | 'AB', boolean>; selected: string[]; onSelectedChange: (next: string[]) => void; cardsPerRow: CardColumns; onCardsPerRowChange: (value: CardColumns) => void; onFocusTable: (table: TableInfo) => void }) {
   const [dragIndex, setDragIndex] = useState<number | null>(null);
   const removeTable = (index: number) => onSelectedChange(selected.filter((_, itemIndex) => itemIndex !== index));
   const moveTable = (from: number, to: number) => {
@@ -167,17 +157,13 @@ function FocusedTableCompare({ tablesByPlatform, connected, selected, onSelected
       <header className="border-b border-cyan-400/20 px-5 py-4">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <h1 className="text-lg font-semibold text-cyan-100">關注牌桌</h1>
-          <label className="flex items-center gap-2 text-xs text-slate-300">
-            <span>牌卡大小</span>
-            <input type="range" min="1" max="8" step="1" value={cardsPerRow} onChange={event => setCardsPerRow(Number(event.target.value))} aria-label="拖曳調整每列牌卡數量" className="h-2 w-36 cursor-ew-resize accent-cyan-400" />
-            <output className="w-16 text-right tabular-nums text-cyan-200">{cardsPerRow} 張／列</output>
-          </label>
+          <CardLayoutSelect value={cardsPerRow} onChange={onCardsPerRowChange} />
         </div>
       </header>
       {selected.length === 0 ? (
         <div className="grid min-h-56 place-items-center p-6 text-center text-sm text-slate-400">請在即時桌況的牌卡功能中加入關注牌桌。</div>
       ) : (
-        <div className={`grid gap-3 p-3 ${focusGridColumns[cardsPerRow]}`}>
+        <div className={`grid gap-3 p-3 ${cardGridColumns[cardsPerRow]}`}>
           {selected.map((key, index) => {
             const [source, id] = key.split('::');
             const typedSource = source as 'MT' | 'DG' | 'AB';
@@ -189,7 +175,7 @@ function FocusedTableCompare({ tablesByPlatform, connected, selected, onSelected
                   <div draggable onDragStart={() => setDragIndex(index)} title="拖曳排序" aria-label="拖曳排序" className="flex h-7 w-7 cursor-grab select-none items-center justify-center rounded border border-cyan-300/30 text-sm text-cyan-200 active:cursor-grabbing">⠿</div>
                   <button type="button" onClick={() => removeTable(index)} title={`移除 ${label} ${id}`} className="flex h-7 w-7 items-center justify-center rounded border border-rose-300/45 text-sm font-semibold text-rose-200 hover:bg-rose-500/15" aria-label={`移除 ${label} ${id}`}>×</button>
                 </div>
-                {table ? <BaccaratTableCard table={table} connected={connected} platformLabel={label} /> : <div className="rounded-lg border border-amber-300/30 bg-amber-300/10 p-4 text-sm text-amber-100">{key.replace('::', ' · ')} 尚未收到串流資料，請先切換至對應平台取得資料。</div>}
+                {table ? <BaccaratTableCard table={table} connected={connectedByPlatform[typedSource]} platformLabel={label} onFocusTable={onFocusTable} /> : <div className="rounded-lg border border-amber-300/30 bg-amber-300/10 p-4 text-sm text-amber-100">{key.replace('::', ' · ')} 尚未收到串流資料，請先切換至對應平台取得資料。</div>}
               </div>
             );
           })}
@@ -212,6 +198,13 @@ const toText = (value: unknown, fallback: string) =>
 const optionalText = (value: unknown) =>
   typeof value === 'string' || typeof value === 'number' ? String(value) : undefined;
 
+const finiteNumber = (value: unknown): number | undefined => {
+  const parsed = typeof value === 'number' ? value : typeof value === 'string' && value.trim() ? Number(value) : NaN;
+  return Number.isFinite(parsed) ? parsed : undefined;
+};
+
+const epochMilliseconds = (value: number) => value > 0 && value < 100_000_000_000 ? value * 1000 : value;
+
 const photoUrl = (value: unknown): string | undefined => {
   if (typeof value !== 'string' || !value.trim()) return undefined;
   try {
@@ -226,7 +219,7 @@ const photoUrl = (value: unknown): string | undefined => {
 const extractTableUpdates = (payload: unknown): Array<Partial<TableInfo> & { id: string }> => {
   const envelope = payload && typeof payload === 'object' ? payload as Record<string, unknown> : {};
   const action = envelope.action && typeof envelope.action === 'object' ? envelope.action as Record<string, unknown> : {};
-  const eventName = String(envelope.name ?? action.name ?? envelope.action ?? '');
+  const eventName = String(envelope.name ?? envelope.event ?? envelope.method ?? action.name ?? envelope.action ?? '');
   const receivedAt = Date.now();
   const records: Record<string, unknown>[] = [];
   const visit = (value: unknown, depth = 0) => {
@@ -257,17 +250,24 @@ const extractTableUpdates = (payload: unknown): Array<Partial<TableInfo> & { id:
         .find(value => { try { const url = new URL(value); return url.protocol === 'https:' && url.pathname.endsWith('.flv'); } catch { return false; } }) : undefined;
       if (!tableId) return;
       const current = unique.get(tableId) ?? { id: tableId };
+      const explicitDeadline = finiteNumber(table.countdownDeadline ?? table.countdown_deadline ?? table.deadline);
+      const countDown = finiteNumber(table.countDown ?? table.countdown ?? table.countdown_seconds ?? table.count);
+      const waitEvent = /(?:\/|:)wait(?:\b|$)/i.test(eventName);
+      const endEvent = ['/show_poker', '/summary', '/result', '/end'].some(suffix => eventName.toLowerCase().endsWith(suffix));
       unique.set(tableId, {
         ...current,
         id: tableId,
-        ...(typeof table.countdownDeadline === 'number' && { countdownDeadline: table.countdownDeadline }),
+        ...(explicitDeadline !== undefined && {
+          countdownDeadline: epochMilliseconds(explicitDeadline),
+          countdownReceivedAt: finiteNumber(table.countdownReceivedAt) ?? receivedAt,
+        }),
         ...(Array.isArray(table.video) && { videoUrl: videoUrl ?? '' }),
         ...(optionalText(table.state) !== undefined && { tableState: optionalText(table.state) }),
-        ...(eventName.endsWith('/wait') && typeof table.count === 'number' && Number.isFinite(table.count) && {
-          countdownDeadline: receivedAt + Math.max(0, table.count) * 1000,
+        ...(waitEvent && countDown !== undefined && {
+          countdownDeadline: receivedAt + Math.max(0, countDown) * 1000,
           countdownReceivedAt: receivedAt,
         }),
-        ...(['/show_poker', '/summary', '/result', '/end'].some(suffix => eventName.endsWith(suffix)) && {
+        ...(endEvent && {
           countdownDeadline: receivedAt, countdownReceivedAt: receivedAt,
         }),
         ...(optionalText(table.table_name) && { name: optionalText(table.table_name) }),
@@ -348,7 +348,9 @@ export default function Home() {
   const [status, setStatus] = useState<ConnectionStatus>('idle');
   const [tables, setTables] = useState<TableInfo[]>([]);
   const [tablesByPlatform, setTablesByPlatform] = useState<Record<'MT' | 'DG' | 'AB', TableInfo[]>>({ MT: [], DG: [], AB: [] });
+  const [connectedByPlatform, setConnectedByPlatform] = useState<Record<'MT' | 'DG' | 'AB', boolean>>({ MT: false, DG: false, AB: false });
   const [focusedTables, setFocusedTables] = useState<string[]>([]);
+  const [cardsPerRow, setCardsPerRow] = useState<CardColumns>(2);
   const [tableUpdatedAt, setTableUpdatedAt] = useState('');
   const [mtMessage, setMtMessage] = useState('等待牌桌資料');
   const [username, setUsername] = useState(defaultUsername);
@@ -357,12 +359,28 @@ export default function Home() {
   const [loginMessage, setLoginMessage] = useState('');
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [platform, setPlatform] = useState<'MT' | 'DG' | 'AB'>('MT');
-  const [activeMenu, setActiveMenu] = useState<'tables' | 'payout' | 'compare'>('tables');
+  const [activeMenu, setActiveMenu] = useState<'tables' | 'payout' | 'compare' | 'regression'>('tables');
   const [menuCollapsed, setMenuCollapsed] = useState(false);
   const [loggingOut, setLoggingOut] = useState(false);
   const [logoutError, setLogoutError] = useState('');
   const handleDgTables = useCallback((next: TableInfo[]) => setTablesByPlatform(previous => ({ ...previous, DG: next })), []);
   const handleAbTables = useCallback((next: TableInfo[]) => setTablesByPlatform(previous => ({ ...previous, AB: next })), []);
+  const handlePlatformStatus = useCallback((source: 'DG' | 'AB', next: 'connecting' | 'connected' | 'error') => {
+    setConnectedByPlatform(previous => {
+      const connected = next === 'connected';
+      return previous[source] === connected ? previous : { ...previous, [source]: connected };
+    });
+    if (activeMenu === 'tables' && platform === source) setStatus(next);
+  }, [activeMenu, platform]);
+  const handleDgStatus = useCallback((next: 'connecting' | 'connected' | 'error') => handlePlatformStatus('DG', next), [handlePlatformStatus]);
+  const handleAbStatus = useCallback((next: 'connecting' | 'connected' | 'error') => handlePlatformStatus('AB', next), [handlePlatformStatus]);
+  const handleMtStatus = useCallback((next: ConnectionStatus) => {
+    setConnectedByPlatform(previous => {
+      const connected = next === 'connected';
+      return previous.MT === connected ? previous : { ...previous, MT: connected };
+    });
+    if (activeMenu === 'tables' && platform === 'MT') setStatus(next);
+  }, [activeMenu, platform]);
   const focusTable = useCallback((table: TableInfo) => {
     const source = table.id.startsWith('DG:') ? 'DG' : table.id.startsWith('AB:') ? 'AB' : 'MT';
     setFocusedTables(current => [...current, `${source}::${table.id}`]);
@@ -375,6 +393,7 @@ export default function Home() {
     }
     socket.current?.close();
     socket.current = null;
+    setConnectedByPlatform(previous => ({ ...previous, MT: false }));
     setStatus('idle');
   };
 
@@ -386,6 +405,7 @@ export default function Home() {
       disconnect();
       localStorage.removeItem('table-monitor-token');
       setTables([]); setTableUpdatedAt('');
+      setConnectedByPlatform({ MT: false, DG: false, AB: false });
       setPassword(''); setLoginStatus('idle'); setLoginMessage('');
       setIsAuthenticated(false);
     } catch { setLogoutError('登出未完成，請再試一次。'); }
@@ -427,11 +447,19 @@ export default function Home() {
   };
 
 
+  const hasFocusedMt = focusedTables.some(key => key.startsWith('MT::'));
+  const hasFocusedDg = focusedTables.some(key => key.startsWith('DG::'));
+  const hasFocusedAb = focusedTables.some(key => key.startsWith('AB::'));
+
   useEffect(() => {
-    if (!isAuthenticated || platform !== 'MT' || activeMenu !== 'tables') return;
+    const shouldStreamMt = isAuthenticated && (
+      (activeMenu === 'tables' && platform === 'MT') ||
+      (activeMenu === 'compare' && hasFocusedMt)
+    );
+    if (!shouldStreamMt) return;
     const abort = new AbortController();
     let ws: WebSocket | undefined;
-    setTables([]); setTableUpdatedAt(''); setStatus('connecting'); setMtMessage('正在取得 MT 桌況…');
+    setTables([]); setTableUpdatedAt(''); handleMtStatus('connecting'); setMtMessage('正在取得 MT 桌況…');
     void (async () => {
       try {
         const response = await fetch('/api/mt/start', { method: 'POST', signal: abort.signal, cache: 'no-store' });
@@ -448,8 +476,8 @@ export default function Home() {
           if (abort.signal.aborted) return;
           try {
             const data = JSON.parse(event.data);
-            if (data.type === 'reset') { setTables([]); setStatus('connecting'); return; }
-            if (data.type === 'error') { setStatus('error'); setMtMessage(data.message || 'MT 串流中斷。'); return; }
+            if (data.type === 'reset') { setTables([]); handleMtStatus('connecting'); return; }
+            if (data.type === 'error') { handleMtStatus('error'); setMtMessage(data.message || 'MT 串流中斷。'); return; }
             if (data.type === 'tables' && Array.isArray(data.tables)) {
               const updates = extractTableUpdates(data.tables.map((row: { payload: unknown }) => row.payload));
               setTables(current => {
@@ -457,15 +485,19 @@ export default function Home() {
                 setTablesByPlatform(previous => ({ ...previous, MT: merged }));
                 return merged;
               });
-              setTableUpdatedAt(now()); setStatus('connected');
+              setTableUpdatedAt(now()); handleMtStatus('connected');
             }
-          } catch { setStatus('error'); }
+          } catch { handleMtStatus('error'); }
         };
-        ws.onerror = ws.onclose = () => { if (!abort.signal.aborted) setStatus('error'); };
-      } catch { if (!abort.signal.aborted) setStatus('error'); }
+        ws.onerror = ws.onclose = () => { if (!abort.signal.aborted) handleMtStatus('error'); };
+      } catch { if (!abort.signal.aborted) handleMtStatus('error'); }
     })();
-    return () => { abort.abort(); ws?.close(); if (socket.current === ws) socket.current = null; };
-  }, [platform, isAuthenticated, activeMenu]);
+    return () => {
+      abort.abort(); ws?.close();
+      if (socket.current === ws) socket.current = null;
+      setConnectedByPlatform(previous => ({ ...previous, MT: false }));
+    };
+  }, [platform, isAuthenticated, activeMenu, hasFocusedMt, handleMtStatus]);
 
   const statusInfo = statusView[status];
 
@@ -540,6 +572,9 @@ export default function Home() {
             <button type="button" title="關注牌桌" onClick={() => setActiveMenu('compare')} className={`flex items-center rounded-lg border px-3 py-3 text-sm transition ${menuCollapsed ? 'justify-center' : 'gap-3'} ${activeMenu === 'compare' ? 'border-cyan-400/55 bg-cyan-400/10 font-medium text-cyan-100' : 'border-transparent text-slate-400 hover:border-cyan-400/30 hover:bg-cyan-400/5'}`}>
               <LayoutGrid className="h-4 w-4 shrink-0" /><span className={menuCollapsed ? 'hidden' : ''}>關注牌桌</span>
             </button>
+            <button type="button" title="回歸測試" onClick={() => { disconnect(); setActiveMenu('regression'); }} className={`flex items-center rounded-lg border px-3 py-3 text-sm transition ${menuCollapsed ? 'justify-center' : 'gap-3'} ${activeMenu === 'regression' ? 'border-cyan-400/55 bg-cyan-400/10 font-medium text-cyan-100' : 'border-transparent text-slate-400 hover:border-cyan-400/30 hover:bg-cyan-400/5'}`}>
+              <CircleDot className="h-4 w-4 shrink-0" /><span className={menuCollapsed ? 'hidden' : ''}>回歸測試</span>
+            </button>
             <button type="button" title="獎池" onClick={() => { disconnect(); setActiveMenu('payout'); }} className={`flex items-center rounded-lg border px-3 py-3 text-sm transition ${menuCollapsed ? 'justify-center' : 'gap-3'} ${activeMenu === 'payout' ? 'border-cyan-400/45 bg-cyan-400/10 font-medium text-cyan-100' : 'border-transparent text-slate-400 hover:border-cyan-400/30 hover:bg-cyan-400/5'}`}>
               <Gift className="h-4 w-4 shrink-0" /><span className={menuCollapsed ? 'hidden' : ''}>獎池</span>
             </button>
@@ -572,16 +607,22 @@ export default function Home() {
               {logoutError && <span role="alert" className="text-sm text-rose-300">{logoutError}</span>}
         </div>
         </div>
-        {activeMenu === 'payout' ? <PayoutFeature /> : activeMenu === 'compare' ? <FocusedTableCompare tablesByPlatform={tablesByPlatform} connected={status === 'connected'} selected={focusedTables} onSelectedChange={setFocusedTables} /> : <div id="platform-content" role="tabpanel" aria-labelledby={`platform-${platform}`}>
+        {activeMenu === 'regression' ? <RegressionTest /> : activeMenu === 'payout' ? <PayoutFeature /> : activeMenu === 'compare' ? <>
+          <FocusedTableCompare tablesByPlatform={tablesByPlatform} connectedByPlatform={connectedByPlatform} selected={focusedTables} onSelectedChange={setFocusedTables} cardsPerRow={cardsPerRow} onCardsPerRowChange={setCardsPerRow} onFocusTable={focusTable} />
+          <div className="hidden" aria-hidden="true">
+            {hasFocusedDg && <DgMonitor onStatus={handleDgStatus} onTables={handleDgTables} cardColumns={cardsPerRow} onCardColumnsChange={setCardsPerRow} />}
+            {hasFocusedAb && <AbMonitor onStatus={handleAbStatus} onTables={handleAbTables} cardColumns={cardsPerRow} onCardColumnsChange={setCardsPerRow} />}
+          </div>
+        </> : <div id="platform-content" role="tabpanel" aria-labelledby={`platform-${platform}`}>
         <h1 className="sr-only">{platform === 'AB' ? '歐博' : platform} · 即時桌況</h1>
 
 
 
-        {platform === 'DG' && <DgMonitor onStatus={setStatus} onTables={handleDgTables} onFocusTable={focusTable} />}
-        {platform === 'AB' && <AbMonitor onStatus={setStatus} onTables={handleAbTables} onFocusTable={focusTable} />}
+        {platform === 'DG' && <DgMonitor onStatus={handleDgStatus} onTables={handleDgTables} onFocusTable={focusTable} cardColumns={cardsPerRow} onCardColumnsChange={setCardsPerRow} />}
+        {platform === 'AB' && <AbMonitor onStatus={handleAbStatus} onTables={handleAbTables} onFocusTable={focusTable} cardColumns={cardsPerRow} onCardColumnsChange={setCardsPerRow} />}
         {platform === 'MT' && <section className="overflow-hidden rounded-2xl border border-[#86632f]/35 bg-[#0d0b08]/92 shadow-[0_24px_70px_rgba(0,0,0,.42)]">
           <div className="m-0">
-            <div className="flex flex-col gap-3 border-b border-[#5d451f]/55 bg-[#100d08]/80 px-5 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-6">
+             <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[#5d451f]/55 bg-[#100d08]/80 px-5 py-4 sm:px-6">
               <div>
                 <div className="flex items-center gap-3">
                   <h2 className="text-lg font-semibold text-[#f3dfb4]">即時桌況</h2>
@@ -590,8 +631,9 @@ export default function Home() {
                   </span>
                 </div>
                 <p className="mt-1 text-xs text-[#83765e]">{tableUpdatedAt ? `最後更新 ${tableUpdatedAt}` : '歷史牌局與桌況每秒同步更新'}</p>
-              </div>
-            </div>
+               </div>
+               <CardLayoutSelect value={cardsPerRow} onChange={setCardsPerRow} />
+             </div>
             {tables.length === 0 ? (
               <div className="grid min-h-[420px] place-items-center px-6 py-16 text-center">
                 <div>
@@ -600,7 +642,7 @@ export default function Home() {
                 </div>
               </div>
             ) : (
-              <div className="grid w-full min-w-0 gap-3 bg-transparent p-2 min-[1200px]:grid-cols-2">
+               <div className={`grid w-full min-w-0 gap-3 bg-transparent p-2 ${cardGridColumns[cardsPerRow]}`}>
                 {tables.map((table) => (
                   <BaccaratTableCard key={table.id} table={table} connected={status === 'connected'} onFocusTable={focusTable} platformLabel="MT" />
                 ))}

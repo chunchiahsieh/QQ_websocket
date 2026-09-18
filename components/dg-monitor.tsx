@@ -2,8 +2,9 @@
 import { useEffect, useState } from 'react';
 import { dgCard, type LiveDgTable } from '@/lib/dg-card';
 import { BaccaratTableCard, type TableInfo } from '@/components/baccarat-table-card';
+import { CardLayoutSelect, cardGridColumns, type CardColumns } from '@/components/card-layout';
 
-export function DgMonitor({ onStatus, onTables, onFocusTable }: { onStatus: (status: 'connecting' | 'connected' | 'error') => void; onTables?: (tables: TableInfo[]) => void; onFocusTable?: (table: TableInfo) => void }) {
+export function DgMonitor({ onStatus, onTables, onFocusTable, cardColumns, onCardColumnsChange }: { onStatus: (status: 'connecting' | 'connected' | 'error') => void; onTables?: (tables: TableInfo[]) => void; onFocusTable?: (table: TableInfo) => void; cardColumns: CardColumns; onCardColumnsChange: (value: CardColumns) => void }) {
   const [tables, setTables] = useState<LiveDgTable[]>([]);
   const [connected, setConnected] = useState(false);
   const [updatedAt, setUpdatedAt] = useState('');
@@ -63,11 +64,12 @@ export function DgMonitor({ onStatus, onTables, onFocusTable }: { onStatus: (sta
     return () => { abort.abort(); socket?.close(); };
   }, [onStatus]);
   return <section className="overflow-hidden rounded-2xl border border-[#86632f]/35 bg-[#0d0b08]/92">
-    <header className="border-b border-[#5d451f]/60 px-6 py-4">
-      <h2 className="text-lg font-semibold">即時桌況 <span className="ml-2 rounded-md border px-2 py-0.5 text-xs">{tables.length} 桌</span></h2>
-      <p className="mt-1 text-xs">{connected ? `最後更新 ${updatedAt}` : message}</p>
-    </header>
-    <div className="grid w-full min-w-0 gap-3 bg-transparent p-2 min-[1200px]:grid-cols-2">
+     <header className="flex flex-wrap items-center justify-between gap-3 border-b border-[#5d451f]/60 px-6 py-4">
+       <div><h2 className="text-lg font-semibold">即時桌況 <span className="ml-2 rounded-md border px-2 py-0.5 text-xs">{tables.length} 桌</span></h2>
+       <p className="mt-1 text-xs">{connected ? `最後更新 ${updatedAt}` : message}</p></div>
+       <CardLayoutSelect value={cardColumns} onChange={onCardColumnsChange} />
+     </header>
+     <div className={`grid w-full min-w-0 gap-3 bg-transparent p-2 ${cardGridColumns[cardColumns]}`}>
       {tables.map(table => <BaccaratTableCard key={table.tableId} table={dgCard(table)} connected={connected} platformLabel="DG" onFocusTable={onFocusTable} />)}
     </div>
   </section>;

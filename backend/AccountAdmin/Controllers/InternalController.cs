@@ -9,11 +9,16 @@ public sealed class InternalController(AccountStore store,IConfiguration config)
 {
     public record LoginInput(string Username,string Password);
     public record ValidateInput(Guid Id,string Stamp);
+    public record PayoutsInput(string? Username);
     bool Authorized() {
         var key=config["ADMIN_INTERNAL_KEY"];
         var supplied=Request.Headers["X-Internal-Key"].ToString();
-        return key?.Length>=32 && supplied.Length<=256 && CryptographicOperations.FixedTimeEquals(
-            SHA256.HashData(Encoding.UTF8.GetBytes(key)),SHA256.HashData(Encoding.UTF8.GetBytes(supplied)));
+        if (key?.Length >= 32 && supplied.Length <= 256)
+            return CryptographicOperations.FixedTimeEquals(SHA256.HashData(Encoding.UTF8.GetBytes(key)), SHA256.HashData(Encoding.UTF8.GetBytes(supplied)));
+        // Development is loopback-only; production still requires the internal key.
+        return Environment.GetEnvironmentVariable("ASPNETCORE_ENVIRONMENT") == "Development"
+            && HttpContext.Connection.RemoteIpAddress is { } address && System.Net.IPAddress.IsLoopback(address)
+            && string.IsNullOrEmpty(supplied);
     }
     [HttpPost("login"),EnableRateLimiting("login"),RequestSizeLimit(4096)]
     public IActionResult Login(LoginInput input) {
@@ -25,5 +30,10 @@ public sealed class InternalController(AccountStore store,IConfiguration config)
     [HttpPost("validate"),RequestSizeLimit(4096)] public IActionResult Validate(ValidateInput input) {
         if(!Authorized()) return Unauthorized();
         return Ok(new {valid=input.Stamp?.Length==64 && store.Validate(input.Id,input.Stamp)});
+    }
+    [HttpPost("payouts"),RequestSizeLimit(4096)] public IActionResult Payouts(PayoutsInput? input) {
+        if(!Authorized()) return Unauthorized();
+        var snapshot = store.GetPayoutSnapshot(input?.Username);
+        return Ok(new { pools = snapshot.Settings, payouts = snapshot.Records });
     }
 }

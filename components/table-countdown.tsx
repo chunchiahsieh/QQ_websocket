@@ -7,13 +7,15 @@ import { Clock } from 'lucide-react';
 export function TableCountdown({ deadline, receivedAt, connected, shuffling }: {
   deadline?: number; receivedAt?: number; connected: boolean; shuffling: boolean;
 }) {
-  const [now, setNow] = useState(Date.now);
+  const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
-    if (!connected) return;
-    const timer = setInterval(() => setNow(Date.now()), 250);
-    return () => clearInterval(timer);
-  }, [connected]);
-  const stale = !connected || !receivedAt;
+    if (!connected || deadline === undefined) return;
+    const refresh = () => setNow(Date.now());
+    refresh();
+    const timer = window.setInterval(refresh, 250);
+    return () => window.clearInterval(timer);
+  }, [connected, deadline]);
+  const stale = !connected || (deadline === undefined && !receivedAt);
   const seconds = shuffling && connected ? 0 : stale || deadline === undefined
     ? null : Math.max(0, Math.ceil((deadline - now) / 1000));
   return <span aria-label={seconds === null ? '倒數尚未同步' : `倒數 ${seconds} 秒`}

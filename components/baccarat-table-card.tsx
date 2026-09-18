@@ -4,6 +4,8 @@ import { Crown } from 'lucide-react';
 import { BaccaratRoad } from '@/components/baccarat-road';
 import { TableCountdown } from '@/components/table-countdown';
 import { DealerVideo } from '@/components/dealer-video';
+import { AiPredictionCard, type AiProvider } from '@/components/ai-prediction-card';
+import { GraphicalCard } from '@/components/graphical-card';
 export type TableInfo = {
   videoUrl?: string;
   tableState?: string; countdownDeadline?: number; countdownReceivedAt?: number;
@@ -12,6 +14,9 @@ export type TableInfo = {
   banker: string; player: string; tie: string; players: string;
   beadPlate: string; bigRoad: string; bigEyeRoad: string; smallRoad: string; cockroachRoad: string;
 };
+type CardMode = 'full' | 'bead' | 'big' | 'eye' | 'small' | 'cockroach' | 'v' | 'cross' | 'chartgpt' | 'gemini' | 'deepseek' | 'claude';
+const roadOnlyModes: CardMode[] = ['big', 'eye', 'small', 'cockroach', 'v', 'cross', 'chartgpt', 'gemini', 'deepseek', 'claude'];
+const aiModes: AiProvider[] = ['chartgpt', 'gemini', 'deepseek', 'claude'];
 
 const dealerPhotos: Record<string,string> = {'艾希':'https://ds.ofalive99.net/static/imagesx/ad/2FMz3PC89Dsp2ZTfvCbL.png'};
 function DealerPortrait({ name, photo }: { name: string; photo?: string }) {
@@ -32,10 +37,14 @@ function DealerPortrait({ name, photo }: { name: string; photo?: string }) {
   );
 }
 export const BaccaratTableCard = memo(function BaccaratTableCard({table, connected, beadOnly: initialBeadOnly = false, onFocusTable, platformLabel}: {table: TableInfo; connected: boolean; beadOnly?: boolean; onFocusTable?: (table: TableInfo) => void; platformLabel?: string}) {
- const [cardMode, setCardMode] = useState<'full' | 'bead' | 'big' | 'eye' | 'small' | 'cockroach'>(initialBeadOnly ? 'bead' : 'full');
+ const [cardMode, setCardMode] = useState<CardMode>(initialBeadOnly ? 'bead' : 'full');
  const [showDealer, setShowDealer] = useState(true);
  const beadOnly = cardMode === 'bead';
- const roadOnly = ['big', 'eye', 'small', 'cockroach'].includes(cardMode);
+ const roadOnly = roadOnlyModes.includes(cardMode);
+ const isAiCard = aiModes.includes(cardMode as AiProvider);
+ const isGraphicalCard = cardMode === 'v' || cardMode === 'cross';
+ const roadKind = cardMode === 'eye' ? 'eye' : cardMode === 'small' ? 'small' : cardMode === 'cockroach' ? 'cockroach' : 'big';
+ const roadRaw = cardMode === 'eye' ? table.bigEyeRoad : cardMode === 'small' ? table.smallRoad : cardMode === 'cockroach' ? table.cockroachRoad : table.bigRoad;
  const resolvedPlatformLabel = platformLabel ?? (table.id.startsWith('DG:') ? 'DG' : table.id.startsWith('AB:') ? '歐博' : 'MT');
  return (<article key={table.id} className="ofa-table-card group overflow-hidden border bg-[#12100c] transition hover:border-cyan-300/65">
                     <div className="table-card-heading">
@@ -47,8 +56,12 @@ export const BaccaratTableCard = memo(function BaccaratTableCard({table, connect
                         <TableCountdown deadline={table.countdownDeadline} receivedAt={table.countdownReceivedAt}
                           connected={connected} shuffling={table.tableState === '2'} />
                       </div>
-                      <div className="flex items-center gap-1.5"><span className="hidden text-[10px] text-slate-400 sm:inline">牌卡</span><select value={cardMode} onChange={event => setCardMode(event.target.value as 'full' | 'bead' | 'big' | 'eye' | 'small' | 'cockroach')} aria-label={`${table.name}牌卡樣式`} className="h-8 rounded-md border border-cyan-300/65 bg-cyan-950/70 px-2.5 text-xs font-semibold text-cyan-100 outline-none focus:ring-2 focus:ring-cyan-300/40"><option value="full">MT牌卡</option><option value="bead">珠盤牌卡</option><option value="big">大路牌卡</option><option value="eye">大眼牌卡</option><option value="small">小路牌卡</option><option value="cockroach">蟑螂牌卡</option></select></div>
-                      <select defaultValue="" onChange={event => { const action = event.target.value; if (action === 'focus') onFocusTable?.(table); if (action === 'toggle-dealer') setShowDealer(value => !value); event.currentTarget.value = ''; }} aria-label={`${table.name}功能`} className="h-8 rounded-md border border-cyan-300/60 bg-cyan-950/70 px-2 text-xs font-semibold text-cyan-100"><option value="">功能</option>{onFocusTable && <option value="focus">關注牌桌</option>}<option value="toggle-dealer">{showDealer ? '隱藏荷官' : '顯示荷官'}</option></select>
+                      <div className="table-card-controls flex items-center gap-1.5"><span className="hidden text-[10px] text-slate-400 sm:inline">牌卡</span><select value={cardMode} onChange={event => setCardMode(event.target.value as CardMode)} aria-label={`${table.name}牌卡樣式`} className="table-card-mode h-8 rounded-md border border-cyan-300/65 bg-cyan-950/70 px-2.5 text-xs font-semibold text-cyan-100 outline-none focus:ring-2 focus:ring-cyan-300/40">
+                        <optgroup label="一般牌卡"><option value="full">MT牌卡</option><option value="bead">珠盤牌卡</option><option value="big">大路牌卡</option><option value="eye">大眼牌卡</option><option value="small">小路牌卡</option><option value="cockroach">蟑螂牌卡</option></optgroup>
+                        <optgroup label="圖形牌卡"><option value="v">V型牌卡</option><option value="cross">十字牌卡</option></optgroup>
+                        <optgroup label="AI牌卡"><option value="chartgpt">ChartGPT</option><option value="gemini">Google Gemini</option><option value="deepseek">Deepseek</option><option value="claude">Claude</option></optgroup>
+                      </select></div>
+                      <select defaultValue="" onChange={event => { const action = event.target.value; if (action === 'focus') onFocusTable?.(table); if (action === 'toggle-dealer') setShowDealer(value => !value); event.currentTarget.value = ''; }} aria-label={`${table.name}功能`} className="table-card-function h-8 rounded-md border border-cyan-300/60 bg-cyan-950/70 px-2 text-xs font-semibold text-cyan-100"><option value="">功能</option>{onFocusTable && <option value="focus">關注牌桌</option>}<option value="toggle-dealer">{showDealer ? '隱藏荷官' : '顯示荷官'}</option></select>
                       <div className="table-card-totals">
                         <span style={{ color: '#e93439' }}>莊 {table.banker}</span>
                         <span style={{ color: '#0099dc' }}>閒 {table.player}</span>
@@ -64,15 +77,17 @@ export const BaccaratTableCard = memo(function BaccaratTableCard({table, connect
                         </div>
                         </DealerVideo>
                       </div>
-                      {!roadOnly && <div className="min-h-0 min-w-0 overflow-auto"><BaccaratRoad raw={table.beadPlate} kind="bead" /></div>}
-                      {!beadOnly && <div className={`grid min-h-0 min-w-0 overflow-auto ${roadOnly ? 'grid-cols-1' : 'grid-rows-[2fr_1fr]'}`}>
-                        {roadOnly ? <BaccaratRoad raw={cardMode === 'big' ? table.bigRoad : cardMode === 'eye' ? table.bigEyeRoad : cardMode === 'small' ? table.smallRoad : table.cockroachRoad} kind={cardMode === 'big' ? 'big' : cardMode === 'eye' ? 'eye' : cardMode === 'small' ? 'small' : 'cockroach'} /> : <BaccaratRoad raw={table.bigRoad} kind="big" />}
-                        {!roadOnly && <div className="grid min-h-0 min-w-0 grid-cols-3">
-                          <BaccaratRoad raw={table.bigEyeRoad} kind="eye" />
-                          <BaccaratRoad raw={table.smallRoad} kind="small" />
-                          <BaccaratRoad raw={table.cockroachRoad} kind="cockroach" />
-                        </div>}
-                      </div>}
+                       {isAiCard ? <AiPredictionCard raw={table.bigRoad} provider={cardMode as AiProvider} tableState={table.tableState} countdownDeadline={table.countdownDeadline} /> : isGraphicalCard ? <GraphicalCard beadRaw={table.beadPlate} fallbackRaw={table.bigRoad} mode={cardMode} /> : <>
+                         {!roadOnly && <div className="min-h-0 min-w-0 overflow-auto"><BaccaratRoad raw={table.beadPlate} kind="bead" /></div>}
+                         {!beadOnly && <div className={`grid min-h-0 min-w-0 overflow-auto ${roadOnly ? 'grid-cols-1' : 'grid-rows-[2fr_1fr]'}`}>
+                           {roadOnly ? <BaccaratRoad raw={roadRaw} kind={roadKind} /> : <BaccaratRoad raw={table.bigRoad} kind="big" />}
+                           {!roadOnly && <div className="grid min-h-0 min-w-0 grid-cols-3">
+                             <BaccaratRoad raw={table.bigEyeRoad} kind="eye" />
+                             <BaccaratRoad raw={table.smallRoad} kind="small" />
+                             <BaccaratRoad raw={table.cockroachRoad} kind="cockroach" />
+                           </div>}
+                         </div>}
+                       </>}
                       {table.tableState === '2' && connected && (
                         <div role="status" aria-label="洗牌中" className="pointer-events-none absolute inset-y-0 left-[20%] right-0 z-10 grid place-items-center bg-sky-500/40">
                           <span className="text-4xl font-black text-white" style={{ textShadow: '0 2px 0 #087eb9, 2px 0 0 #087eb9, -2px 0 0 #087eb9, 0 -2px 0 #087eb9' }}>洗牌中</span>

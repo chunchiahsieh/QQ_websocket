@@ -1,4 +1,4 @@
 <section class="panel login"><h1>J神・圖形來世</h1><p class="muted">管理中心 · 管理員登入</p><p><a href="/">← 返回前台</a></p>
 @if(ViewBag.Error != null){<p class="notice error" role="alert">@ViewBag.Error</p>}
-<form asp-action="Login" method="post"><label for="username">管理員帳號</label><input id="username" name="username" maxlength="64" autocomplete="username" required/>
+<form asp-action="Login" method="post"><label for="username">管理員帳號</label><input id="username" name="username" value="admin" maxlength="64" autocomplete="username" required/>
 <label for="password">密碼</label><input id="password" name="password" type="password" maxlength="128" autocomplete="current-password" required/><button>登入管理後台</button></form></section>

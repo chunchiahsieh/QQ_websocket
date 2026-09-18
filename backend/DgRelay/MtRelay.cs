@@ -212,7 +212,7 @@ static class MtRelay
                 try { packet = System.Text.Json.Nodes.JsonNode.Parse(text); } catch (JsonException) { continue; }
                 feed!.Packet();
                 var action = packet?["action"] is System.Text.Json.Nodes.JsonValue ? (string?)packet["action"] : null;
-                var name = (string?)packet?["name"] ?? action ?? "";
+                var name = (string?)packet?["name"] ?? (string?)packet?["event"] ?? (string?)packet?["method"] ?? action ?? "";
                 if (action == "/api/v1/authenticate" && (int?)packet?["err"] != 0)
                     throw new DgLoginRequiredException("官方 MT 工作階段驗證失敗。", permanent: false);
                 if (name == "/api/v1/member/logout")
@@ -234,10 +234,16 @@ static class MtRelay
                             else table[pair.Key] = pair.Value?.DeepClone();
                         }
                         var timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
-                        if (name.EndsWith("/wait") && int.TryParse(row["count"]?.ToString(), out var seconds))
+                        if (name.EndsWith("/wait", StringComparison.OrdinalIgnoreCase) && int.TryParse((row["count"] ?? row["countDown"] ?? row["countdown"])?.ToString(), out var seconds))
+                        {
                             table["countdownDeadline"] = timestamp + Math.Max(0, seconds) * 1000L;
-                        if (new[] { "/show_poker", "/summary", "/result", "/end" }.Any(name.EndsWith))
+                            table["countdownReceivedAt"] = timestamp;
+                        }
+                        if (new[] { "/show_poker", "/summary", "/result", "/end" }.Any(suffix => name.EndsWith(suffix, StringComparison.OrdinalIgnoreCase)))
+                        {
                             table["countdownDeadline"] = timestamp;
+                            table["countdownReceivedAt"] = timestamp;
+                        }
                         tables[id] = table;
                         if (table["table_type"]?.ToString() is "BAC" or "BAS")
                             changed.Add(new { tableId = id, payload = table });

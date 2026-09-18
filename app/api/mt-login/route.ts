@@ -8,6 +8,8 @@ type LoginBody = {
   deviceId?: unknown;
 };
 
+type LocalAccount = { id?: string; username?: string; stamp?: string };
+
 const extractMessage = (payload: unknown, fallback: string) => {
   if (!payload || typeof payload !== 'object') return fallback;
   const data = payload as Record<string, unknown>;
@@ -43,6 +45,20 @@ const extractGameUrl = (payload: unknown) => {
     .replace(/\\\//g, '/') ?? '';
 };
 
+const loginLocalAccount = async (username: string, password: string): Promise<LocalAccount | null> => {
+  try {
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+    const internalKey = process.env.ACCOUNT_ADMIN_INTERNAL_KEY || process.env.ADMIN_INTERNAL_KEY;
+    if (internalKey) headers['X-Internal-Key'] = internalKey;
+    const response = await fetch(new URL('/internal/accounts/login', process.env.ACCOUNT_ADMIN_URL || 'http://127.0.0.1:5092'), {
+      method: 'POST', headers, body: JSON.stringify({ username, password }), signal: AbortSignal.timeout(2500), cache: 'no-store',
+    });
+    if (!response.ok) return null;
+    const payload = await response.json() as LocalAccount;
+    return typeof payload.username === 'string' && typeof payload.id === 'string' && typeof payload.stamp === 'string' ? payload : null;
+  } catch { return null; }
+};
+
 export async function POST(request: Request) {
   try {
     const body = await request.json() as LoginBody;
@@ -51,6 +67,23 @@ export async function POST(request: Request) {
     const deviceId = typeof body.deviceId === 'string' ? body.deviceId.trim() : '';
     if (!username || !password || !deviceId) {
       return Response.json({ message: '缺少帳號、密碼或裝置識別碼。' }, { status: 400 });
+    }
+
+    const localAccount = await loginLocalAccount(username, password);
+    if (localAccount) {
+      const dgReady = !!(process.env.DG_RELAY_URL && process.env.DG_RELAY_API_KEY);
+      return Response.json({
+        platforms: { MT: { ready: dgReady }, DG: { ready: dgReady, error: dgReady ? undefined : '平台後台尚未設定。' } },
+        account: { username: localAccount.username },
+      }, { headers: {
+        'Set-Cookie': await sessionCookie(request, {
+          dgDirectLogin: dgReady,
+          accountId: localAccount.id,
+          accountUsername: localAccount.username,
+          accountStamp: localAccount.stamp,
+        }),
+        'Cache-Control': 'no-store',
+      } });
     }
 
     const loginResponse = await fetch(`${TZ_BASE_URL}/api/v1/login`, {

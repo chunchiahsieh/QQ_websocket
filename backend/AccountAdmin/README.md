@@ -16,15 +16,14 @@ Next route 將允許的 MVC 管理動作轉交同機 C# 5092；不公開 `/inter
 ## 本機啟動
 
 在 PowerShell 執行 `./backend/AccountAdmin/start-local.ps1`。
-首次啟動輸入新的管理員帳號及 6–128 字元密碼；不沿用平台帳密。
+首次啟動若帳號留白，會以 `admin` 建立管理員；也可輸入其他管理員帳號。密碼至少 4 字元，且不沿用平台帳密。
 開啟 http://127.0.0.1:5092。再次啟動會讀既有檔案，不會重建管理員。
-管理員可新增帳號、修改台灣時間 UTC+8 的到期時間、停用、重設密碼，及變更自己的密碼。
-不提供永久刪除，避免意外失去使用者紀錄。
+管理員可設定四類派彩獎池、指定使用者派彩、建立帳號、修改台灣時間 UTC+8 的到期時間、停用、刪除、重設密碼，及變更自己的密碼。派彩完成後會將該類獎池回到下限並記錄於 payout-records.json；派彩類別固定提供，不設啟用／停用開關。
 
 ## 資料與安全
 
 `ADMIN_DATA_DIR` 必須在此應用程式目录之外；預設為目前服務使用者的 LocalApplicationData/TableAccountAdmin。
-內含 accounts.json、上一次原子替換的 accounts.json.bak、Data Protection keys 及 writer.lock。
+內含 accounts.json、payout-settings.json、payout-records.json、各檔案上一次原子替換的 .bak、Data Protection keys 及 writer.lock。
 密碼使用 ASP.NET Core Identity PBKDF2（210,000 次），含隨機 salt，不存明文。
 檔案不對外提供，不啟用 static files；JSON、備份及金鑰都不可複製到公開網站目錄。
 單程序鎖防止多個實例覆寫；檔案毀損時啟動失敗，絕不默默建立空資料。

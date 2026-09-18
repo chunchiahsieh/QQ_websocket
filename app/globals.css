@@ -249,14 +249,66 @@ body {
   background: #101827 !important;
 }
 
-.ofa-shell header > div:first-child {
-  background: linear-gradient(90deg, #1b8fe4, #26d6be, #ee4f76) !important;
-}
-
 .ofa-shell .ofa-table-card {
   container-type: inline-size;
   border-color: #284766 !important;
   background: #090d14 !important;
+}
+
+.ofa-shell .ai-prediction-card {
+  background: #0b1019 !important;
+  color: #f7fbff !important;
+}
+.ofa-shell .ai-prediction-card .ai-road-panel {
+  background: #f8fafc !important;
+  color: #0f172a !important;
+}
+.ofa-shell .ai-prediction-card .ai-actual-panel {
+  background: #f8fafc !important;
+}
+.ofa-shell .ai-prediction-card .ai-prediction-panel {
+  background: #fffaf0 !important;
+}
+.ofa-shell .ai-prediction-card .ai-actual-panel .ai-road-heading {
+  background: #dbeafe !important;
+  color: #1e3a8a !important;
+  border-bottom: 2px solid #93c5fd;
+}
+.ofa-shell .ai-prediction-card .ai-prediction-panel .ai-road-heading {
+  background: #fef3c7 !important;
+  color: #92400e !important;
+  border-bottom: 2px solid #fbbf24;
+}
+.ai-road-badge {
+  border-radius: 999px;
+  padding: 1px 6px;
+  font-size: 10px;
+  line-height: 1.3;
+  white-space: nowrap;
+}
+.ai-actual-panel .ai-road-badge {
+  background: #2563eb;
+  color: white;
+}
+.ai-prediction-panel .ai-road-badge {
+  background: #d97706;
+  color: white;
+}
+.ai-road-grid {
+  min-width: 0;
+  min-height: 0;
+}
+.ofa-shell .ai-prediction-card .ai-prediction-footer {
+  background: #101827 !important;
+  color: #f7fbff !important;
+}
+.ofa-shell .graphical-card {
+  background: #ffffff !important;
+  color: #0f172a !important;
+}
+.ofa-shell .graphical-card-footer {
+  background: #101827 !important;
+  color: #f7fbff !important;
 }
 
 .table-card-heading {
@@ -272,6 +324,9 @@ body {
   white-space: nowrap;
 }
 .table-card-heading-left { display: flex; align-items: center; gap: clamp(5px, 1.5cqw, 12px); }
+.table-card-controls { min-width: 0; }
+.table-card-mode,
+.table-card-function { min-width: 0; }
 .table-card-label {
   display: flex;
   align-items: stretch;
@@ -295,9 +350,73 @@ body {
 .table-card-players svg { width: .9em; height: .9em; flex-shrink: 0; }
 .table-card-totals { display: flex; gap: .4em; font-weight: 700; font-variant-numeric: tabular-nums; }
 .table-card-countdown { flex: 0 0 3.4em; width: 3.4em; min-width: 3.4em; gap: .25em; height: 1.7em; font-size: .85em; line-height: 1; background: #05070b; }
-@container (max-width: 440px) {
+@container (max-width: 620px) {
   .table-card-heading { flex-wrap: wrap; gap: 4px; }
-  .table-card-totals { margin-left: auto; }
+  .table-card-heading-left { min-width: 0; flex: 1 1 auto; }
+  .table-card-controls { flex: 0 1 auto; }
+  .table-card-function { flex: 0 1 auto; }
+  .table-card-totals { order: 5; flex: 1 0 100%; justify-content: flex-end; padding: 0 4px 2px; }
+}
+/* A three-column watchlist gives each card roughly 420–620px. Keep the
+   compact header on one row so a long platform label (e.g. 歐博) does not
+   push the function menu down and misalign the cards in the same row. */
+@container (min-width: 421px) and (max-width: 620px) {
+  .table-card-heading {
+    flex-wrap: wrap;
+    gap: 3px;
+    padding-inline: 4px;
+    font-size: clamp(10px, 2.2cqw, 14px);
+  }
+  .table-card-heading-left {
+    flex: 1 1 auto;
+    gap: 3px;
+  }
+  .table-card-label {
+    min-width: 0;
+    flex: 1 1 auto;
+  }
+  .table-card-label > span:first-child {
+    min-width: 0;
+    overflow: hidden;
+    padding-inline: 5px 10px;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .table-card-label > span:last-child {
+    padding-inline: 4px;
+  }
+  .table-card-players {
+    flex: 0 1 auto;
+    gap: 2px;
+  }
+  .table-card-countdown {
+    flex-basis: 3em;
+    width: 3em;
+    min-width: 3em;
+  }
+  .table-card-controls {
+    flex: 0 0 auto;
+    gap: 3px;
+  }
+  .table-card-mode,
+  .table-card-function {
+    padding-inline: 0.35rem;
+    font-size: 11px;
+  }
+  .table-card-totals {
+    order: 5;
+    flex: 1 0 100%;
+    justify-content: flex-end;
+    gap: 0.2em;
+    padding: 0 4px 2px;
+  }
+}
+@container (max-width: 420px) {
+  .table-card-heading-left { flex-basis: 100%; }
+  .table-card-controls,
+  .table-card-function { flex: 1 1 0; }
+  .table-card-mode,
+  .table-card-function { width: 100%; }
 }
 
 .ofa-shell .ofa-table-card > div:first-child {

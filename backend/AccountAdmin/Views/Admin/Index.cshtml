@@ -1,18 +1,99 @@
-@model List<AccountView>
-<header><div><h1>J神・圖形來世 · 管理中心</h1><p class="muted">使用者帳號管理 · @Model.Count 個帳號 · 台灣時間 UTC+8</p><a href="/">← 返回前台</a></div><form asp-action="Logout" method="post"><button class="secondary">登出管理</button></form></header>
+@model AdminDashboardView
+<header>
+  <div>
+    <h1>J神・圖形來世 · 管理中心</h1>
+    <p class="muted">系統設定與使用者帳號管理 · @Model.Accounts.Count 個帳號 · 台灣時間 UTC+8</p>
+  </div>
+  <form asp-action="Logout" method="post"><button class="secondary">登出管理</button></form>
+</header>
+
+<nav class="admin-menu" aria-label="管理選單">
+  <a href="#payout">派彩設定</a>
+  <a href="#accounts">帳號管理</a>
+  <a href="#security">管理員密碼</a>
+  <a class="front-link" href="/">← 返回前台</a>
+</nav>
+
 @if(TempData["Success"] is string success){<p class="notice" role="status">@success</p>}
 @if(TempData["Error"] is string error){<p class="notice error" role="alert">@error</p>}
-<section class="panel"><h2>新增使用者</h2><form asp-action="Create" method="post" class="row">
-<div class="field"><label for="new-user">帳號</label><input id="new-user" name="username" required minlength="3" maxlength="64" pattern="[a-zA-Z0-9_.\-]+" autocomplete="off"/></div>
-<div class="field"><label for="new-pass">初始密碼（至少 6 字元）</label><input id="new-pass" name="password" type="password" required minlength="6" maxlength="128" autocomplete="new-password"/></div>
-<div class="field"><label for="new-expiry">到期時間</label><input id="new-expiry" name="expires" type="datetime-local" required/></div><button>新增帳號</button></form></section>
-<section class="panel"><h2>使用者列表</h2><p class="muted">修改後舊驗證憑據立即失效；停用取代刪除，保留帳號紀錄。</p><div class="scroll"><table><thead><tr><th>帳號／狀態</th><th>到期時間／啟用／重設密碼</th></tr></thead><tbody>
-@foreach(var account in Model){
-<tr><td>@account.Username <span class="badge">@(!account.Enabled ? "已停用" : account.ExpiresAt<=DateTimeOffset.UtcNow ? "已到期" : "有效")</span></td><td><form asp-action="Update" method="post" class="row">
-<input type="hidden" name="id" value="@account.Id"/>
-<input aria-label="@account.Username 到期時間" name="expires" type="datetime-local" value="@account.ExpiresAt.ToOffset(TimeSpan.FromHours(8)).ToString("yyyy-MM-ddTHH:mm")" required/>
-<label><input type="checkbox" name="enabled" value="true" checked="@account.Enabled"/> 啟用</label>
-<input aria-label="@account.Username 新密碼" name="password" type="password" placeholder="留空不更改密碼" minlength="6" maxlength="128" autocomplete="new-password"/><button>儲存</button></form></td></tr>
-}
-</tbody></table></div></section>
-<section class="panel"><details><summary>變更管理員密碼</summary><form asp-action="Password" method="post" class="row"><div class="field"><label for="current">目前密碼</label><input id="current" name="current" type="password" required maxlength="128" autocomplete="current-password"/></div><div class="field"><label for="next">管理員新密碼（至少 4 字元）</label><input id="next" name="next" type="password" required minlength="4" maxlength="128" autocomplete="new-password"/></div><button>變更並登出</button></form></details></section>
+
+<section id="payout" class="panel">
+  <div class="section-heading"><div><h2>派彩功能設定</h2><p class="muted">調整前台獎池顯示的名稱、目前金額與上下限。四類派彩固定提供，不設啟用／停用開關。</p></div><span class="badge">四類獎池</span></div>
+  <form asp-action="SavePayout" method="post">
+    <div class="scroll"><table class="settings-table"><thead><tr><th>類別</th><th>顯示名稱</th><th>目前金額</th><th>下限</th><th>上限</th></tr></thead><tbody>
+    @for(var i = 0; i < Model.PayoutSettings.Count; i++){
+      var payout = Model.PayoutSettings[i];
+      <tr>
+        <td><strong>@payout.Code</strong><input type="hidden" name="payouts[@i].Code" value="@payout.Code" /></td>
+        <td><input name="payouts[@i].Name" value="@payout.Name" maxlength="80" required /></td>
+        <td><input name="payouts[@i].Amount" value="@payout.Amount.ToString("0.00")" type="number" min="0" step="0.01" required /></td>
+        <td><input name="payouts[@i].BaseAmount" value="@payout.BaseAmount.ToString("0.00")" type="number" min="0" step="0.01" required /></td>
+        <td><input name="payouts[@i].CapAmount" value="@payout.CapAmount.ToString("0.00")" type="number" min="0.01" step="0.01" required /></td>
+      </tr>
+    }
+    </tbody></table></div>
+    <div class="form-actions"><button>儲存派彩設定</button></div>
+  </form>
+</section>
+
+<section id="award" class="panel">
+  <div class="section-heading"><div><h2>指定使用者派彩</h2><p class="muted">完成後會留下派彩紀錄，該類獎池回到下限並繼續累積。派彩金額不得低於目前累積獎金，也不得超過類別上限。</p></div><span class="badge">管理者確認</span></div>
+  <form asp-action="AwardPayout" method="post" class="row">
+    <div class="field"><label for="payout-user">使用者</label><select id="payout-user" name="username" required>
+      <option value="">請選擇使用者</option>
+      @foreach(var account in Model.Accounts.Where(item => item.Enabled && item.ExpiresAt > DateTimeOffset.UtcNow).OrderBy(item => item.Username)) { <option value="@account.Username">@account.Username</option> }
+    </select></div>
+    <div class="field"><label for="payout-code">派彩類別</label><select id="payout-code" name="code" required>
+      @foreach(var payout in Model.PayoutSettings) { <option value="@payout.Code">@payout.Code · @payout.Name（目前 @payout.Amount.ToString("N2")）</option> }
+    </select></div>
+    <div class="field"><label for="payout-amount">派彩金額</label><input id="payout-amount" name="amount" type="number" min="0.01" step="0.01" required /></div>
+    <button>確認派彩</button>
+  </form>
+</section>
+
+<section id="payout-history" class="panel">
+  <div class="section-heading"><div><h2>派彩紀錄</h2><p class="muted">最近 100 筆管理者確認的派彩資料。</p></div></div>
+  <div class="scroll"><table><thead><tr><th>時間</th><th>使用者</th><th>類別</th><th>金額</th></tr></thead><tbody>
+  @if(Model.PayoutRecords.Count == 0) { <tr><td colspan="4" class="muted">目前尚無派彩紀錄。</td></tr> }
+  @foreach(var record in Model.PayoutRecords) { <tr><td>@record.CreatedAt.ToOffset(TimeSpan.FromHours(8)).ToString("yyyy-MM-dd HH:mm:ss")</td><td>@record.Username</td><td>@record.CategoryCode · @record.CategoryName</td><td>@record.Amount.ToString("N2")</td></tr> }
+  </tbody></table></div>
+</section>
+
+<section id="accounts" class="panel">
+  <div class="section-heading"><div><h2>帳號管理</h2><p class="muted">建立、停用、刪除一般使用者帳號，或重設使用者密碼。</p></div></div>
+  <form asp-action="Create" method="post" class="row">
+    <div class="field"><label for="new-user">帳號</label><input id="new-user" name="username" required minlength="3" maxlength="64" pattern="[a-zA-Z0-9_.\-]+" autocomplete="off" /></div>
+    <div class="field"><label for="new-pass">初始密碼（至少 6 字元）</label><input id="new-pass" name="password" type="password" required minlength="6" maxlength="128" autocomplete="new-password" /></div>
+    <div class="field"><label for="new-expiry">到期時間</label><input id="new-expiry" name="expires" type="datetime-local" required /></div>
+    <button>建立帳號</button>
+  </form>
+</section>
+
+<section class="panel">
+  <h2>使用者列表</h2>
+  <div class="scroll"><table><thead><tr><th>帳號／狀態</th><th>到期時間／啟用／重設密碼</th><th>刪除</th></tr></thead><tbody>
+  @foreach(var account in Model.Accounts){
+    <tr>
+      <td>@account.Username <span class="badge">@(!account.Enabled ? "已停用" : account.ExpiresAt<=DateTimeOffset.UtcNow ? "已到期" : "有效")</span></td>
+      <td><form asp-action="Update" method="post" class="row">
+        <input type="hidden" name="id" value="@account.Id" />
+        <input aria-label="@account.Username 到期時間" name="expires" type="datetime-local" value="@account.ExpiresAt.ToOffset(TimeSpan.FromHours(8)).ToString("yyyy-MM-ddTHH:mm")" required />
+        <label><input type="checkbox" name="enabled" value="true" checked="@account.Enabled" /> 啟用</label>
+        <input aria-label="@account.Username 新密碼" name="password" type="password" placeholder="留空不更改密碼" minlength="6" maxlength="128" autocomplete="new-password" />
+        <button>儲存</button>
+      </form></td>
+      <td><form asp-action="Delete" method="post" onsubmit="return confirm('確定要刪除這個帳號嗎？');"><input type="hidden" name="id" value="@account.Id" /><button class="danger">刪除</button></form></td>
+    </tr>
+  }
+  </tbody></table></div>
+</section>
+
+<section id="security" class="panel">
+  <h2>變更管理員密碼</h2>
+  <p class="muted">更新後目前管理員工作階段會登出，請使用新密碼重新登入。</p>
+  <form asp-action="Password" method="post" class="row">
+    <div class="field"><label for="current">目前密碼</label><input id="current" name="current" type="password" required maxlength="128" autocomplete="current-password" /></div>
+    <div class="field"><label for="next">管理員新密碼（至少 4 字元）</label><input id="next" name="next" type="password" required minlength="4" maxlength="128" autocomplete="new-password" /></div>
+    <button>變更並登出</button>
+  </form>
+</section>

@@ -1,7 +1,16 @@
 // Encrypted HttpOnly sessions; development sessions expire on server restart.
 const localSecret = crypto.randomUUID();
 const cookieName = 'monitor_session';
-export type MonitorSession = { expires: number; dgDirectLogin?: boolean; dgToken?: string; dgGameUrl?: string; dgError?: string };
+export type MonitorSession = {
+  expires: number;
+  dgDirectLogin?: boolean;
+  dgToken?: string;
+  dgGameUrl?: string;
+  dgError?: string;
+  accountId?: string;
+  accountUsername?: string;
+  accountStamp?: string;
+};
 async function key() {
   const secret = process.env.MONITOR_SESSION_SECRET || (process.env.NODE_ENV !== 'production' ? localSecret : '');
   if (!secret) throw new Error('Missing session secret');
