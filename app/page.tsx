@@ -544,7 +544,7 @@ export default function Home() {
               </label>
               <label className="grid gap-2 text-sm font-medium text-[#cbb894]">
                 密碼
-                <input type="password" value={password} onChange={(event) => setPassword(event.target.value)} autoComplete="current-password" placeholder="輸入 TZ 密碼" className="h-12 rounded-lg border border-[#705429]/55 bg-black/40 px-4 text-sm text-[#fff4dc] outline-none transition placeholder:text-[#675b48] focus:border-[#d0a653] focus:ring-2 focus:ring-[#d0a653]/10" />
+                <input type="password" value={password} onChange={(event) => setPassword(event.target.value)} autoComplete="current-password" placeholder="輸入密碼" className="h-12 rounded-lg border border-[#705429]/55 bg-black/40 px-4 text-sm text-[#fff4dc] outline-none transition placeholder:text-[#675b48] focus:border-[#d0a653] focus:ring-2 focus:ring-[#d0a653]/10" />
               </label>
               {loginMessage && <p className="text-sm text-rose-300">{loginMessage}</p>}
               <button type="submit" disabled={loginStatus === 'loading'} className="mt-2 flex h-12 items-center justify-center gap-2 rounded-lg bg-gradient-to-b from-[#f0d58f] to-[#bd8734] px-6 text-sm font-bold text-[#211406] shadow-[0_10px_28px_rgba(186,128,41,.2)] transition hover:brightness-110 disabled:cursor-wait disabled:opacity-60">
