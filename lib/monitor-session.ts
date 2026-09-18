@@ -1,5 +1,12 @@
 // Encrypted HttpOnly sessions; development sessions expire on server restart.
-const localSecret = crypto.randomUUID();
+// Keep the random fallback lazy. Cloudflare Workers disallow calls that use
+// randomness at module/global scope, which otherwise makes every API route
+// fail before its handler runs (including login).
+let localSecret: string | undefined;
+const getLocalSecret = () => {
+  if (!localSecret) localSecret = crypto.randomUUID();
+  return localSecret;
+};
 const cookieName = 'monitor_session';
 export type MonitorSession = {
   expires: number;
@@ -12,7 +19,7 @@ export type MonitorSession = {
   accountStamp?: string;
 };
 async function key() {
-  const secret = process.env.MONITOR_SESSION_SECRET || (process.env.NODE_ENV !== 'production' ? localSecret : '');
+  const secret = process.env.MONITOR_SESSION_SECRET || (process.env.NODE_ENV !== 'production' ? getLocalSecret() : '');
   if (!secret) throw new Error('Missing session secret');
   const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(secret));
   return crypto.subtle.importKey('raw', digest, 'AES-GCM', false, ['encrypt', 'decrypt']);
