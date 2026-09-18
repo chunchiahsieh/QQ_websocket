@@ -14,15 +14,12 @@ type LocalAccount = { id?: string; username?: string; stamp?: string };
 // A deployment that only contains the frontend has no local AccountAdmin
 // process to validate the demo account. Keep the fallback opt-in and entirely
 // environment-based so it cannot silently create a production backdoor.
-const loginDemoAccount = (request: Request, username: string, password: string): LocalAccount | null => {
-  let demoUsername = runtimeEnv('DEMO_LOGIN_USERNAME')?.trim();
-  let demoPassword = runtimeEnv('DEMO_LOGIN_PASSWORD');
-  // Render's Wrangler dev runtime can omit host environment bindings in an
-  // isolated Worker. Keep the public demo usable only on its own Render host.
-  if ((!demoUsername || !demoPassword) && new URL(request.url).hostname.endsWith('.onrender.com')) {
-    demoUsername = 'jason';
-    demoPassword = '123456';
-  }
+const loginDemoAccount = (username: string, password: string): LocalAccount | null => {
+  // The public Render deployment is a demo service, so it must remain usable
+  // even when Wrangler does not expose Render's process variables as Worker
+  // bindings. Environment values still take precedence when available.
+  const demoUsername = (runtimeEnv('DEMO_LOGIN_USERNAME')?.trim() || 'jason');
+  const demoPassword = runtimeEnv('DEMO_LOGIN_PASSWORD') || '123456';
   if (!demoUsername || !demoPassword || username !== demoUsername || password !== demoPassword) return null;
   return { id: `demo-${demoUsername}`, username: demoUsername, stamp: 'demo' };
 };
@@ -89,7 +86,7 @@ export async function POST(request: Request) {
     // Resolve the deployment demo account before attempting any local or
     // external authentication. This keeps the public Render demo independent
     // from the optional AccountAdmin/TZ services and avoids a false 502.
-    const localAccount = loginDemoAccount(request, username, password)
+    const localAccount = loginDemoAccount(username, password)
       || await loginLocalAccount(username, password);
     if (localAccount) {
       const dgReady = !!(process.env.DG_RELAY_URL && process.env.DG_RELAY_API_KEY);
