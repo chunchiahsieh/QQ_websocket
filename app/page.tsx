@@ -565,7 +565,7 @@ export default function Home() {
   return (
     <main className="ofa-shell min-h-screen text-[#f7edda]">
       <div className={`min-h-screen lg:grid ${menuCollapsed ? 'lg:grid-cols-[78px_minmax(0,1fr)]' : 'lg:grid-cols-[250px_minmax(0,1fr)]'}`}>
-        <aside className="border-b border-[#86632f]/35 bg-[#0a0806]/95 px-4 py-5 lg:sticky lg:top-0 lg:h-screen lg:border-b-0 lg:border-r lg:px-5 lg:py-7">
+        <aside className="border-b border-[#86632f]/35 bg-[#0a0806]/95 px-3 py-3 lg:sticky lg:top-0 lg:h-screen lg:border-b-0 lg:border-r lg:px-5 lg:py-7">
           <div className={`flex items-center gap-3 ${menuCollapsed ? 'justify-center' : 'px-2'}`}>
             <div className="grid h-11 w-11 shrink-0 place-items-center rounded-xl border border-[#e6c273]/35 bg-gradient-to-b from-[#2a2012] to-[#0e0b07]">
               <img src="/jshen-logo.svg" alt="J神・圖形來世 Logo" width="40" height="40" />
@@ -578,7 +578,7 @@ export default function Home() {
           <button type="button" onClick={() => setMenuCollapsed((value) => !value)} className="mt-5 hidden h-9 w-full items-center justify-center rounded-lg border border-[#765728]/35 text-[#a98a50] transition hover:bg-white/[0.04] hover:text-[#f0ce83] lg:flex" aria-label={menuCollapsed ? '展開選單' : '收合選單'}>
             {menuCollapsed ? <ChevronRight className="h-4 w-4" /> : <><ChevronLeft className="mr-2 h-4 w-4" /><span className="text-xs">收合選單</span></>}
           </button>
-          <nav className="mt-5 grid grid-cols-1 gap-2 lg:mt-10 lg:grid-cols-1" aria-label="主選單">
+          <nav className="mt-4 grid grid-cols-2 gap-2 lg:mt-10 lg:grid-cols-1" aria-label="主選單">
             <button type="button" title="即時桌況" onClick={() => setActiveMenu('tables')} className={`flex items-center rounded-lg border px-3 py-3 text-sm transition ${menuCollapsed ? 'justify-center' : 'gap-3'} ${activeMenu === 'tables' ? 'border-cyan-400/45 bg-cyan-400/10 font-medium text-cyan-100' : 'border-transparent text-slate-400 hover:border-cyan-400/30 hover:bg-cyan-400/5'}`}>
               <LayoutGrid className="h-4 w-4 shrink-0" /><span className={menuCollapsed ? 'hidden' : ''}>即時桌況</span>
             </button>
@@ -588,11 +588,11 @@ export default function Home() {
             <button type="button" title="回歸測試" onClick={() => { disconnect(); setActiveMenu('regression'); }} className={`flex items-center rounded-lg border px-3 py-3 text-sm transition ${menuCollapsed ? 'justify-center' : 'gap-3'} ${activeMenu === 'regression' ? 'border-cyan-400/55 bg-cyan-400/10 font-medium text-cyan-100' : 'border-transparent text-slate-400 hover:border-cyan-400/30 hover:bg-cyan-400/5'}`}>
               <CircleDot className="h-4 w-4 shrink-0" /><span className={menuCollapsed ? 'hidden' : ''}>回歸測試</span>
             </button>
-            <button type="button" title="獎池" onClick={() => { disconnect(); setActiveMenu('payout'); }} className={`flex items-center rounded-lg border px-3 py-3 text-sm transition ${menuCollapsed ? 'justify-center' : 'gap-3'} ${activeMenu === 'payout' ? 'border-cyan-400/45 bg-cyan-400/10 font-medium text-cyan-100' : 'border-transparent text-slate-400 hover:border-cyan-400/30 hover:bg-cyan-400/5'}`}>
+            <button type="button" title="獎池" onClick={() => { disconnect(); setActiveMenu('payout'); }} className={`hidden items-center rounded-lg border px-3 py-3 text-sm transition lg:flex ${menuCollapsed ? 'justify-center' : 'gap-3'} ${activeMenu === 'payout' ? 'border-cyan-400/45 bg-cyan-400/10 font-medium text-cyan-100' : 'border-transparent text-slate-400 hover:border-cyan-400/30 hover:bg-cyan-400/5'}`}>
               <Gift className="h-4 w-4 shrink-0" /><span className={menuCollapsed ? 'hidden' : ''}>獎池</span>
             </button>
-            {!menuCollapsed && <PoolMenuCards />}
-            <OnlineUsersCard collapsed={menuCollapsed} />
+            <div className="hidden lg:block">{!menuCollapsed && <PoolMenuCards />}</div>
+            <div className="hidden lg:block"><OnlineUsersCard collapsed={menuCollapsed} /></div>
           </nav>
           <div className="mt-5 hidden border-t border-[#765728]/30 pt-5 lg:block">
             <p className={`mb-2 px-2 text-[10px] font-semibold tracking-[.18em] text-[#756a55] ${menuCollapsed ? 'hidden' : ''}`}>CONNECTION</p>
