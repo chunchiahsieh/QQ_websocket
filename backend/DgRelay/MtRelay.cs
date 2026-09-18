@@ -311,7 +311,12 @@ static class MtRelay
         // browser fingerprint.
         try
         {
-            var navigation = await page.GotoAsync($"{baseUrl}/", new() { WaitUntil = WaitUntilState.DOMContentLoaded, Timeout = 30000 });
+            // Run the calls from the same public web origin as the working
+            // MT Assistant client. The official API enables CORS for this
+            // origin, while a direct navigation to tz6868.cc may show an
+            // anti-bot HTML challenge before fetch() is available.
+            const string browserOrigin = "https://mt-assistant-web-v3.onrender.com/";
+            var navigation = await page.GotoAsync(browserOrigin, new() { WaitUntil = WaitUntilState.DOMContentLoaded, Timeout = 30000 });
             Console.WriteLine($"[MT] API browser context opened: {page.Url} status={navigation?.Status}");
             var browserScript = """
                 async (config) => {
