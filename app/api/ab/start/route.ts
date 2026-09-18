@@ -1,4 +1,5 @@
 import { readSession } from '@/lib/monitor-session';
+import { browserRelayUrl } from '@/lib/relay-url';
 
 export async function POST(request: Request) {
   const origin = request.headers.get('origin');
@@ -14,8 +15,6 @@ export async function POST(request: Request) {
     });
     const result = await response.json() as { ticket?: string; message?: string };
     if (!response.ok) return Response.json({ message: result.message || '無法建立 歐博瀏覽器工作階段。' }, { status: response.status });
-    const url = new URL('/ws/ab', process.env.DG_RELAY_PUBLIC_URL || process.env.DG_RELAY_URL);
-    url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:';
-    return Response.json({ ticket: result.ticket, wsUrl: url.toString() }, { headers: { 'Cache-Control': 'no-store' } });
+    return Response.json({ ticket: result.ticket, wsUrl: browserRelayUrl(request, process.env.DG_RELAY_PUBLIC_URL || process.env.DG_RELAY_URL, '/ws/ab') }, { headers: { 'Cache-Control': 'no-store' } });
   } catch { return Response.json({ message: '無法連接 C# 歐博服務，請確認已啟動。' }, { status: 502 }); }
 }
