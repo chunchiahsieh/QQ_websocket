@@ -125,7 +125,7 @@ static class AbBrowserRelay
                     if (!packets.Writer.TryWrite(bytes)) packets.Writer.TryComplete(new InvalidDataException());
                 };
             };
-            await page.GotoAsync("https://www.cali7777.net/",new() { WaitUntil=WaitUntilState.DOMContentLoaded, Timeout=30000 });
+            await page.GotoAsync("https://www.cali7777.net/#/",new() { WaitUntil=WaitUntilState.DOMContentLoaded, Timeout=60000 });
             // A delayed announcement layer can cover the login form.
             var notice = page.GetByText("確定", new() { Exact = true }).First;
             try
@@ -138,11 +138,11 @@ static class AbBrowserRelay
             // #passwordInput IDs. It has exactly two text inputs in order.
             var usernameInput = page.Locator("input").Nth(0);
             var passwordInput = page.Locator("input").Nth(1);
-            await usernameInput.WaitForAsync(new() { State = WaitForSelectorState.Visible, Timeout = 15000 });
+            await usernameInput.WaitForAsync(new() { State = WaitForSelectorState.Visible, Timeout = 45000 });
             await usernameInput.FillAsync(configuration["DG_BACKEND_USERNAME"]!);
             await passwordInput.FillAsync(configuration["DG_BACKEND_PASSWORD"]!);
             var loginButton = page.GetByText("登入", new() { Exact = true }).First;
-            await loginButton.WaitForAsync(new() { State = WaitForSelectorState.Visible, Timeout = 15000 });
+            await loginButton.WaitForAsync(new() { State = WaitForSelectorState.Visible, Timeout = 30000 });
             await loginButton.ClickAsync(new() { Force = true });
             try { await page.WaitForURLAsync(url => url.Contains("sessionId=", StringComparison.OrdinalIgnoreCase), new() { Timeout = 25000 }); }
             catch (System.TimeoutException)

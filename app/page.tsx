@@ -483,7 +483,9 @@ export default function Home() {
       try {
         const response = await fetch('/api/mt/start', { method: 'POST', signal: abort.signal, cache: 'no-store' });
         const result = await readJsonResponse<{ wsUrl?: string; ticket?: string; message?: string }>(response);
-        if (!response.ok || !result.wsUrl || !result.ticket) throw new Error('MT start failed');
+        if (!response.ok || !result.wsUrl || !result.ticket) {
+          throw new Error(result.message || 'MT 暫時無法啟動。');
+        }
         if (abort.signal.aborted) return;
         ws = new WebSocket(result.wsUrl);
         socket.current = ws;
