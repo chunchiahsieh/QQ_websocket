@@ -466,6 +466,24 @@ export default function Home() {
     setMtCollectorMode(collectorMode);
     if (collectorMode) setShowMtSettings(true);
   }, []);
+
+  // Presence is based on being logged in to this system, not on which
+  // platform/menu the user is currently viewing.  The dedicated collector
+  // uses this signal to keep the MT browser WebSocket alive whenever any
+  // authenticated user is online, including users currently on DG, AB, or
+  // another menu.
+  useEffect(() => {
+    if (!isAuthenticated) return;
+    const viewerId = mtViewerId.current;
+    const heartbeat = () => sendMtPresence(true, viewerId);
+    heartbeat();
+    const timer = setInterval(heartbeat, 15000);
+    return () => {
+      clearInterval(timer);
+      sendMtPresence(false, viewerId);
+    };
+  }, [isAuthenticated]);
+
   const handlePlatformStatus = useCallback((source: 'DG' | 'AB', next: 'connecting' | 'connected' | 'error') => {
     setConnectedByPlatform(previous => {
       const connected = next === 'connected';
@@ -819,8 +837,6 @@ export default function Home() {
     const abort = new AbortController();
     const viewerId = mtViewerId.current;
     const stream = new EventSource(`/api/mt/shared-feed?viewerId=${encodeURIComponent(viewerId)}`);
-    sendMtPresence(true, viewerId);
-    const presenceTimer = setInterval(() => sendMtPresence(true, viewerId), 15000);
     setTables([]); setTableUpdatedAt('');
     handleMtStatus('connecting');
     setMtMessage('等待 MT 即時資料…');
@@ -858,8 +874,6 @@ export default function Home() {
     return () => {
       abort.abort();
       stream.close();
-      clearInterval(presenceTimer);
-      sendMtPresence(false, viewerId);
       setConnectedByPlatform(previous => ({ ...previous, MT: false }));
     };
   }, [activeMenu, handleMtStatus, isAuthenticated, mtConnection, platform]);
