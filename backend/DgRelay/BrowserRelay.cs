@@ -123,8 +123,14 @@ static class BrowserRelay
             context.Page += (_, openedPage) => AttachPage(openedPage);
             var page = await context.NewPageAsync();
             await page.GotoAsync("https://dg18.cc/", new() { WaitUntil = WaitUntilState.DOMContentLoaded, Timeout = 30000 });
-            await page.GetByPlaceholder("账号", new() { Exact = true }).FillAsync(configuration["DG_BACKEND_USERNAME"]!);
-            await page.GetByPlaceholder("登入密码", new() { Exact = true }).FillAsync(configuration["DG_BACKEND_PASSWORD"]!);
+            // DG currently renders icon-only inputs without stable placeholder
+            // attributes. The login form contains exactly two text inputs:
+            // account first, password second.
+            var usernameInput = page.Locator("input").Nth(0);
+            var passwordInput = page.Locator("input").Nth(1);
+            await usernameInput.WaitForAsync(new() { State = WaitForSelectorState.Visible, Timeout = 15000 });
+            await usernameInput.FillAsync(configuration["DG_BACKEND_USERNAME"]!);
+            await passwordInput.FillAsync(configuration["DG_BACKEND_PASSWORD"]!);
             await page.Locator("#remember_input").UncheckAsync();
             await page.GetByRole(AriaRole.Button, new() { Name = "登录", Exact = true }).ClickAsync();
             var enter = page.GetByRole(AriaRole.Button, new() { Name = "进入游戏", Exact = true });

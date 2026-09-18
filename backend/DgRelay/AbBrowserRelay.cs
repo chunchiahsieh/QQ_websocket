@@ -131,11 +131,15 @@ static class AbBrowserRelay
                 await notice.ClickAsync(new() { Force = true, Timeout = 3000 });
             }
             catch (System.TimeoutException) { }
-            await page.Locator("#usernameInput").WaitForAsync(new() { State = WaitForSelectorState.Visible, Timeout = 15000 });
-            await page.Locator("#usernameInput").FillAsync(configuration["DG_BACKEND_USERNAME"]!);
-            await page.Locator("#passwordInput").FillAsync(configuration["DG_BACKEND_PASSWORD"]!);
+            // The login page no longer exposes the old #usernameInput and
+            // #passwordInput IDs. It has exactly two text inputs in order.
+            var usernameInput = page.Locator("input").Nth(0);
+            var passwordInput = page.Locator("input").Nth(1);
+            await usernameInput.WaitForAsync(new() { State = WaitForSelectorState.Visible, Timeout = 15000 });
+            await usernameInput.FillAsync(configuration["DG_BACKEND_USERNAME"]!);
+            await passwordInput.FillAsync(configuration["DG_BACKEND_PASSWORD"]!);
             await page.GetByText("登入",new() { Exact=true }).First.ClickAsync(new() { Force = true });
-            try { await page.Locator("#usernameInput").WaitForAsync(new() { State=WaitForSelectorState.Hidden, Timeout=25000 }); }
+            try { await page.WaitForURLAsync(url => url.Contains("sessionId=", StringComparison.OrdinalIgnoreCase), new() { Timeout = 25000 }); }
             catch (System.TimeoutException)
             {
                 if (!page.Url.Contains("sessionId=", StringComparison.OrdinalIgnoreCase))
