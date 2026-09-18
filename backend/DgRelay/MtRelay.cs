@@ -26,6 +26,8 @@ static class MtRelay
         {
             if (!CryptographicOperations.FixedTimeEquals(Encoding.UTF8.GetBytes(http.Request.Headers["X-Relay-Key"].ToString()), Encoding.UTF8.GetBytes(key)))
                 return Results.Json(new { message = "內部驗證失敗。" }, statusCode: 401);
+            if (string.Equals(app.Configuration["MT_RELAY_ENABLED"], "false", StringComparison.OrdinalIgnoreCase))
+                return Results.Json(new { message = "MT 暫時停用，先測試 DG 與歐博。" }, statusCode: 503);
             if (http.Request.ContentLength is null or > 8192) return Results.StatusCode(413);
             LaunchRequest? input;
             try { input = await http.Request.ReadFromJsonAsync<LaunchRequest>(); }
