@@ -40,8 +40,7 @@ static class AbBrowserRelay
         });
         app.Map("/ws/ab", async (HttpContext http) =>
         {
-            var allowed = app.Configuration["DG_FRONTEND_ORIGIN"] ?? "http://localhost:3000";
-            if (http.Request.Headers.Origin != allowed || !http.WebSockets.IsWebSocketRequest) { http.Response.StatusCode = 403; return; }
+            if (!OriginPolicy.IsAllowed(app.Configuration, http.Request.Headers.Origin) || !http.WebSockets.IsWebSocketRequest) { http.Response.StatusCode = 403; return; }
             using var socket = await http.WebSockets.AcceptWebSocketAsync();
             using var lifetime = CancellationTokenSource.CreateLinkedTokenSource(http.RequestAborted);
             lifetime.CancelAfter(TimeSpan.FromHours(1));

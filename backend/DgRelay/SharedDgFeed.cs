@@ -126,7 +126,11 @@ sealed class SharedDgFeed
                     return;
                 }
                 catch (OperationCanceledException) when (shutdown.IsCancellationRequested) { return; }
-                catch (Exception) { /* Never expose browser URLs or credential-bearing exceptions. */ }
+                catch (Exception ex) {
+                    // Keep the live health endpoint useful during local setup without
+                    // exposing cookies, URLs, or credential-bearing payloads.
+                    Console.Error.WriteLine($"[{name}] capture retry: {ex.GetType().Name}: {ex.Message}");
+                }
                 Invalidate();
                 failures = DateTimeOffset.UtcNow - started > TimeSpan.FromMinutes(5) ? 1 : failures + 1;
                 retryAt = DateTimeOffset.UtcNow.AddSeconds(Math.Min(60, 5 * Math.Pow(2, Math.Min(failures - 1, 4))));

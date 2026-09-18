@@ -4,7 +4,8 @@ using System.Text;
 using System.Text.Json;
 
 var builder = WebApplication.CreateBuilder(args);
-builder.WebHost.UseUrls("http://127.0.0.1:5091");
+// Bind on all interfaces so LAN clients can open the browser WebSocket.
+builder.WebHost.UseUrls("http://0.0.0.0:5091");
 builder.Logging.ClearProviders(); // Never log signed upstream URLs or credentials.
 var apiKey = builder.Configuration["DG_RELAY_API_KEY"];
 if (string.IsNullOrWhiteSpace(apiKey) || apiKey.Length < 32)

@@ -14,10 +14,16 @@ export async function POST(request: Request) {
     });
     const result = await response.json() as { ticket?: string; message?: string };
     if (!response.ok) return Response.json({ message: result.message || '無法建立 MT工作階段。' }, { status: response.status });
-    const url = new URL('/ws/mt', process.env.DG_RELAY_PUBLIC_URL || process.env.DG_RELAY_URL);
+    // Prefer an explicitly configured public relay URL (for a reverse proxy or
+    // a separate host). Otherwise derive the relay host from the URL the user
+    // used to open the frontend, so LAN DHCP changes do not require edits.
+    const requestUrl = new URL(request.url);
+    const publicRelay = process.env.DG_RELAY_PUBLIC_URL
+      ? new URL(process.env.DG_RELAY_PUBLIC_URL)
+      : new URL(`${requestUrl.protocol}//${requestUrl.hostname}:5091`);
+    const url = new URL('/ws/mt', publicRelay);
     url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:';
     return Response.json({ ticket: result.ticket, wsUrl: url.toString() }, { headers: { 'Cache-Control': 'no-store' } });
   } catch { return Response.json({ message: '無法連接 C# MT服務，請確認已啟動。' }, { status: 502 }); }
 }
-
 

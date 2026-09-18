@@ -262,7 +262,9 @@ const extractTableUpdates = (payload: unknown): Array<Partial<TableInfo> & { id:
       if (!tableId) return;
       const current = unique.get(tableId) ?? { id: tableId };
       const explicitDeadline = finiteNumber(table.countdownDeadline ?? table.countdown_deadline ?? table.deadline);
-      const countDown = finiteNumber(table.countDown ?? table.countdown ?? table.countdown_seconds ?? table.count);
+      const countDown = finiteNumber(table.countDown ?? table.countdown ?? table.countdown_seconds
+        ?? table.countdownSeconds ?? table.remaining_seconds ?? table.remainingSeconds
+        ?? table.remain ?? table.remainSeconds ?? table.wait_time ?? table.waitTime ?? table.count);
       const waitEvent = /(?:\/|:)wait(?:\b|$)/i.test(eventName);
       const endEvent = ['/show_poker', '/summary', '/result', '/end'].some(suffix => eventName.toLowerCase().endsWith(suffix));
       unique.set(tableId, {
@@ -274,7 +276,7 @@ const extractTableUpdates = (payload: unknown): Array<Partial<TableInfo> & { id:
         }),
         ...(Array.isArray(table.video) && { videoUrl: videoUrl ?? '' }),
         ...(optionalText(table.state) !== undefined && { tableState: optionalText(table.state) }),
-        ...(waitEvent && countDown !== undefined && {
+        ...(explicitDeadline === undefined && countDown !== undefined && {
           countdownDeadline: receivedAt + Math.max(0, countDown) * 1000,
           countdownReceivedAt: receivedAt,
         }),
