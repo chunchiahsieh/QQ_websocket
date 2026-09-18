@@ -137,18 +137,22 @@ static class MtRelay
             // jrk.tz6868.com first is blocked with HTTP 403 from Render even
             // when the account and source IP are valid.
             var gameUrl = await ResolveMtGameUrl(page, configuration, ct);
-            Console.WriteLine($"[MT] game URL obtained: {new Uri(gameUrl).Host}");
-            var platformNavigation = await page.GotoAsync(gameUrl, new() { WaitUntil = WaitUntilState.DOMContentLoaded, Timeout = 30000 });
-            Console.WriteLine($"[MT] game page opened: {page.Url} status={platformNavigation?.Status}");
-            if (platformNavigation?.Status == 403) throw new UpstreamAccessDeniedException();
-            if (!page.Url.Contains(".ofalive99.net/", StringComparison.OrdinalIgnoreCase))
-                throw new InvalidOperationException("MT 授權後未取得 ofalive 遊戲頁。");
-            try { await page.WaitForLoadStateAsync(LoadState.DOMContentLoaded, new() { Timeout = 15000 }); }
-            catch (System.TimeoutException) { }
-            var platformText = await page.Locator("body").InnerTextAsync();
-            if (platformText.Contains("ACCESS RESTRICTED", StringComparison.OrdinalIgnoreCase)
-                || platformText.Contains("訪問受限制", StringComparison.Ordinal))
-                throw new UpstreamAccessDeniedException();
+            if (gameUrl is not null)
+            {
+                Console.WriteLine($"[MT] game URL obtained: {new Uri(gameUrl).Host}");
+                var platformNavigation = await page.GotoAsync(gameUrl, new() { WaitUntil = WaitUntilState.DOMContentLoaded, Timeout = 30000 });
+                Console.WriteLine($"[MT] game page opened: {page.Url} status={platformNavigation?.Status}");
+                if (platformNavigation?.Status == 403) throw new UpstreamAccessDeniedException();
+                if (!page.Url.Contains(".ofalive99.net/", StringComparison.OrdinalIgnoreCase))
+                    throw new InvalidOperationException("MT 授權後未取得 ofalive 遊戲頁。");
+                try { await page.WaitForLoadStateAsync(LoadState.DOMContentLoaded, new() { Timeout = 15000 }); }
+                catch (System.TimeoutException) { }
+                var platformText = await page.Locator("body").InnerTextAsync();
+                if (platformText.Contains("ACCESS RESTRICTED", StringComparison.OrdinalIgnoreCase)
+                    || platformText.Contains("訪問受限制", StringComparison.Ordinal))
+                    throw new UpstreamAccessDeniedException();
+            }
+            else Console.WriteLine("[MT] browser client login submitted; waiting for its official WebSocket");
             var tables = new Dictionary<string, System.Text.Json.Nodes.JsonObject>();
             var recoveries = 0;
             while (!ct.IsCancellationRequested)
@@ -241,7 +245,7 @@ static class MtRelay
         finally { Interlocked.Decrement(ref active); feed!.Connection(false); }
     }
 
-    static async Task<string> ResolveMtGameUrl(IPage page, IConfiguration configuration, CancellationToken ct)
+    static async Task<string?> ResolveMtGameUrl(IPage page, IConfiguration configuration, CancellationToken ct)
     {
         var baseUrl = "https://www.tz6868.cc";
         var deviceId = configuration["MT_BACKEND_DEVICE_ID"]
@@ -311,36 +315,29 @@ static class MtRelay
         // browser fingerprint.
         try
         {
-            // Run the calls from the same public web origin as the working
-            // MT Assistant client. The official API enables CORS for this
-            // origin, while a direct navigation to tz6868.cc may show an
-            // anti-bot HTML challenge before fetch() is available.
+            // Use the same public MT Assistant client that is already known to
+            // work on Render. Its own login flow performs the browser-side API
+            // calls and opens the official WebSocket with the right origin.
             const string browserOrigin = "https://mt-assistant-web-v3.onrender.com/";
             var navigation = await page.GotoAsync(browserOrigin, new() { WaitUntil = WaitUntilState.DOMContentLoaded, Timeout = 30000 });
             Console.WriteLine($"[MT] API browser context opened: {page.Url} status={navigation?.Status}");
-            var browserScript = """
-                async (config) => {
-                    const headers = { 'Content-Type': 'application/json', 'Accept': 'application/json, text/plain, */*' };
-                    const login = await fetch(`${config.baseUrl}/api/v1/login`, {
-                        method: 'POST', headers,
-                        body: JSON.stringify({ username: config.username, password: config.password, device_id: config.deviceId })
-                    });
-                    const loginBody = await login.json();
-                    const memberToken = loginBody?.data?.token || loginBody?.token || loginBody?.data?.access_token || loginBody?.access_token;
-                    if (!login.ok || !memberToken) throw new Error('MT 官方帳號驗證失敗。');
-                    const game = await fetch(`${config.baseUrl}/api/v2/game/MTLI/login`, {
-                        method: 'POST', headers: { ...headers, Authorization: `Bearer ${memberToken}` },
-                        body: JSON.stringify({ game_return_url: config.baseUrl, game_kind: '', game_type: '', game_device: 'Desktop' })
-                    });
-                    const gameBody = await game.json();
-                    const url = gameBody?.data?.game_url || gameBody?.data?.url || gameBody?.raw?.game_url || gameBody?.raw?.url;
-                    if (!game.ok || !url) throw new Error('MT 官方未提供遊戲授權網址。');
-                    return String(url).replaceAll('\\/', '/');
-                }
-                """;
-            var gameUrl = await page.EvaluateAsync<string>(browserScript,
-                new { baseUrl, username, password, deviceId });
-            return ValidateMtGameUrl(gameUrl);
+            var usernameInput = page.GetByPlaceholder("輸入 TZ 帳號", new() { Exact = true });
+            var passwordInput = page.GetByPlaceholder("輸入密碼", new() { Exact = true });
+            await usernameInput.FillAsync(username, new() { Timeout = 5000 });
+            await passwordInput.FillAsync(password, new() { Timeout = 5000 });
+            await page.GetByText("安全登入", new() { Exact = true }).ClickAsync(new() { Force = true, Timeout = 5000 });
+            // The MT Assistant keeps this page open and creates the official
+            // WebSocket from its React client; no game URL navigation is needed.
+            for (var wait = 0; wait < 60 && !ct.IsCancellationRequested; wait++)
+            {
+                var body = await page.Locator("body").InnerTextAsync();
+                if (body.Contains("尚未取得使用權限", StringComparison.Ordinal)
+                    || body.Contains("帳號或密碼不正確", StringComparison.Ordinal)
+                    || body.Contains("密碼錯誤", StringComparison.Ordinal))
+                    throw new DgLoginRequiredException("MT 官方帳號驗證失敗。");
+                await Task.Delay(500, ct);
+            }
+            return null;
         }
         catch (PlaywrightException ex)
         {
