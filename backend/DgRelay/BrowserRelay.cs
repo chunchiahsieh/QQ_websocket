@@ -141,12 +141,21 @@ static class BrowserRelay
             var loginButton = page.Locator("a.login-button:not(.free-button)");
             await loginButton.WaitForAsync(new() { State = WaitForSelectorState.Visible, Timeout = 15000 });
             await loginButton.ClickAsync(new() { Force = true });
-            var enter = page.GetByRole(AriaRole.Button, new() { Name = "进入游戏", Exact = true });
-            try { await enter.WaitForAsync(new() { Timeout = 20000 }); }
+            // The official site may render the post-login action in either
+            // simplified or traditional Chinese, and it is not always a
+            // semantic button (some versions use an anchor).  Match the
+            // visible label instead of assuming one exact role/locale.
+            ILocator enter = page.GetByText("進入遊戲", new() { Exact = true }).First;
+            try { await enter.WaitForAsync(new() { State = WaitForSelectorState.Visible, Timeout = 20000 }); }
             catch (System.TimeoutException)
             {
-                await publish( new { type = "error", message = "dg18.cc 登入未完成，請確認專用帳密或是否需要人工驗證。" }, ct);
-                throw new DgLoginRequiredException();
+                enter = page.GetByText("进入游戏", new() { Exact = true }).First;
+                try { await enter.WaitForAsync(new() { State = WaitForSelectorState.Visible, Timeout = 10000 }); }
+                catch (System.TimeoutException)
+                {
+                    await publish( new { type = "error", message = "dg18.cc 登入未完成，請確認專用帳密或是否需要人工驗證。" }, ct);
+                    throw new DgLoginRequiredException();
+                }
             }
             await enter.ClickAsync();
             await publish( new { type = "status", message = "官方 DG 頁面已開啟，等待百家樂桌況…" }, ct);
