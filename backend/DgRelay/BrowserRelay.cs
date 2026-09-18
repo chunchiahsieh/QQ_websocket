@@ -251,8 +251,17 @@ static class BrowserRelay
             }
             gamePage = entryPage;
             Console.Error.WriteLine($"[DG] join-game entry found: {new Uri(entryPage.Url).Host}");
-            await enter.ClickAsync(new() { Force = true });
-            Console.WriteLine($"[DG] game entry clicked; pages={context.Pages.Count}");
+            // The official handler uses window.open('/game.html?...').
+            // Headless Edge on Render can block that popup even though the
+            // login session is valid. Navigate the same official launch page
+            // in the authenticated tab so its own API redirect can create the
+            // data WebSocket without relying on popup behavior.
+            var gameLaunchOrigin = new Uri(entryPage.Url).GetLeftPart(UriPartial.Authority);
+            var gameLaunchUrl = gameLaunchOrigin + "/game.html?gameId=103&tableId=0";
+            await entryPage.GotoAsync(gameLaunchUrl, new() { WaitUntil = WaitUntilState.DOMContentLoaded, Timeout = 30000 });
+            await entryPage.WaitForTimeoutAsync(5000);
+            gamePage = entryPage;
+            Console.Error.WriteLine($"[DG] game launch page opened: {entryPage.Url}; pages={context.Pages.Count}");
             await publish( new { type = "status", message = "官方 DG 頁面已開啟，等待百家樂桌況…" }, ct);
             var decoder = new DgTableDecoder();
             var lastTables = DateTimeOffset.UtcNow;
