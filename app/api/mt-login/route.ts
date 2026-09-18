@@ -97,7 +97,9 @@ export async function POST(request: Request) {
       const dgReady = !!(runtimeEnv('DG_RELAY_URL') && runtimeEnv('DG_RELAY_API_KEY'));
       const demoReady = localAccount.stamp === 'demo';
       return Response.json({
-        platforms: { MT: { ready: dgReady || demoReady }, DG: { ready: dgReady, error: dgReady ? undefined : '平台後台尚未設定。' } },
+        // MT now uses the user-supplied launch URL in the browser. It no
+        // longer depends on the server-side Edge relay being configured.
+        platforms: { MT: { ready: true }, DG: { ready: dgReady, error: dgReady ? undefined : '平台後台尚未設定。' } },
         account: { username: localAccount.username },
       }, { headers: {
         'Set-Cookie': await sessionCookie(request, {
@@ -127,9 +129,15 @@ export async function POST(request: Request) {
 
     const dgReady = !!(runtimeEnv('DG_RELAY_URL') && runtimeEnv('DG_RELAY_API_KEY'));
     return Response.json({
-      platforms: { MT: { ready: dgReady }, DG: { ready: dgReady, error: dgReady ? undefined : '平台後台尚未設定。' } },
+      // MT now uses the user-supplied launch URL in the browser. It no
+      // longer depends on the server-side Edge relay being configured.
+      platforms: { MT: { ready: true }, DG: { ready: dgReady, error: dgReady ? undefined : '平台後台尚未設定。' } },
     }, { headers: {
-      'Set-Cookie': await sessionCookie(request, { dgDirectLogin: dgReady }),
+      'Set-Cookie': await sessionCookie(request, {
+        dgDirectLogin: dgReady,
+        accountUsername: username,
+        accountStamp: 'tz',
+      }),
       'Cache-Control': 'no-store',
     } });
   } catch (error) {

@@ -10,7 +10,7 @@ import { AbMonitor } from '@/components/ab-monitor';
 import { ContactLinks } from '@/components/contact-links';
 import { CardLayoutSelect, cardGridColumns, type CardColumns } from '@/components/card-layout';
 import { RegressionTest } from '@/components/regression-test';
-import { readJsonResponse } from '@/lib/safe-response-json';
+import { mtAuthenticateMessage, mtMemberMessage, mtMultipleJoinMessage, mtPingMessage, mtSharedChannelKey, mtTablesMessage, parseMtLaunchUrl, readMtWebSocketMessage, type MtFrontendConnection } from '@/lib/mt-frontend';
 
 type ConnectionStatus = 'idle' | 'connecting' | 'authenticating' | 'connected' | 'error';
 
@@ -201,6 +201,30 @@ const now = () => new Intl.DateTimeFormat('zh-TW', {
   hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false,
 }).format(new Date());
 
+// The MT token never leaves the collector browser.  Only normalized table
+// snapshots and connection state are sent to the authenticated shared feed so
+// other users can watch the same data without opening a second MT socket.
+const publishSharedMt = (message: { type: 'snapshot' | 'status'; tables?: TableInfo[]; status?: 'connecting' | 'connected' | 'offline'; message?: string }) => {
+  void fetch('/api/mt/shared-feed', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    cache: 'no-store',
+    body: JSON.stringify({ ...message, receivedAt: Date.now() }),
+  }).catch(() => { /* a missing relay must not interrupt the collector */ });
+};
+
+// Presence is an internal relay signal. It is intentionally not rendered in
+// the UI; the shared feed uses it only to decide whether collection should
+// remain active.
+const sendMtPresence = (online: boolean, viewerId: string) => {
+  void fetch('/api/mt/shared-feed', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    cache: 'no-store',
+    body: JSON.stringify({ type: 'presence', online, viewerId }),
+  }).catch(() => { /* a missing relay must not interrupt the viewer */ });
+};
+
 
 const defaultUsername = '';
 const defaultPassword = '';
@@ -231,7 +255,9 @@ const photoUrl = (value: unknown): string | undefined => {
 const extractTableUpdates = (payload: unknown): Array<Partial<TableInfo> & { id: string }> => {
   const envelope = payload && typeof payload === 'object' ? payload as Record<string, unknown> : {};
   const action = envelope.action && typeof envelope.action === 'object' ? envelope.action as Record<string, unknown> : {};
-  const eventName = String(envelope.name ?? envelope.event ?? envelope.method ?? action.name ?? envelope.action ?? '');
+  // MT event packets carry method="POST" alongside action.name.  The action
+  // path is the meaningful event name; prefer it so /wait can expose body.count.
+  const eventName = String(envelope.name ?? envelope.event ?? action.name ?? envelope.action ?? envelope.method ?? '');
   const receivedAt = Date.now();
   const records: Record<string, unknown>[] = [];
   const visit = (value: unknown, depth = 0) => {
@@ -263,10 +289,13 @@ const extractTableUpdates = (payload: unknown): Array<Partial<TableInfo> & { id:
       if (!tableId) return;
       const current = unique.get(tableId) ?? { id: tableId };
       const explicitDeadline = finiteNumber(table.countdownDeadline ?? table.countdown_deadline ?? table.deadline);
+      const waitEvent = /(?:\/|:)wait(?:\b|$)/i.test(eventName);
       const countDown = finiteNumber(table.countDown ?? table.countdown ?? table.countdown_seconds
         ?? table.countdownSeconds ?? table.remaining_seconds ?? table.remainingSeconds
-        ?? table.remain ?? table.remainSeconds ?? table.wait_time ?? table.waitTime ?? table.count);
-      const waitEvent = /(?:\/|:)wait(?:\b|$)/i.test(eventName);
+        ?? table.remain ?? table.remainSeconds ?? table.wait_time ?? table.waitTime
+        ?? (waitEvent ? table.count : undefined));
+      const roundValue = optionalText(table.round ?? table.round_id ?? trend.current_round);
+      const countdownRound = optionalText(table.game_sn ?? table.gameSn ?? table.round ?? table.round_id ?? trend.current_round);
       const endEvent = ['/show_poker', '/summary', '/result', '/end'].some(suffix => eventName.toLowerCase().endsWith(suffix));
       unique.set(tableId, {
         ...current,
@@ -275,6 +304,8 @@ const extractTableUpdates = (payload: unknown): Array<Partial<TableInfo> & { id:
           countdownDeadline: epochMilliseconds(explicitDeadline),
           countdownReceivedAt: finiteNumber(table.countdownReceivedAt) ?? receivedAt,
         }),
+        ...(countDown !== undefined && { countdownValue: Math.max(0, countDown) }),
+        ...(countdownRound !== undefined && { countdownRound }),
         ...(Array.isArray(table.video) && { videoUrl: videoUrl ?? '' }),
         ...(optionalText(table.state) !== undefined && { tableState: optionalText(table.state) }),
         ...(explicitDeadline === undefined && countDown !== undefined && {
@@ -290,7 +321,7 @@ const extractTableUpdates = (payload: unknown): Array<Partial<TableInfo> & { id:
         ...(dealerPhoto !== undefined && { dealerPhoto }),
         ...(optionalText(table.room_id) && { room: optionalText(table.room_id) }),
         ...(optionalText(trend.current_shoe) && { shoe: optionalText(trend.current_shoe) }),
-        ...(optionalText(trend.current_round) && { round: optionalText(trend.current_round) }),
+        ...(roundValue !== undefined && { round: roundValue }),
         ...(optionalText(trend.total_round_banker) && { banker: optionalText(trend.total_round_banker) }),
         ...(optionalText(trend.total_round_player) && { player: optionalText(trend.total_round_player) }),
         ...(optionalText(trend.total_round_tie) && { tie: optionalText(trend.total_round_tie) }),
@@ -312,12 +343,22 @@ const mergeTableUpdates = (
   const tables = new Map(current.map((table) => [table.id, table]));
   updates.forEach((update) => {
     const previous = tables.get(update.id);
+    const sameCountdownRound = update.countdownRound !== undefined
+      && previous?.countdownRound !== undefined
+      && update.countdownRound === previous.countdownRound;
+    const countdownWentBack = sameCountdownRound
+      && update.countdownValue !== undefined
+      && previous?.countdownValue !== undefined
+      && update.countdownValue > previous.countdownValue;
+    const acceptCountdown = !countdownWentBack;
     tables.set(update.id, {
       id: update.id,
       videoUrl: update.videoUrl ?? previous?.videoUrl,
       tableState: update.tableState ?? previous?.tableState,
-      countdownDeadline: update.countdownDeadline ?? previous?.countdownDeadline,
-      countdownReceivedAt: update.countdownReceivedAt ?? previous?.countdownReceivedAt,
+      countdownDeadline: acceptCountdown ? (update.countdownDeadline ?? previous?.countdownDeadline) : previous?.countdownDeadline,
+      countdownReceivedAt: acceptCountdown ? (update.countdownReceivedAt ?? previous?.countdownReceivedAt) : previous?.countdownReceivedAt,
+      countdownValue: acceptCountdown ? (update.countdownValue ?? previous?.countdownValue) : previous?.countdownValue,
+      countdownRound: update.countdownRound ?? previous?.countdownRound,
       name: update.name ?? previous?.name ?? update.id,
       gameType: update.gameType ?? previous?.gameType ?? '',
       dealer: update.dealer ?? previous?.dealer ?? '未指派',
@@ -356,9 +397,43 @@ const statusView: Record<ConnectionStatus, { label: string; className: string }>
   error: { label: '連線錯誤', className: 'border-rose-300/25 bg-rose-300/10 text-rose-300' },
 };
 
+type MtLease = { owner: string; expiresAt: number };
+const MT_LEASE_MS = 5000;
+const readMtLease = (key: string): MtLease | null => {
+  try {
+    const raw = localStorage.getItem(key);
+    if (!raw) return null;
+    const value = JSON.parse(raw) as Partial<MtLease>;
+    return typeof value.owner === 'string' && Number.isFinite(value.expiresAt)
+      ? { owner: value.owner, expiresAt: Number(value.expiresAt) } : null;
+  } catch { return null; }
+};
+const claimMtLease = (key: string, owner: string) => {
+  try {
+    const current = readMtLease(key);
+    if (current && current.owner !== owner && current.expiresAt > Date.now()) return false;
+    localStorage.setItem(key, JSON.stringify({ owner, expiresAt: Date.now() + MT_LEASE_MS }));
+    return readMtLease(key)?.owner === owner;
+  } catch { return true; }
+};
+const renewMtLease = (key: string, owner: string) => {
+  try {
+    if (readMtLease(key)?.owner !== owner) return false;
+    localStorage.setItem(key, JSON.stringify({ owner, expiresAt: Date.now() + MT_LEASE_MS }));
+    return true;
+  } catch { return true; }
+};
+const releaseMtLease = (key: string, owner: string) => {
+  try { if (readMtLease(key)?.owner === owner) localStorage.removeItem(key); } catch { /* storage may be unavailable */ }
+};
+
 export default function Home() {
   const socket = useRef<WebSocket | null>(null);
   const pollTimer = useRef<ReturnType<typeof setInterval> | null>(null);
+  const mtPingTimer = useRef<ReturnType<typeof setInterval> | null>(null);
+  const mtTablesTimer = useRef<ReturnType<typeof setInterval> | null>(null);
+  const mtClientId = useRef(createBrowserUuid());
+  const mtViewerId = useRef(createBrowserUuid());
   const [status, setStatus] = useState<ConnectionStatus>('idle');
   const [tables, setTables] = useState<TableInfo[]>([]);
   const [tablesByPlatform, setTablesByPlatform] = useState<Record<'MT' | 'DG' | 'AB', TableInfo[]>>({ MT: [], DG: [], AB: [] });
@@ -367,6 +442,10 @@ export default function Home() {
   const [cardsPerRow, setCardsPerRow] = useState<CardColumns>(2);
   const [tableUpdatedAt, setTableUpdatedAt] = useState('');
   const [mtMessage, setMtMessage] = useState('等待牌桌資料');
+  const [mtLaunchUrl, setMtLaunchUrl] = useState('');
+  const [mtConnection, setMtConnection] = useState<MtFrontendConnection | null>(null);
+  const [mtDemand, setMtDemand] = useState(false);
+  const [mtUrlError, setMtUrlError] = useState('');
   const [username, setUsername] = useState(defaultUsername);
   const [password, setPassword] = useState(defaultPassword);
   const [loginStatus, setLoginStatus] = useState<'idle' | 'loading' | 'success' | 'error'>('idle');
@@ -375,10 +454,18 @@ export default function Home() {
   const [platform, setPlatform] = useState<'MT' | 'DG' | 'AB'>('MT');
   const [activeMenu, setActiveMenu] = useState<'tables' | 'payout' | 'compare' | 'regression'>('tables');
   const [menuCollapsed, setMenuCollapsed] = useState(false);
+  const [showMtSettings, setShowMtSettings] = useState(false);
+  const [mtCollectorMode, setMtCollectorMode] = useState(false);
   const [loggingOut, setLoggingOut] = useState(false);
   const [logoutError, setLogoutError] = useState('');
   const handleDgTables = useCallback((next: TableInfo[]) => setTablesByPlatform(previous => ({ ...previous, DG: next })), []);
   const handleAbTables = useCallback((next: TableInfo[]) => setTablesByPlatform(previous => ({ ...previous, AB: next })), []);
+
+  useEffect(() => {
+    const collectorMode = new URLSearchParams(window.location.search).get('collector') === '1';
+    setMtCollectorMode(collectorMode);
+    if (collectorMode) setShowMtSettings(true);
+  }, []);
   const handlePlatformStatus = useCallback((source: 'DG' | 'AB', next: 'connecting' | 'connected' | 'error') => {
     setConnectedByPlatform(previous => {
       const connected = next === 'connected';
@@ -405,10 +492,44 @@ export default function Home() {
       clearInterval(pollTimer.current);
       pollTimer.current = null;
     }
+    if (mtPingTimer.current) {
+      clearInterval(mtPingTimer.current);
+      mtPingTimer.current = null;
+    }
+    if (mtTablesTimer.current) {
+      clearInterval(mtTablesTimer.current);
+      mtTablesTimer.current = null;
+    }
     socket.current?.close();
     socket.current = null;
     setConnectedByPlatform(previous => ({ ...previous, MT: false }));
+    setMtDemand(false);
+    setMtConnection(null);
+    setMtLaunchUrl('');
     setStatus('idle');
+  };
+
+  const connectMtFromUrl = (event: SyntheticEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    setMtUrlError('');
+    try {
+      const connection = parseMtLaunchUrl(mtLaunchUrl);
+      setTables([]);
+      setTablesByPlatform(previous => ({ ...previous, MT: [] }));
+      setTableUpdatedAt('');
+      setMtConnection(connection);
+      setMtMessage('正在由瀏覽器連線 MT…');
+      setStatus('connecting');
+      setShowMtSettings(false);
+    } catch (error) {
+      setMtConnection(null);
+      setStatus('error');
+      setMtUrlError(error instanceof Error ? error.message : 'MT 授權網址無法使用。');
+    }
+  };
+
+  const openMtOfficial = () => {
+    window.open('https://www.tz6868.com/', '_blank', 'noopener,noreferrer');
   };
 
   const logout = async () => {
@@ -421,6 +542,7 @@ export default function Home() {
       setTables([]); setTableUpdatedAt('');
       setConnectedByPlatform({ MT: false, DG: false, AB: false });
       setPassword(''); setLoginStatus('idle'); setLoginMessage('');
+      setMtConnection(null); setMtLaunchUrl(''); setMtUrlError('');
       setIsAuthenticated(false);
     } catch { setLogoutError('登出未完成，請再試一次。'); }
     finally { setLoggingOut(false); }
@@ -471,54 +593,276 @@ export default function Home() {
   const hasFocusedAb = focusedTables.some(key => key.startsWith('AB::'));
 
   useEffect(() => {
-    const shouldStreamMt = isAuthenticated && (
-      (activeMenu === 'tables' && platform === 'MT') ||
-      (activeMenu === 'compare' && hasFocusedMt)
-    );
+    const shouldCheckDemand = isAuthenticated && platform === 'MT' && mtConnection !== null;
+    if (!shouldCheckDemand) {
+      setMtDemand(false);
+      return;
+    }
+    const abort = new AbortController();
+    const checkDemand = async () => {
+      try {
+        const response = await fetch('/api/mt/shared-feed?role=collector', { cache: 'no-store', signal: abort.signal });
+        if (!response.ok) return;
+        const result = await response.json() as { shouldCollect?: boolean; viewerCount?: number; idleForMs?: number };
+        const shouldCollect = result.shouldCollect === true;
+        setMtDemand(shouldCollect);
+        if (result.viewerCount === 0) {
+          if (shouldCollect) {
+            setMtMessage('MT 即時資料待命中…');
+          } else {
+            setMtMessage('等待 MT 即時資料…');
+          }
+        }
+      } catch { /* collector will retry while the page remains open */ }
+    };
+    void checkDemand();
+    const timer = setInterval(() => { void checkDemand(); }, 10000);
+    return () => { abort.abort(); clearInterval(timer); };
+  }, [isAuthenticated, mtConnection, platform]);
+
+  useEffect(() => {
+    const shouldStreamMt = isAuthenticated && platform === 'MT' && mtConnection !== null && mtDemand;
     if (!shouldStreamMt) return;
     const abort = new AbortController();
+    const sharedKey = mtSharedChannelKey(mtConnection);
+    const leaseKey = `${sharedKey}-leader`;
+    const channel = typeof BroadcastChannel !== 'undefined' ? new BroadcastChannel(sharedKey) : null;
+    const owner = mtClientId.current;
     let ws: WebSocket | undefined;
-    setTables([]); setTableUpdatedAt(''); handleMtStatus('connecting'); setMtMessage('正在取得 MT 桌況…');
-    void (async () => {
-      try {
-        const response = await fetch('/api/mt/start', { method: 'POST', signal: abort.signal, cache: 'no-store' });
-        const result = await readJsonResponse<{ wsUrl?: string; ticket?: string; message?: string }>(response);
-        if (!response.ok || !result.wsUrl || !result.ticket) {
-          throw new Error(result.message || 'MT 暫時無法啟動。');
+    let leaseTimer: ReturnType<typeof setInterval> | null = null;
+    let retryTimer: ReturnType<typeof setInterval> | null = null;
+    let isLeader = false;
+    let leaderTables: TableInfo[] = [];
+    let joinedMtTables = '';
+
+    setTables([]); setTableUpdatedAt(''); handleMtStatus('connecting'); setMtMessage('正在連線 MT…');
+    publishSharedMt({ type: 'status', status: 'connecting', message: 'MT 即時連線建立中…' });
+
+    const applyPacket = async (data: Record<string, unknown>, fromShared = false) => {
+      if (abort.signal.aborted) return;
+      if (data.type === 'reset') { setTables([]); handleMtStatus('connecting'); return; }
+      if (data.type === 'error') {
+        handleMtStatus('error');
+        const message = typeof data.message === 'string' ? data.message : 'MT 串流中斷。';
+        setMtMessage(message);
+        if (isLeader) publishSharedMt({ type: 'status', status: 'offline', message });
+        return;
+      }
+      // Only the elected leader is allowed to send official MT commands. A
+      // follower may receive the auth response through BroadcastChannel but
+      // must never authenticate a second upstream socket.
+      if (!fromShared && data.action === '/api/v1/authenticate') {
+        if (Number(data.err ?? 0) !== 0) {
+          handleMtStatus('error');
+          setMtMessage('MT 授權失敗，請重新登入官方頁面並貼上新的網址。');
+          ws?.close();
+          return;
         }
-        if (abort.signal.aborted) return;
-        ws = new WebSocket(result.wsUrl);
+        ws?.send(mtMemberMessage('zhtw'));
+        ws?.send(mtTablesMessage());
+        if (mtPingTimer.current) clearInterval(mtPingTimer.current);
+        mtPingTimer.current = setInterval(() => {
+          if (ws?.readyState === WebSocket.OPEN) ws.send(mtPingMessage());
+        }, 5000);
+        // The official MT lobby refreshes its table list every five seconds.
+        // The initial /tables response contains the road snapshot only; the
+        // live countdown is delivered by later table updates (/wait, etc.).
+        // Polling the same authenticated WebSocket keeps those updates flowing
+        // without opening another socket or rebuilding the card layout.
+        if (mtTablesTimer.current) clearInterval(mtTablesTimer.current);
+        mtTablesTimer.current = setInterval(() => {
+          if (ws?.readyState === WebSocket.OPEN) ws.send(mtTablesMessage());
+        }, 5000);
+        setMtMessage('MT 已完成授權，正在取得桌況…');
+        return;
+      }
+      if (data.action === '/api/v1/member/logout') {
+        handleMtStatus('error');
+        setMtMessage('MT 官方工作階段已失效，請重新貼上登入後的新網址。');
+        return;
+      }
+      const payloads = data.type === 'tables' && Array.isArray(data.tables)
+        ? data.tables.map((row: unknown) => row && typeof row === 'object' && 'payload' in row ? (row as { payload: unknown }).payload : row)
+        : data;
+      const updates = extractTableUpdates(payloads);
+      if (updates.length === 0) return;
+      const isTableSnapshot = data.action === '/api/v1/gametype/*/game/*/room/*/tables';
+      if (!fromShared && isTableSnapshot && ws?.readyState === WebSocket.OPEN) {
+        const tableIds = updates.map(update => update.id).filter(Boolean).sort().join(',');
+        if (tableIds && tableIds !== joinedMtTables) {
+          ws.send(mtMultipleJoinMessage(tableIds.split(',')));
+          joinedMtTables = tableIds;
+        }
+      }
+      setTables(current => {
+        const merged = mergeTableUpdates(current, updates);
+        leaderTables = merged;
+        setTablesByPlatform(previous => ({ ...previous, MT: merged }));
+        if (isLeader) publishSharedMt({ type: 'snapshot', tables: merged });
+        return merged;
+      });
+      setTableUpdatedAt(now()); handleMtStatus('connected'); setMtMessage('MT 即時連線中');
+    };
+
+    const openLeaderSocket = () => {
+      if (abort.signal.aborted) return;
+      isLeader = true;
+      channel?.postMessage({ type: 'leader', owner });
+      handleMtStatus('connecting'); setMtMessage('MT 即時連線建立中…');
+      publishSharedMt({ type: 'status', status: 'connecting', message: 'MT 即時連線建立中…' });
+      try {
+        // MT local-test mode deliberately keeps the token in the browser. It
+        // does not call the server-side /api/mt/start route or launch Edge.
+        ws = new WebSocket(mtConnection.websocketUrl);
         socket.current = ws;
         ws.onopen = () => {
           if (abort.signal.aborted) { ws?.close(); return; }
-          ws?.send(JSON.stringify({ ticket: result.ticket }));
+          ws?.send(mtAuthenticateMessage(mtConnection.token));
+          handleMtStatus('authenticating');
+          setMtMessage('MT WebSocket 已建立，等待桌況…');
+          publishSharedMt({ type: 'status', status: 'connecting', message: 'MT 已建立連線，等待桌況…' });
         };
         ws.onmessage = event => {
-          if (abort.signal.aborted) return;
-          try {
-            const data = JSON.parse(event.data);
-            if (data.type === 'reset') { setTables([]); handleMtStatus('connecting'); return; }
-            if (data.type === 'error') { handleMtStatus('error'); setMtMessage(data.message || 'MT 串流中斷。'); return; }
-            if (data.type === 'tables' && Array.isArray(data.tables)) {
-              const updates = extractTableUpdates(data.tables.map((row: { payload: unknown }) => row.payload));
-              setTables(current => {
-                const merged = mergeTableUpdates(data.snapshot ? [] : current, updates);
-                setTablesByPlatform(previous => ({ ...previous, MT: merged }));
-                return merged;
-              });
-              setTableUpdatedAt(now()); handleMtStatus('connected');
+          void (async () => {
+            try {
+              const raw = await readMtWebSocketMessage(event.data);
+              if (!raw) return;
+              const data = JSON.parse(raw) as Record<string, unknown>;
+              channel?.postMessage({ type: 'packet', payload: data });
+              await applyPacket(data);
+            } catch {
+              // Official heartbeats and binary control frames are allowed; only
+              // report a connection error after the socket itself closes.
             }
-          } catch { handleMtStatus('error'); }
+          })();
         };
-        ws.onerror = ws.onclose = () => { if (!abort.signal.aborted) handleMtStatus('error'); };
-      } catch { if (!abort.signal.aborted) handleMtStatus('error'); }
-    })();
+        ws.onerror = () => { if (!abort.signal.aborted) { const message = 'MT WebSocket 連線失敗，請確認網址或官方是否允許區網來源。'; handleMtStatus('error'); setMtMessage(message); publishSharedMt({ type: 'status', status: 'offline', message }); } };
+        ws.onclose = () => {
+          releaseMtLease(leaseKey, owner);
+          if (!abort.signal.aborted) { const message = 'MT WebSocket 已關閉，請重新貼上授權網址。'; handleMtStatus('error'); setMtMessage(message); publishSharedMt({ type: 'status', status: 'offline', message }); }
+        };
+      } catch (error) {
+        releaseMtLease(leaseKey, owner);
+        if (!abort.signal.aborted) { const message = error instanceof Error ? error.message : 'MT WebSocket 無法建立。'; handleMtStatus('error'); setMtMessage(message); publishSharedMt({ type: 'status', status: 'offline', message }); }
+      }
+    };
+
+    const tryBecomeLeader = () => {
+      if (abort.signal.aborted || isLeader) return;
+      // Very old/private browser contexts may not expose BroadcastChannel.
+      // Keep the original single-tab connection as a safe fallback instead
+      // of leaving that tab waiting forever for a shared owner.
+      if (!channel) {
+        openLeaderSocket();
+        return;
+      }
+      if (!claimMtLease(leaseKey, owner)) {
+        handleMtStatus('connecting'); setMtMessage('MT 即時資料待命中…');
+        channel?.postMessage({ type: 'hello', owner });
+        return;
+      }
+      isLeader = true;
+      leaseTimer = setInterval(() => {
+        if (!renewMtLease(leaseKey, owner)) {
+          isLeader = false; ws?.close();
+        }
+      }, Math.max(1000, Math.floor(MT_LEASE_MS / 2)));
+      openLeaderSocket();
+    };
+
+    if (channel) {
+      channel.onmessage = event => {
+        const message = event.data as { type?: string; owner?: string; payload?: Record<string, unknown>; tables?: TableInfo[] };
+        if (message.type === 'hello' && isLeader) channel.postMessage({ type: 'snapshot', owner, tables: leaderTables });
+        if (message.type === 'snapshot' && !isLeader && Array.isArray(message.tables) && message.tables.length > 0) {
+          leaderTables = message.tables;
+          setTables(message.tables); setTablesByPlatform(previous => ({ ...previous, MT: message.tables! }));
+          setTableUpdatedAt(now()); handleMtStatus('connected'); setMtMessage('MT 即時連線中');
+        }
+        if (message.type === 'packet' && !isLeader && message.payload) void applyPacket(message.payload, true);
+      };
+      channel.postMessage({ type: 'hello', owner });
+    }
+    tryBecomeLeader();
+    retryTimer = setInterval(tryBecomeLeader, 1500);
+
     return () => {
-      abort.abort(); ws?.close();
+      if (isLeader) {
+        publishSharedMt({ type: 'status', status: 'offline', message: 'MT 即時資料暫停，等待恢復…' });
+        setTables([]); setTablesByPlatform(previous => ({ ...previous, MT: [] })); setTableUpdatedAt('');
+      }
+      abort.abort();
+      if (retryTimer) clearInterval(retryTimer);
+      if (leaseTimer) clearInterval(leaseTimer);
+      releaseMtLease(leaseKey, owner);
+      ws?.close();
+      if (mtPingTimer.current) {
+        clearInterval(mtPingTimer.current);
+        mtPingTimer.current = null;
+      }
+      if (mtTablesTimer.current) {
+        clearInterval(mtTablesTimer.current);
+        mtTablesTimer.current = null;
+      }
       if (socket.current === ws) socket.current = null;
+      channel?.close();
       setConnectedByPlatform(previous => ({ ...previous, MT: false }));
     };
-  }, [platform, isAuthenticated, activeMenu, hasFocusedMt, handleMtStatus]);
+  }, [platform, isAuthenticated, activeMenu, hasFocusedMt, mtConnection, mtDemand, handleMtStatus]);
+
+  // Viewer mode: when this browser has no MT launch URL, it subscribes to the
+  // authenticated shared feed published by collector A.  No token or MT
+  // WebSocket is opened in this branch.
+  useEffect(() => {
+    const shouldSubscribe = isAuthenticated && activeMenu === 'tables' && platform === 'MT' && mtConnection === null;
+    if (!shouldSubscribe) return;
+    const abort = new AbortController();
+    const viewerId = mtViewerId.current;
+    const stream = new EventSource(`/api/mt/shared-feed?viewerId=${encodeURIComponent(viewerId)}`);
+    sendMtPresence(true, viewerId);
+    const presenceTimer = setInterval(() => sendMtPresence(true, viewerId), 15000);
+    setTables([]); setTableUpdatedAt('');
+    handleMtStatus('connecting');
+    setMtMessage('等待 MT 即時資料…');
+    stream.onmessage = event => {
+      try {
+        const message = JSON.parse(event.data) as { type?: string; tables?: TableInfo[]; status?: string; message?: string };
+        if (message.type === 'snapshot' && Array.isArray(message.tables)) {
+          setTables(message.tables);
+          setTablesByPlatform(previous => ({ ...previous, MT: message.tables! }));
+          setTableUpdatedAt(now());
+          handleMtStatus('connected');
+          setMtMessage('MT 即時資料同步中');
+          return;
+        }
+        if (message.type === 'status') {
+          if (message.status === 'offline') {
+            setTables([]);
+            setTablesByPlatform(previous => ({ ...previous, MT: [] }));
+            setTableUpdatedAt('');
+            handleMtStatus('error');
+            setMtMessage(message.message || 'MT 即時資料暫停，等待恢復…');
+          } else {
+            handleMtStatus('connecting');
+            setMtMessage(message.message || '等待 MT 即時資料…');
+          }
+        }
+      } catch { /* ignore malformed relay events */ }
+    };
+    stream.onerror = () => {
+      if (!abort.signal.aborted) {
+        handleMtStatus('connecting');
+        setMtMessage('MT 即時資料重新連線中…');
+      }
+    };
+    return () => {
+      abort.abort();
+      stream.close();
+      clearInterval(presenceTimer);
+      sendMtPresence(false, viewerId);
+      setConnectedByPlatform(previous => ({ ...previous, MT: false }));
+    };
+  }, [activeMenu, handleMtStatus, isAuthenticated, mtConnection, platform]);
 
   const statusInfo = statusView[status];
 
@@ -620,6 +964,7 @@ export default function Home() {
             className={`rounded-lg border px-6 py-2 font-bold ${platform === value ? 'border-cyan-400 bg-cyan-700 text-white' : 'border-slate-600 text-slate-400'}`}>{value === 'AB' ? '歐博' : value}</button>)}
         </div>}
         <div className="ml-auto flex flex-wrap items-center justify-end gap-2">
+              {activeMenu === 'tables' && platform === 'MT' && mtCollectorMode && <button type="button" onClick={() => setShowMtSettings(true)} className="flex h-10 items-center gap-2 rounded-lg border border-cyan-300/45 bg-cyan-950/40 px-3 text-sm text-cyan-100 hover:bg-cyan-800/50">連線設定</button>}
               <ContactLinks />
               <button type="button" onClick={logout} disabled={loggingOut}
                 className="flex h-10 items-center gap-2 rounded-lg border border-slate-600 px-4 text-sm text-white hover:bg-white/10 disabled:opacity-50">
@@ -641,36 +986,40 @@ export default function Home() {
 
         {platform === 'DG' && <DgMonitor onStatus={handleDgStatus} onTables={handleDgTables} onFocusTable={focusTable} cardColumns={cardsPerRow} onCardColumnsChange={setCardsPerRow} />}
         {platform === 'AB' && <AbMonitor onStatus={handleAbStatus} onTables={handleAbTables} onFocusTable={focusTable} cardColumns={cardsPerRow} onCardColumnsChange={setCardsPerRow} />}
-        {platform === 'MT' && <section className="overflow-hidden rounded-2xl border border-[#86632f]/35 bg-[#0d0b08]/92 shadow-[0_24px_70px_rgba(0,0,0,.42)]">
-          <div className="m-0">
-             <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[#5d451f]/55 bg-[#100d08]/80 px-5 py-4 sm:px-6">
-              <div>
-                <div className="flex items-center gap-3">
-                  <h2 className="text-lg font-semibold text-[#f3dfb4]">即時桌況</h2>
-                  <span className="rounded-md border border-[#765725]/65 bg-[#251b0c] px-2 py-0.5 text-xs text-[#e4bd68]">
-                    {tables.length} 桌
-                  </span>
+        {platform === 'MT' && <>
+          <section className="overflow-hidden rounded-2xl border border-[#86632f]/35 bg-[#0d0b08]/92">
+            <header className="flex flex-wrap items-center justify-between gap-3 border-b border-[#5d451f]/60 px-6 py-4">
+              <div><h2 className="text-lg font-semibold">即時桌況 <span className="ml-2 rounded-md border px-2 py-0.5 text-xs">{tables.length} 桌</span></h2>
+              <p className="mt-1 text-xs">{status === 'connected' && tableUpdatedAt ? `最後更新 ${tableUpdatedAt}` : mtMessage}</p></div>
+              <CardLayoutSelect value={cardsPerRow} onChange={setCardsPerRow} />
+            </header>
+            <div className={`grid w-full min-w-0 gap-3 bg-transparent p-2 ${cardGridColumns[cardsPerRow]}`}>
+              {tables.map((table) => (
+                <BaccaratTableCard key={table.id} table={table} connected={status === 'connected'} onFocusTable={focusTable} platformLabel="MT" />
+              ))}
+            </div>
+          </section>
+          {mtCollectorMode && showMtSettings && <div className="fixed inset-0 z-50 grid place-items-center bg-black/65 p-4" role="presentation" onMouseDown={event => { if (event.target === event.currentTarget) setShowMtSettings(false); }}>
+            <section role="dialog" aria-modal="true" aria-labelledby="mt-settings-title" className="w-full max-w-2xl overflow-hidden rounded-2xl border border-cyan-300/35 bg-[#0d111a] shadow-[0_24px_90px_rgba(0,0,0,.65)]">
+              <header className="flex items-center justify-between border-b border-cyan-300/20 px-5 py-4">
+                <div><h2 id="mt-settings-title" className="font-semibold text-cyan-100">MT 連線設定</h2><p className="mt-1 text-xs text-slate-400">貼上登入後的 MT 授權網址以開始即時連線。</p></div>
+                <button type="button" onClick={() => setShowMtSettings(false)} className="rounded border border-slate-600 px-2.5 py-1 text-slate-300 hover:bg-white/10" aria-label="關閉連線設定">×</button>
+              </header>
+              <form onSubmit={connectMtFromUrl} className="grid gap-3 px-5 py-5">
+                <label className="grid gap-1.5 text-xs font-medium text-cyan-100">MT 授權網址（網址需包含 token）
+                  <input value={mtLaunchUrl} onChange={event => { setMtLaunchUrl(event.target.value); setMtUrlError(''); }} type="url" inputMode="url" autoComplete="off" placeholder="https://gsa.ofalive99.net/?token=xxxx&lang=zhtw" className="h-10 rounded-lg border border-cyan-300/35 bg-black/30 px-3 text-xs text-white outline-none focus:border-cyan-200" />
+                </label>
+                <p className="text-[11px] leading-5 text-slate-400">授權網址只會保留在目前瀏覽器記憶體。</p>
+                {mtUrlError && <p role="alert" className="text-xs text-rose-300">{mtUrlError}</p>}
+                {mtConnection && !mtUrlError && <p className="text-xs text-emerald-300">已設定 MT 連線：{new URL(mtConnection.websocketUrl).host}</p>}
+                <div className="flex flex-wrap justify-end gap-2">
+                  <button type="button" onClick={openMtOfficial} className="h-10 rounded-lg border border-amber-300/50 bg-amber-900/40 px-3 text-xs font-semibold text-amber-100 hover:bg-amber-800/60">開啟 MT 官網</button>
+                  <button type="submit" className="h-10 rounded-lg border border-cyan-300/55 bg-cyan-800/70 px-4 text-xs font-semibold text-white hover:bg-cyan-700">開始連線</button>
                 </div>
-                <p className="mt-1 text-xs text-[#83765e]">{tableUpdatedAt ? `最後更新 ${tableUpdatedAt}` : '歷史牌局與桌況每秒同步更新'}</p>
-               </div>
-               <CardLayoutSelect value={cardsPerRow} onChange={setCardsPerRow} />
-             </div>
-            {tables.length === 0 ? (
-              <div className="grid min-h-[420px] place-items-center px-6 py-16 text-center">
-                <div>
-                  <div className="mx-auto mb-4 grid h-14 w-14 place-items-center rounded-full border border-[#85632f]/35 bg-[#21180c] text-[#c99c4b]"><CircleDot className="h-6 w-6" /></div>
-                  <p className="font-medium text-[#d8c39c]">{mtMessage}</p>
-                </div>
-              </div>
-            ) : (
-               <div className={`grid w-full min-w-0 gap-3 bg-transparent p-2 ${cardGridColumns[cardsPerRow]}`}>
-                {tables.map((table) => (
-                  <BaccaratTableCard key={table.id} table={table} connected={status === 'connected'} onFocusTable={focusTable} platformLabel="MT" />
-                ))}
-              </div>
-            )}
-          </div>
-        </section>}
+              </form>
+            </section>
+          </div>}
+        </>}
         </div>}
         </div>
         </div>
