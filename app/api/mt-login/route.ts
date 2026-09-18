@@ -94,7 +94,7 @@ export async function POST(request: Request) {
     const localAccount = loginDemoAccount(username, password)
       || await loginLocalAccount(username, password);
     if (localAccount) {
-      const dgReady = !!(process.env.DG_RELAY_URL && process.env.DG_RELAY_API_KEY);
+      const dgReady = !!(runtimeEnv('DG_RELAY_URL') && runtimeEnv('DG_RELAY_API_KEY'));
       const demoReady = localAccount.stamp === 'demo';
       return Response.json({
         platforms: { MT: { ready: dgReady || demoReady }, DG: { ready: dgReady, error: dgReady ? undefined : '平台後台尚未設定。' } },
@@ -125,7 +125,7 @@ export async function POST(request: Request) {
       );
     }
 
-    const dgReady = !!(process.env.DG_RELAY_URL && process.env.DG_RELAY_API_KEY);
+    const dgReady = !!(runtimeEnv('DG_RELAY_URL') && runtimeEnv('DG_RELAY_API_KEY'));
     return Response.json({
       platforms: { MT: { ready: dgReady }, DG: { ready: dgReady, error: dgReady ? undefined : '平台後台尚未設定。' } },
     }, { headers: {

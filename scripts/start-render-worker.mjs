@@ -12,6 +12,9 @@ const vars = { ...(config.vars ?? {}) };
 vars.DEMO_LOGIN_USERNAME = process.env.DEMO_LOGIN_USERNAME || vars.DEMO_LOGIN_USERNAME || 'jason';
 vars.DEMO_LOGIN_PASSWORD = process.env.DEMO_LOGIN_PASSWORD || vars.DEMO_LOGIN_PASSWORD || '123456';
 if (process.env.MONITOR_SESSION_SECRET) vars.MONITOR_SESSION_SECRET = process.env.MONITOR_SESSION_SECRET;
+for (const key of ['DG_RELAY_URL', 'DG_RELAY_PUBLIC_URL', 'DG_RELAY_API_KEY']) {
+  if (process.env[key]) vars[key] = process.env[key];
+}
 config.vars = vars;
 await writeFile(configPath, `${JSON.stringify(config)}\n`, 'utf8');
 
