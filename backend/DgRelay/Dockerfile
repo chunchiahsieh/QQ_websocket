@@ -12,6 +12,7 @@ RUN dotnet publish backend/DgRelay/DgRelay.csproj \
 
 FROM mcr.microsoft.com/dotnet/aspnet:9.0-bookworm-slim
 ENV ASPNETCORE_ENVIRONMENT=Production \
+    PORT=10000 \
     DG_BROWSER_CHANNEL=msedge \
     PLAYWRIGHT_BROWSERS_PATH=0
 

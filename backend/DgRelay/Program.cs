@@ -4,15 +4,19 @@ using System.Text;
 using System.Text.Json;
 
 var builder = WebApplication.CreateBuilder(args);
-// Render supplies PORT at runtime. Keep 5091 as the local-development default
-// so the existing LAN relay URL continues to work unchanged.
-var relayPort = Environment.GetEnvironmentVariable("PORT") ?? "5091";
+// Render web services listen on PORT (10000 for Docker services). Keep 5091
+// as the local-development default so the existing LAN relay URL continues
+// to work unchanged when no PORT was supplied.
+var relayPort = Environment.GetEnvironmentVariable("PORT");
+if (string.IsNullOrWhiteSpace(relayPort))
+    relayPort = builder.Environment.IsProduction() ? "10000" : "5091";
 builder.WebHost.UseUrls($"http://0.0.0.0:{relayPort}");
 builder.Logging.ClearProviders(); // Never log signed upstream URLs or credentials.
 var apiKey = builder.Configuration["DG_RELAY_API_KEY"];
 if (string.IsNullOrWhiteSpace(apiKey) || apiKey.Length < 32)
     throw new InvalidOperationException("DG_RELAY_API_KEY must contain at least 32 characters.");
 var app = builder.Build();
+Console.WriteLine($"[Relay] listening on 0.0.0.0:{relayPort}");
 app.UseWebSockets();
 BrowserRelay.Map(app, apiKey);
 AbBrowserRelay.Map(app, apiKey);
