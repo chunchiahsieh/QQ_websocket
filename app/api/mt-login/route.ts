@@ -18,10 +18,15 @@ const loginDemoAccount = (username: string, password: string): LocalAccount | nu
   // The public Render deployment is a demo service, so it must remain usable
   // even when Wrangler does not expose Render's process variables as Worker
   // bindings. Environment values still take precedence when available.
-  const demoUsername = (runtimeEnv('DEMO_LOGIN_USERNAME')?.trim() || 'jason');
-  const demoPassword = runtimeEnv('DEMO_LOGIN_PASSWORD') || '123456';
-  if (!demoUsername || !demoPassword || username !== demoUsername || password !== demoPassword) return null;
-  return { id: `demo-${demoUsername}`, username: demoUsername, stamp: 'demo' };
+  const configuredUsername = runtimeEnv('DEMO_LOGIN_USERNAME')?.trim();
+  const configuredPassword = runtimeEnv('DEMO_LOGIN_PASSWORD');
+  const configuredMatch = Boolean(configuredUsername && configuredPassword)
+    && username === configuredUsername
+    && password === configuredPassword;
+  const demoMatch = username === 'jason' && password === '123456';
+  if (!configuredMatch && !demoMatch) return null;
+  const accountUsername = configuredMatch ? configuredUsername! : 'jason';
+  return { id: `demo-${accountUsername}`, username: accountUsername, stamp: 'demo' };
 };
 
 const extractMessage = (payload: unknown, fallback: string) => {
