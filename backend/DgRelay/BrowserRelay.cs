@@ -106,7 +106,23 @@ static class BrowserRelay
             await publish( new { type = "status", message = "正在啟動獨立 DG 瀏覽器…" }, ct);
             using var playwright = await Playwright.CreateAsync();
             await using var browser = await playwright.Chromium.LaunchAsync(new() {
-                Headless = true, Channel = configuration["DG_BROWSER_CHANNEL"] ?? "msedge", Timeout = 30000,
+                Headless = true,
+                Channel = configuration["DG_BROWSER_CHANNEL"] ?? "msedge",
+                Timeout = 30000,
+                // DG only needs the official page and its WebSocket feed. Keep
+                // Edge's background services from consuming the small Render
+                // instance while preserving the real browser protocol.
+                Args = new[] {
+                    "--disable-gpu",
+                    "--disable-extensions",
+                    "--disable-background-networking",
+                    "--disable-component-update",
+                    "--disable-default-apps",
+                    "--disable-sync",
+                    "--no-first-run",
+                    "--no-default-browser-check",
+                    "--disable-dev-shm-usage"
+                }
             });
             await using var context = await browser.NewContextAsync(new() { AcceptDownloads = false });
             using var cancellation = ct.Register(() => { _ = browser.CloseAsync(); });
@@ -115,9 +131,13 @@ static class BrowserRelay
             // Keep all official sockets active: the last socket opened is not
             // guaranteed to be the one carrying baccarat table packets.
             var liveSockets = new HashSet<Microsoft.Playwright.IWebSocket>();
+            var rawFrames = 0;
+            var decodeFailures = 0;
             void AttachPage(IPage observedPage) => observedPage.WebSocket += (_, ws) =>
             {
-                if (!Uri.TryCreate(ws.Url, UriKind.Absolute, out var upstream) || upstream.Scheme != "wss"
+                if (!Uri.TryCreate(ws.Url, UriKind.Absolute, out var upstream)
+                    || !(upstream.Scheme.Equals("wss", StringComparison.OrdinalIgnoreCase)
+                        || upstream.Scheme.Equals("ws", StringComparison.OrdinalIgnoreCase))
                     || !(upstream.Host.EndsWith(".taxyss.com") || upstream.Host.EndsWith(".kindlestone.com") || upstream.Host.EndsWith(".ywjxi.com"))) return;
                 gamePage = observedPage;
                 lock (liveSockets) liveSockets.Add(ws);
@@ -135,6 +155,9 @@ static class BrowserRelay
                 {
                     var bytes = frame.Binary;
                     if (bytes is null || bytes.Length > 256 * 1024) return;
+                    var frameNumber = Interlocked.Increment(ref rawFrames);
+                    if (frameNumber <= 5)
+                        Console.WriteLine($"[DG] binary frame received: {bytes.Length} bytes");
                     packets.Writer.TryWrite(bytes);
                 };
             };
@@ -208,6 +231,7 @@ static class BrowserRelay
             }
             gamePage = entryPage;
             await enter.ClickAsync(new() { Force = true });
+            Console.WriteLine($"[DG] game entry clicked; pages={context.Pages.Count}");
             await publish( new { type = "status", message = "官方 DG 頁面已開啟，等待百家樂桌況…" }, ct);
             var decoder = new DgTableDecoder();
             var lastTables = DateTimeOffset.UtcNow;
@@ -246,12 +270,16 @@ static class BrowserRelay
                 {
                     // Control/heartbeat frames can share the same official
                     // sockets. They are not table protobuf messages.
+                    var failureNumber = Interlocked.Increment(ref decodeFailures);
+                    if (failureNumber <= 5)
+                        Console.WriteLine($"[DG] ignored non-table frame ({failureNumber})");
                     continue;
                 }
                 lastPacket = DateTimeOffset.UtcNow;
                 feed!.Packet();
                 if (tables.Count > 0)
                 {
+                    Console.WriteLine($"[DG] decoded tables: {tables.Count}; frames={rawFrames}");
                     foreach (var table in tables)
                     {
                         if (table.TryGetValue("dealer", out var value) && value is Dictionary<string, object> dealer && dealer.TryGetValue("photo", out var photo))
