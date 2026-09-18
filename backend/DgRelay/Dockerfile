@@ -33,4 +33,8 @@ WORKDIR /app
 COPY --from=build /app/publish .
 
 EXPOSE 10000
-ENTRYPOINT ["xvfb-run", "--auto-servernum", "--server-args=-screen 0 1920x1080x24", "dotnet", "/app/DgRelay.dll"]
+# Start the virtual display explicitly instead of wrapping the process in
+# xvfb-run. This keeps the .NET process as PID 1 and lets Render observe its
+# stdout and its HTTP listener reliably while still providing a display for
+# MT's non-headless Edge session.
+ENTRYPOINT ["/bin/sh", "-c", "Xvfb :99 -screen 0 1920x1080x24 -ac >/tmp/xvfb.log 2>&1 & sleep 1; export DISPLAY=:99; exec dotnet /app/DgRelay.dll"]
