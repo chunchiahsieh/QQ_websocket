@@ -6,10 +6,12 @@ import { spawn } from 'node:child_process';
 const configPath = 'dist/server/wrangler.json';
 const config = JSON.parse(await readFile(configPath, 'utf8'));
 const vars = { ...(config.vars ?? {}) };
-for (const key of ['DEMO_LOGIN_USERNAME', 'DEMO_LOGIN_PASSWORD', 'MONITOR_SESSION_SECRET']) {
-  const value = process.env[key];
-  if (value) vars[key] = value;
-}
+// Render's service variables are normally forwarded here. Keep the demo
+// credentials as a service-local fallback as well: Wrangler can run the
+// Worker behind an internal host where the public Render hostname is absent.
+vars.DEMO_LOGIN_USERNAME = process.env.DEMO_LOGIN_USERNAME || vars.DEMO_LOGIN_USERNAME || 'jason';
+vars.DEMO_LOGIN_PASSWORD = process.env.DEMO_LOGIN_PASSWORD || vars.DEMO_LOGIN_PASSWORD || '123456';
+if (process.env.MONITOR_SESSION_SECRET) vars.MONITOR_SESSION_SECRET = process.env.MONITOR_SESSION_SECRET;
 config.vars = vars;
 await writeFile(configPath, `${JSON.stringify(config)}\n`, 'utf8');
 
