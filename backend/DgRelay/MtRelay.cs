@@ -321,10 +321,15 @@ static class MtRelay
             const string browserOrigin = "https://mt-assistant-web-v3.onrender.com/";
             var navigation = await page.GotoAsync(browserOrigin, new() { WaitUntil = WaitUntilState.DOMContentLoaded, Timeout = 30000 });
             Console.WriteLine($"[MT] API browser context opened: {page.Url} status={navigation?.Status}");
-            var usernameInput = page.GetByPlaceholder("輸入 TZ 帳號", new() { Exact = true });
-            var passwordInput = page.GetByPlaceholder("輸入密碼", new() { Exact = true });
-            await usernameInput.FillAsync(username, new() { Timeout = 5000 });
-            await passwordInput.FillAsync(password, new() { Timeout = 5000 });
+            // The public MT Assistant page does not expose stable placeholder
+            // attributes (the visible labels are rendered separately).  Use
+            // the two login inputs in DOM order so this keeps working across
+            // the page's localized/React markup.
+            var loginInputs = page.Locator("input");
+            if (await loginInputs.CountAsync() < 2)
+                throw new PlaywrightException("MT Assistant login inputs were not found.");
+            await loginInputs.Nth(0).FillAsync(username, new() { Timeout = 5000 });
+            await loginInputs.Nth(1).FillAsync(password, new() { Timeout = 5000 });
             await page.GetByText("安全登入", new() { Exact = true }).ClickAsync(new() { Force = true, Timeout = 5000 });
             // The MT Assistant keeps this page open and creates the official
             // WebSocket from its React client; no game URL navigation is needed.
