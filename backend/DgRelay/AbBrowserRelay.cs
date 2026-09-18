@@ -106,10 +106,12 @@ static class AbBrowserRelay
                 Console.WriteLine("AB media configuration unavailable; table feed continues.");
             }
             using var playwright = await Playwright.CreateAsync();
+            var proxy = CreateProxy(configuration);
             await using var browser = await playwright.Chromium.LaunchAsync(new() {
                 Headless = true,
                 Channel = configuration["DG_BROWSER_CHANNEL"] ?? "msedge",
                 Timeout = 30000,
+                Proxy = proxy,
                 // The AB browser is a long-lived relay worker on the small
                 // Render instance. Disable background Edge services so they
                 // cannot compete with the page that supplies the table feed.
@@ -227,5 +229,31 @@ static class AbBrowserRelay
             }
         }
         finally { if (budgetAcquired) BrowserSessionBudget.Gate.Release(); feed!.Connection(false); Interlocked.Decrement(ref active); }
+    }
+
+    /// <summary>
+    /// Optional egress proxy for cloud testing. Credentials stay in Render
+    /// environment secrets and are never placed in source control or logs.
+    /// Leave AB_PROXY_SERVER unset to preserve the direct connection path.
+    /// </summary>
+    static Microsoft.Playwright.Proxy? CreateProxy(IConfiguration configuration)
+    {
+        var server = configuration["AB_PROXY_SERVER"]?.Trim();
+        if (string.IsNullOrWhiteSpace(server)) return null;
+        if (!server.Contains("://", StringComparison.Ordinal)) server = "http://" + server;
+        if (!Uri.TryCreate(server, UriKind.Absolute, out var uri)
+            || uri.Host.Length == 0
+            || uri.Port <= 0
+            || uri.Scheme is not ("http" or "https" or "socks5"))
+            throw new InvalidOperationException("AB_PROXY_SERVER 必須是 http(s)://host:port 或 socks5://host:port。");
+
+        var username = configuration["AB_PROXY_USERNAME"]?.Trim();
+        var password = configuration["AB_PROXY_PASSWORD"];
+        Console.WriteLine($"[歐博] proxy enabled: {uri.Scheme}://{uri.Host}:{uri.Port}");
+        return new Microsoft.Playwright.Proxy {
+            Server = server,
+            Username = string.IsNullOrWhiteSpace(username) ? null : username,
+            Password = string.IsNullOrWhiteSpace(password) ? null : password
+        };
     }
 }

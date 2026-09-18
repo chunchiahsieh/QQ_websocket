@@ -34,3 +34,11 @@ services:
         sync: false
       - key: DG_BACKEND_PASSWORD
         sync: false
+      # Optional Webshare/free-proxy test settings for the AB browser only.
+      # Keep all three values as Render secrets; leave unset for direct egress.
+      - key: AB_PROXY_SERVER
+        sync: false
+      - key: AB_PROXY_USERNAME
+        sync: false
+      - key: AB_PROXY_PASSWORD
+        sync: false

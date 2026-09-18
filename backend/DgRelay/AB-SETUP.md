@@ -33,3 +33,18 @@ AbMediaCatalog 讀取官方公開 kp.js 與 system-ab-v9.json，按官方 DES3 C
 照片隨荷官更換更新；視訊僅由使用者開啟時載入，關閉或離開分頁時釋放播放器。
 2026-09-18 已在本機確認照片載入及 B201 FLV 1920×1080 實際播放。
 長時間／雲端運作尚未驗證。
+
+## Optional proxy test
+
+For a temporary cloud-egress test, set these Render environment variables for
+the relay service using a Webshare proxy (HTTP or SOCKS5):
+
+```text
+AB_PROXY_SERVER=http://host:port
+AB_PROXY_USERNAME=<proxy username>
+AB_PROXY_PASSWORD=<proxy password>
+```
+
+The values are read only by the AB browser worker and are not logged. Remove
+the three variables to return to the direct connection path. Free shared
+proxies are for connectivity testing only and may be blocked by the upstream.
