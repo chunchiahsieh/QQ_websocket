@@ -153,6 +153,17 @@ static class BrowserRelay
             {
                 foreach (var candidate in context.Pages.Where(p => !p.IsClosed))
                 {
+                    var joinGame = candidate.Locator("[data-tag='joinGame']").First;
+                    try
+                    {
+                        if (await joinGame.IsVisibleAsync())
+                        {
+                            entryPage = candidate;
+                            enter = joinGame;
+                            break;
+                        }
+                    }
+                    catch (PlaywrightException) { }
                     foreach (var label in new[] { "進入遊戲", "进入游戏" })
                     {
                         var candidateEnter = candidate.GetByText(label, new() { Exact = true }).First;
