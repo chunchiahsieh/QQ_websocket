@@ -111,6 +111,22 @@ static class MtRelay
             await context.AddInitScriptAsync("Object.defineProperty(navigator, 'webdriver', { get: () => undefined });");
             using var cancellation = ct.Register(() => { _ = browser.CloseAsync(); });
             var page = await context.NewPageAsync();
+            page.RequestFailed += (_, request) =>
+            {
+                if (Uri.TryCreate(request.Url, UriKind.Absolute, out var uri)
+                    && (uri.Host.Contains("tz6868", StringComparison.OrdinalIgnoreCase)
+                        || uri.Host.Contains("ofalive", StringComparison.OrdinalIgnoreCase)
+                        || uri.AbsolutePath.Contains("/api/trpc", StringComparison.OrdinalIgnoreCase)))
+                    Console.WriteLine($"[MT] browser request failed: {uri.Host}{uri.AbsolutePath} · {request.Failure}");
+            };
+            page.Response += (_, response) =>
+            {
+                if (Uri.TryCreate(response.Url, UriKind.Absolute, out var uri)
+                    && (uri.Host.Contains("tz6868", StringComparison.OrdinalIgnoreCase)
+                        || uri.Host.Contains("ofalive", StringComparison.OrdinalIgnoreCase)
+                        || uri.AbsolutePath.Contains("/api/trpc", StringComparison.OrdinalIgnoreCase)))
+                    Console.WriteLine($"[MT] browser response: {response.Status} {uri.Host}{uri.AbsolutePath}");
+            };
             var packets = Channel.CreateBounded<string>(512);
             Microsoft.Playwright.IWebSocket? liveSocket = null;
             void Attach(IPage target) { target.WebSocket += (_, ws) => {
