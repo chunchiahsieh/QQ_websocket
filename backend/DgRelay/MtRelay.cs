@@ -98,9 +98,13 @@ static class MtRelay
         {
             using var playwright = await Playwright.CreateAsync();
             await using var browser = await playwright.Chromium.LaunchAsync(new() {
-                // MT blocks headless Chromium with a generic access page; use the
-                // installed desktop browser profile just like the official site.
-                Headless = false, Channel = configuration["DG_BROWSER_CHANNEL"] ?? "msedge", Timeout = 30000
+                // MT rejects headless Chromium. Keep a real browser session for
+                // its WebSocket handshake, but move/minimize the window so the
+                // frontend receives data without a visible popup.
+                Headless = false,
+                Channel = configuration["DG_BROWSER_CHANNEL"] ?? "msedge",
+                Args = new[] { "--start-minimized", "--window-position=-32000,-32000" },
+                Timeout = 30000
             });
             await using var context = await browser.NewContextAsync(new() { AcceptDownloads = false });
             using var cancellation = ct.Register(() => { _ = browser.CloseAsync(); });
@@ -135,8 +139,17 @@ static class MtRelay
             await page.GetByPlaceholder("帳號", new() { Exact = true }).FillAsync(configuration["MT_BACKEND_USERNAME"]!);
             await page.GetByPlaceholder("密碼", new() { Exact = true }).FillAsync(configuration["MT_BACKEND_PASSWORD"]!);
             await page.GetByText("登入", new() { Exact = true }).First.ClickAsync(new() { Force = true });
-            try { await page.GetByText("登出", new() { Exact = true }).WaitForAsync(new() { Timeout = 20000 }); }
-            catch (System.TimeoutException)
+            var loginReady = false;
+            try { await page.GetByText("登出", new() { Exact = true }).WaitForAsync(new() { Timeout = 20000 }); loginReady = true; }
+            catch (System.TimeoutException) { }
+            if (!loginReady)
+            {
+                // Some official builds do not render a literal "登出" label
+                // after login, but expose the 真人 entry immediately.
+                try { await page.GetByText("真人", new() { Exact = true }).First.WaitForAsync(new() { Timeout = 3000 }); loginReady = true; }
+                catch (System.TimeoutException) { }
+            }
+            if (!loginReady)
             {
                 // Surface the official, non-sensitive reason when the site
                 // rejects the credentials; do not mistake it for a socket
@@ -144,7 +157,7 @@ static class MtRelay
                 var body = await page.Locator("body").InnerTextAsync();
                 if (body.Contains("密碼錯誤", StringComparison.Ordinal))
                     throw new DgLoginRequiredException("官方登入頁回報會員密碼錯誤（4401）。");
-                    throw new DgLoginRequiredException();
+                throw new DgLoginRequiredException();
             }
             await page.GetByText("真人", new() { Exact = true }).First.ClickAsync(new() { Force = true });
             await Task.Delay(500);
