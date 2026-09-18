@@ -135,7 +135,10 @@ static class BrowserRelay
             await context.RouteAsync("**/*", async route =>
             {
                 var resourceType = route.Request.ResourceType;
-                if (resourceType is "image" or "font" or "media")
+                // The DG bundle waits for its TTF load callback before it
+                // initializes the protobuf/WebSocket feed. Keep fonts
+                // available; only large visual resources are optional here.
+                if (resourceType is "image" or "media")
                 {
                     await route.AbortAsync();
                     return;
