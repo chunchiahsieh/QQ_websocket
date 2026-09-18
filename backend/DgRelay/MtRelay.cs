@@ -136,7 +136,7 @@ static class MtRelay
             // then let Edge observe the official ofalive WebSocket. Opening
             // jrk.tz6868.com first is blocked with HTTP 403 from Render even
             // when the account and source IP are valid.
-            var gameUrl = await ResolveMtGameUrl(configuration, ct);
+            var gameUrl = await ResolveMtGameUrl(page, configuration, ct);
             Console.WriteLine($"[MT] game URL obtained: {new Uri(gameUrl).Host}");
             var platformNavigation = await page.GotoAsync(gameUrl, new() { WaitUntil = WaitUntilState.DOMContentLoaded, Timeout = 30000 });
             Console.WriteLine($"[MT] game page opened: {page.Url} status={platformNavigation?.Status}");
@@ -241,47 +241,115 @@ static class MtRelay
         finally { Interlocked.Decrement(ref active); feed!.Connection(false); }
     }
 
-    static async Task<string> ResolveMtGameUrl(IConfiguration configuration, CancellationToken ct)
+    static async Task<string> ResolveMtGameUrl(IPage page, IConfiguration configuration, CancellationToken ct)
     {
-        using var client = new HttpClient { Timeout = TimeSpan.FromSeconds(20) };
-        client.DefaultRequestHeaders.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
-        client.DefaultRequestHeaders.Accept.Add(new MediaTypeWithQualityHeaderValue("text/plain"));
         var baseUrl = "https://www.tz6868.cc";
         var deviceId = configuration["MT_BACKEND_DEVICE_ID"]
             ?? configuration["DG_BACKEND_DEVICE_ID"]
             ?? Guid.NewGuid().ToString();
-        var loginBody = JsonSerializer.Serialize(new {
-            username = configuration["MT_BACKEND_USERNAME"],
-            password = configuration["MT_BACKEND_PASSWORD"],
-            device_id = deviceId,
-        });
-        using var loginResponse = await client.PostAsync(
-            $"{baseUrl}/api/v1/login",
-            new StringContent(loginBody, Encoding.UTF8, "application/json"), ct);
-        var loginPayload = System.Text.Json.Nodes.JsonNode.Parse(await loginResponse.Content.ReadAsStringAsync(ct));
-        if (loginResponse.StatusCode == System.Net.HttpStatusCode.Forbidden)
-            throw new UpstreamAccessDeniedException();
-        var memberToken = FirstString(loginPayload,
-            "data.token", "token", "data.access_token", "access_token");
-        if (!loginResponse.IsSuccessStatusCode || string.IsNullOrWhiteSpace(memberToken))
-            throw new DgLoginRequiredException("MT 官方帳號驗證失敗。");
+        var username = configuration["MT_BACKEND_USERNAME"] ?? "";
+        var password = configuration["MT_BACKEND_PASSWORD"] ?? "";
+        try
+        {
+            using var client = new HttpClient { Timeout = TimeSpan.FromSeconds(20) };
+            client.DefaultRequestHeaders.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+            client.DefaultRequestHeaders.Accept.Add(new MediaTypeWithQualityHeaderValue("text/plain"));
+            using var loginResponse = await client.PostAsync(
+                $"{baseUrl}/api/v1/login",
+                new StringContent(JsonSerializer.Serialize(new { username, password, device_id = deviceId }), Encoding.UTF8, "application/json"), ct);
+            var loginText = await loginResponse.Content.ReadAsStringAsync(ct);
+            if (loginResponse.StatusCode == System.Net.HttpStatusCode.Forbidden
+                && loginText.TrimStart().StartsWith("<", StringComparison.Ordinal))
+                throw new InvalidDataException("MT API returned an HTML access challenge.");
+            var loginPayload = System.Text.Json.Nodes.JsonNode.Parse(loginText);
+            if (loginResponse.StatusCode == System.Net.HttpStatusCode.Forbidden)
+                throw new UpstreamAccessDeniedException();
+            var memberToken = FirstString(loginPayload,
+                "data.token", "token", "data.access_token", "access_token");
+            if (!loginResponse.IsSuccessStatusCode || string.IsNullOrWhiteSpace(memberToken))
+                throw new DgLoginRequiredException("MT 官方帳號驗證失敗。");
 
-        using var gameRequest = new HttpRequestMessage(HttpMethod.Post, $"{baseUrl}/api/v2/game/MTLI/login");
-        gameRequest.Headers.Authorization = new AuthenticationHeaderValue("Bearer", memberToken);
-        gameRequest.Content = new StringContent(JsonSerializer.Serialize(new {
-            game_return_url = baseUrl,
-            game_kind = "",
-            game_type = "",
-            game_device = "Desktop",
-        }), Encoding.UTF8, "application/json");
-        using var gameResponse = await client.SendAsync(gameRequest, ct);
-        var gamePayload = System.Text.Json.Nodes.JsonNode.Parse(await gameResponse.Content.ReadAsStringAsync(ct));
-        if (gameResponse.StatusCode == System.Net.HttpStatusCode.Forbidden)
+            using var gameRequest = new HttpRequestMessage(HttpMethod.Post, $"{baseUrl}/api/v2/game/MTLI/login");
+            gameRequest.Headers.Authorization = new AuthenticationHeaderValue("Bearer", memberToken);
+            gameRequest.Content = new StringContent(JsonSerializer.Serialize(new {
+                game_return_url = baseUrl,
+                game_kind = "",
+                game_type = "",
+                game_device = "Desktop",
+            }), Encoding.UTF8, "application/json");
+            using var gameResponse = await client.SendAsync(gameRequest, ct);
+            var gameText = await gameResponse.Content.ReadAsStringAsync(ct);
+            if (gameResponse.StatusCode == System.Net.HttpStatusCode.Forbidden
+                && gameText.TrimStart().StartsWith("<", StringComparison.Ordinal))
+                throw new InvalidDataException("MT game API returned an HTML access challenge.");
+            var gamePayload = System.Text.Json.Nodes.JsonNode.Parse(gameText);
+            if (gameResponse.StatusCode == System.Net.HttpStatusCode.Forbidden)
+                throw new UpstreamAccessDeniedException();
+            var gameUrl = FirstString(gamePayload,
+                "data.game_url", "data.url", "url", "game_url");
+            if (!gameResponse.IsSuccessStatusCode || string.IsNullOrWhiteSpace(gameUrl))
+                throw new DgLoginRequiredException("MT 官方未提供遊戲授權網址。");
+            return ValidateMtGameUrl(gameUrl);
+        }
+        catch (InvalidDataException ex)
+        {
+            Console.WriteLine($"[MT] server-side API challenge; retrying through Edge: {ex.Message}");
+        }
+        catch (JsonException ex)
+        {
+            Console.WriteLine($"[MT] server-side API returned non-JSON; retrying through Edge: {ex.Message}");
+        }
+        catch (HttpRequestException ex)
+        {
+            Console.WriteLine($"[MT] server-side API unavailable; retrying through Edge: {ex.Message}");
+        }
+
+        // Render's server-side HTTP client can receive the official anti-bot
+        // HTML challenge even when a real Edge context is allowed. Perform the
+        // same two API calls from the browser context, then navigate that page
+        // to the returned ofalive URL so the official WebSocket sees a normal
+        // browser fingerprint.
+        try
+        {
+            var navigation = await page.GotoAsync($"{baseUrl}/", new() { WaitUntil = WaitUntilState.DOMContentLoaded, Timeout = 30000 });
+            Console.WriteLine($"[MT] API browser context opened: {page.Url} status={navigation?.Status}");
+            var browserScript = """
+                async (config) => {
+                    const headers = { 'Content-Type': 'application/json', 'Accept': 'application/json, text/plain, */*' };
+                    const login = await fetch(`${config.baseUrl}/api/v1/login`, {
+                        method: 'POST', headers,
+                        body: JSON.stringify({ username: config.username, password: config.password, device_id: config.deviceId })
+                    });
+                    const loginBody = await login.json();
+                    const memberToken = loginBody?.data?.token || loginBody?.token || loginBody?.data?.access_token || loginBody?.access_token;
+                    if (!login.ok || !memberToken) throw new Error('MT 官方帳號驗證失敗。');
+                    const game = await fetch(`${config.baseUrl}/api/v2/game/MTLI/login`, {
+                        method: 'POST', headers: { ...headers, Authorization: `Bearer ${memberToken}` },
+                        body: JSON.stringify({ game_return_url: config.baseUrl, game_kind: '', game_type: '', game_device: 'Desktop' })
+                    });
+                    const gameBody = await game.json();
+                    const url = gameBody?.data?.game_url || gameBody?.data?.url || gameBody?.raw?.game_url || gameBody?.raw?.url;
+                    if (!game.ok || !url) throw new Error('MT 官方未提供遊戲授權網址。');
+                    return String(url).replaceAll('\\/', '/');
+                }
+                """;
+            var gameUrl = await page.EvaluateAsync<string>(browserScript,
+                new { baseUrl, username, password, deviceId });
+            return ValidateMtGameUrl(gameUrl);
+        }
+        catch (PlaywrightException ex)
+        {
+            Console.WriteLine($"[MT] official browser API denied: {ex.Message}");
             throw new UpstreamAccessDeniedException();
-        var gameUrl = FirstString(gamePayload,
-            "data.game_url", "data.url", "url", "game_url");
-        if (!gameResponse.IsSuccessStatusCode || string.IsNullOrWhiteSpace(gameUrl))
-            throw new DgLoginRequiredException("MT 官方未提供遊戲授權網址。");
+        }
+        catch (JsonException)
+        {
+            throw new UpstreamAccessDeniedException();
+        }
+    }
+
+    static string ValidateMtGameUrl(string gameUrl)
+    {
         if (!Uri.TryCreate(gameUrl.Replace("\\/", "/"), UriKind.Absolute, out var parsed)
             || parsed.Scheme != Uri.UriSchemeHttps
             || !parsed.Host.EndsWith("ofalive99.net", StringComparison.OrdinalIgnoreCase)
