@@ -1,0 +1,329 @@
+@import 'tailwindcss';
+@import 'tw-animate-css';
+@import 'shadcn/tailwind.css';
+
+@custom-variant dark (&:is(.dark *));
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+  --font-heading: var(--font-sans);
+  --color-sidebar-ring: var(--sidebar-ring);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar: var(--sidebar);
+  --color-chart-5: var(--chart-5);
+  --color-chart-4: var(--chart-4);
+  --color-chart-3: var(--chart-3);
+  --color-chart-2: var(--chart-2);
+  --color-chart-1: var(--chart-1);
+  --color-ring: var(--ring);
+  --color-input: var(--input);
+  --color-border: var(--border);
+  --color-destructive: var(--destructive);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-accent: var(--accent);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-muted: var(--muted);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-secondary: var(--secondary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-primary: var(--primary);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-popover: var(--popover);
+  --color-card-foreground: var(--card-foreground);
+  --color-card: var(--card);
+  --radius-sm: calc(var(--radius) * 0.6);
+  --radius-md: calc(var(--radius) * 0.8);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) * 1.4);
+  --radius-2xl: calc(var(--radius) * 1.8);
+  --radius-3xl: calc(var(--radius) * 2.2);
+  --radius-4xl: calc(var(--radius) * 2.6);
+}
+
+html {
+  min-height: 100%;
+  background: #121a2a;
+}
+
+body {
+  min-height: 100vh;
+  font-family: var(--font-geist-sans), Arial, Helvetica, sans-serif;
+  background:
+    radial-gradient(ellipse at 52% -18%, rgb(35 103 177 / 25%), transparent 48%),
+    linear-gradient(125deg, rgb(72 155 233 / 5%) 1px, transparent 1px),
+    #121a2a;
+  background-size: auto, 28px 28px, auto;
+  background-attachment: fixed;
+}
+
+:root {
+  --background: oklch(0.17 0.025 255);
+  --foreground: oklch(0.94 0.025 240);
+  --card: oklch(0.21 0.03 252);
+  --card-foreground: oklch(0.94 0.025 240);
+  --popover: oklch(0.21 0.03 252);
+  --popover-foreground: oklch(0.94 0.025 240);
+  --primary: oklch(0.74 0.15 220);
+  --primary-foreground: oklch(0.18 0.03 250);
+  --secondary: oklch(0.26 0.04 250);
+  --secondary-foreground: oklch(0.9 0.035 230);
+  --muted: oklch(0.24 0.03 250);
+  --muted-foreground: oklch(0.69 0.035 235);
+  --accent: oklch(0.3 0.07 245);
+  --accent-foreground: oklch(0.94 0.025 235);
+  --destructive: oklch(0.577 0.245 27.325);
+  --border: oklch(0.48 0.09 240 / 55%);
+  --input: oklch(0.48 0.09 240 / 55%);
+  --ring: oklch(0.72 0.15 220);
+  --chart-1: oklch(0.87 0 0);
+  --chart-2: oklch(0.556 0 0);
+  --chart-3: oklch(0.439 0 0);
+  --chart-4: oklch(0.371 0 0);
+  --chart-5: oklch(0.269 0 0);
+  --radius: 0.625rem;
+  --sidebar: oklch(0.985 0 0);
+  --sidebar-foreground: oklch(0.145 0 0);
+  --sidebar-primary: oklch(0.205 0 0);
+  --sidebar-primary-foreground: oklch(0.985 0 0);
+  --sidebar-accent: oklch(0.97 0 0);
+  --sidebar-accent-foreground: oklch(0.205 0 0);
+  --sidebar-border: oklch(0.922 0 0);
+  --sidebar-ring: oklch(0.708 0 0);
+}
+
+.dark {
+  --background: oklch(0.145 0 0);
+  --foreground: oklch(0.985 0 0);
+  --card: oklch(0.205 0 0);
+  --card-foreground: oklch(0.985 0 0);
+  --popover: oklch(0.205 0 0);
+  --popover-foreground: oklch(0.985 0 0);
+  --primary: oklch(0.922 0 0);
+  --primary-foreground: oklch(0.205 0 0);
+  --secondary: oklch(0.269 0 0);
+  --secondary-foreground: oklch(0.985 0 0);
+  --muted: oklch(0.269 0 0);
+  --muted-foreground: oklch(0.708 0 0);
+  --accent: oklch(0.269 0 0);
+  --accent-foreground: oklch(0.985 0 0);
+  --destructive: oklch(0.704 0.191 22.216);
+  --border: oklch(1 0 0 / 10%);
+  --input: oklch(1 0 0 / 15%);
+  --ring: oklch(0.556 0 0);
+  --chart-1: oklch(0.87 0 0);
+  --chart-2: oklch(0.556 0 0);
+  --chart-3: oklch(0.439 0 0);
+  --chart-4: oklch(0.371 0 0);
+  --chart-5: oklch(0.269 0 0);
+  --sidebar: oklch(0.205 0 0);
+  --sidebar-foreground: oklch(0.985 0 0);
+  --sidebar-primary: oklch(0.488 0.243 264.376);
+  --sidebar-primary-foreground: oklch(0.985 0 0);
+  --sidebar-accent: oklch(0.269 0 0);
+  --sidebar-accent-foreground: oklch(0.985 0 0);
+  --sidebar-border: oklch(1 0 0 / 10%);
+  --sidebar-ring: oklch(0.556 0 0);
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  body {
+    @apply bg-background text-foreground;
+  }
+  html {
+    @apply font-sans;
+  }
+}
+
+/* OFA-inspired application surface: midnight navy, electric-blue dividers, and compact data panels. */
+.ofa-shell {
+  color: #e8f1fb;
+}
+
+.ofa-shell > div {
+  background: #151c2c;
+}
+
+.ofa-shell aside {
+  background: #080b12 !important;
+  border-color: #1b3556 !important;
+}
+
+.ofa-shell header,
+.ofa-shell section,
+.ofa-shell [role='tablist'],
+.ofa-shell article {
+  border-color: #173a63 !important;
+  background-color: #0b1019 !important;
+  box-shadow: none !important;
+}
+
+.ofa-shell input {
+  border-color: rgb(45 110 169 / 70%) !important;
+  background: #0b1424 !important;
+  color: #edf6ff !important;
+}
+
+.ofa-shell input:focus {
+  border-color: #4cc8ff !important;
+  box-shadow: 0 0 0 2px rgb(76 200 255 / 14%) !important;
+}
+
+.ofa-shell button[type='submit'] {
+  background: linear-gradient(180deg, #38c5ee, #1675d1) !important;
+  color: #f5fbff !important;
+  box-shadow: 0 10px 28px rgb(17 119 214 / 25%) !important;
+}
+
+.ofa-shell h1,
+.ofa-shell h2,
+.ofa-shell h3 {
+  color: #eef7ff !important;
+}
+
+.ofa-shell p {
+  color: #a9bdd3;
+}
+
+.ofa-shell article {
+  background: #0b1019 !important;
+}
+
+.ofa-shell article pre {
+  color: #d4e4f4 !important;
+}
+
+.ofa-shell iframe {
+  border: 0;
+  background: #121a2a;
+}
+
+.ofa-shell [class*='border-[#'] {
+  border-color: rgb(47 114 178 / 58%) !important;
+}
+
+.ofa-shell [class*='bg-[#'] {
+  background-color: #101a2c !important;
+}
+
+.ofa-shell [class*='text-[#'] {
+  color: #d5e5f6 !important;
+}
+
+.ofa-shell [class*='from-[#'],
+.ofa-shell [class*='to-[#'] {
+  --tw-gradient-from: #172641 !important;
+  --tw-gradient-to: #0b1424 !important;
+}
+
+.ofa-shell .text-\[\#ef8a75\] {
+  color: #ff6274 !important;
+}
+
+.ofa-shell .text-\[\#86aee1\] {
+  color: #5caeff !important;
+}
+
+.ofa-shell .text-\[\#e1bd66\] {
+  color: #55d6a7 !important;
+}
+
+.ofa-quick-rail {
+  align-self: start;
+  position: sticky;
+  top: 1.5rem;
+}
+
+.ofa-shell header {
+  border-radius: 0.75rem !important;
+  background: #101827 !important;
+}
+
+.ofa-shell header > div:first-child {
+  background: linear-gradient(90deg, #1b8fe4, #26d6be, #ee4f76) !important;
+}
+
+.ofa-shell .ofa-table-card {
+  container-type: inline-size;
+  border-color: #284766 !important;
+  background: #090d14 !important;
+}
+
+.table-card-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 3px 6px;
+  min-height: 34px;
+  font-family: Arial, 'Microsoft JhengHei', sans-serif;
+  font-size: clamp(12px, 2.8cqw, 22px);
+  line-height: 1.2;
+  white-space: nowrap;
+}
+.table-card-heading-left { display: flex; align-items: center; gap: clamp(5px, 1.5cqw, 12px); }
+.table-card-label {
+  display: flex;
+  align-items: stretch;
+  border: 2px solid #999;
+  border-radius: 2px;
+  color: white;
+  height: clamp(25px, 4.8cqw, 36px);
+}
+.table-card-label > span:first-child {
+  background: #999;
+  clip-path: polygon(0 0, 100% 0, 86% 100%, 0 100%);
+  padding: 2px 18px 2px 10px;
+  display: flex; align-items: center;
+}
+.table-card-label > span:last-child {
+  min-width: 3ch; padding: 2px 8px; text-align: center;
+  display: flex; align-items: center; justify-content: center;
+  font-size: .8em;
+}
+.table-card-players { display: flex; align-items: center; gap: 4px; color: white; font-weight: 700; font-variant-numeric: tabular-nums; }
+.table-card-players svg { width: .9em; height: .9em; flex-shrink: 0; }
+.table-card-totals { display: flex; gap: .4em; font-weight: 700; font-variant-numeric: tabular-nums; }
+.table-card-countdown { flex: 0 0 3.4em; width: 3.4em; min-width: 3.4em; gap: .25em; height: 1.7em; font-size: .85em; line-height: 1; background: #05070b; }
+@container (max-width: 440px) {
+  .table-card-heading { flex-wrap: wrap; gap: 4px; }
+  .table-card-totals { margin-left: auto; }
+}
+
+.ofa-shell .ofa-table-card > div:first-child {
+  background: #05070b !important;
+}
+
+.ofa-shell .ofa-quick-rail button {
+  border-color: #244665 !important;
+  background: #070a10 !important;
+}
+
+.ofa-shell .text-\[\#e8c779\],
+.ofa-shell .text-\[\#c9a55e\],
+.ofa-shell .text-\[\#f0ce83\],
+.ofa-shell .text-\[\#e5bf6b\] {
+  color: #6ed7ff !important;
+}
+
+.ofa-shell .border-amber-300\/25 {
+  border-color: rgb(83 196 255 / 32%) !important;
+}
+
+.ofa-shell .bg-amber-300\/\[0\.07\] {
+  background: rgb(35 138 210 / 12%) !important;
+}
+
+.ofa-shell .text-amber-200 {
+  color: #a8e5ff !important;
+}

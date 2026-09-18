@@ -1,0 +1,84 @@
+'use client';
+import { memo, useState } from 'react';
+import { Crown } from 'lucide-react';
+import { BaccaratRoad } from '@/components/baccarat-road';
+import { TableCountdown } from '@/components/table-countdown';
+import { DealerVideo } from '@/components/dealer-video';
+export type TableInfo = {
+  videoUrl?: string;
+  tableState?: string; countdownDeadline?: number; countdownReceivedAt?: number;
+  dealerPhoto?: string;
+  id: string; name: string; gameType: string; dealer: string; room: string; shoe: string; round: string;
+  banker: string; player: string; tie: string; players: string;
+  beadPlate: string; bigRoad: string; bigEyeRoad: string; smallRoad: string; cockroachRoad: string;
+};
+
+const dealerPhotos: Record<string,string> = {'艾希':'https://ds.ofalive99.net/static/imagesx/ad/2FMz3PC89Dsp2ZTfvCbL.png'};
+function DealerPortrait({ name, photo }: { name: string; photo?: string }) {
+  const source = photo || dealerPhotos[name];
+  const [failedSource, setFailedSource] = useState<string>();
+  return (
+    <div className="relative h-full min-h-0 overflow-hidden bg-slate-200">
+      {source && source !== failedSource ? (
+        <img src={source} alt={`荷官 ${name}`} loading="lazy" referrerPolicy="no-referrer"
+          className="absolute inset-0 h-full w-full object-cover object-top"
+          onError={() => setFailedSource(source)} />
+      ) : (
+        <div className="grid h-full place-items-center text-slate-500" aria-label="暫無荷官照片">
+          <Crown className="h-9 w-9" strokeWidth={1.4} />
+        </div>
+      )}
+    </div>
+  );
+}
+export const BaccaratTableCard = memo(function BaccaratTableCard({table, connected, beadOnly: initialBeadOnly = false, onFocusTable, platformLabel}: {table: TableInfo; connected: boolean; beadOnly?: boolean; onFocusTable?: (table: TableInfo) => void; platformLabel?: string}) {
+ const [cardMode, setCardMode] = useState<'full' | 'bead' | 'big' | 'eye' | 'small' | 'cockroach'>(initialBeadOnly ? 'bead' : 'full');
+ const [showDealer, setShowDealer] = useState(true);
+ const beadOnly = cardMode === 'bead';
+ const roadOnly = ['big', 'eye', 'small', 'cockroach'].includes(cardMode);
+ const resolvedPlatformLabel = platformLabel ?? (table.id.startsWith('DG:') ? 'DG' : table.id.startsWith('AB:') ? '歐博' : 'MT');
+ return (<article key={table.id} className="ofa-table-card group overflow-hidden border bg-[#12100c] transition hover:border-cyan-300/65">
+                    <div className="table-card-heading">
+                      <div className="table-card-heading-left">
+                        <span className="table-card-label"><span>{resolvedPlatformLabel} · 百家樂</span><span>{table.name}</span></span>
+                        <span className="table-card-players" aria-label={`在線人數 ${table.players}`}>
+                          <svg viewBox="0 0 24 24" aria-hidden="true" fill="currentColor"><circle cx="12" cy="7" r="4.5" /><path d="M3 22v-3a9 9 0 0 1 18 0v3Z" /></svg>{table.players}
+                        </span>
+                        <TableCountdown deadline={table.countdownDeadline} receivedAt={table.countdownReceivedAt}
+                          connected={connected} shuffling={table.tableState === '2'} />
+                      </div>
+                      <div className="flex items-center gap-1.5"><span className="hidden text-[10px] text-slate-400 sm:inline">牌卡</span><select value={cardMode} onChange={event => setCardMode(event.target.value as 'full' | 'bead' | 'big' | 'eye' | 'small' | 'cockroach')} aria-label={`${table.name}牌卡樣式`} className="h-8 rounded-md border border-cyan-300/65 bg-cyan-950/70 px-2.5 text-xs font-semibold text-cyan-100 outline-none focus:ring-2 focus:ring-cyan-300/40"><option value="full">MT牌卡</option><option value="bead">珠盤牌卡</option><option value="big">大路牌卡</option><option value="eye">大眼牌卡</option><option value="small">小路牌卡</option><option value="cockroach">蟑螂牌卡</option></select></div>
+                      <select defaultValue="" onChange={event => { const action = event.target.value; if (action === 'focus') onFocusTable?.(table); if (action === 'toggle-dealer') setShowDealer(value => !value); event.currentTarget.value = ''; }} aria-label={`${table.name}功能`} className="h-8 rounded-md border border-cyan-300/60 bg-cyan-950/70 px-2 text-xs font-semibold text-cyan-100"><option value="">功能</option>{onFocusTable && <option value="focus">關注牌桌</option>}<option value="toggle-dealer">{showDealer ? '隱藏荷官' : '顯示荷官'}</option></select>
+                      <div className="table-card-totals">
+                        <span style={{ color: '#e93439' }}>莊 {table.banker}</span>
+                        <span style={{ color: '#0099dc' }}>閒 {table.player}</span>
+                        <span style={{ color: '#279854' }}>和 {table.tie}</span>
+                      </div>
+                    </div>
+                    <div className={`relative grid aspect-[550/180] bg-white ${!showDealer ? 'grid-cols-1' : beadOnly || roadOnly ? 'grid-cols-[20%_minmax(0,1fr)]' : 'grid-cols-[20%_21.8181818%_minmax(0,1fr)]'}`}>
+                      <div className={`relative m-0.5 min-h-0 overflow-hidden rounded-md border-2 border-stone-400 bg-slate-200 ${showDealer ? '' : 'hidden'}`}>
+                        <DealerVideo source={table.videoUrl} connected={connected} tableName={table.name}>
+                        <DealerPortrait name={table.dealer} photo={table.dealerPhoto} />
+                        <div title={`房間 ${table.room} · Shoe ${table.shoe} · 第 ${table.round} 把`} className="absolute inset-x-0 bottom-0 z-10 bg-gradient-to-r from-purple-800 via-amber-100/90 to-amber-200/80 px-1.5 py-1 text-center text-sm leading-4">
+                          <span className="block truncate font-bold text-black">{table.dealer || '—'}</span>
+                        </div>
+                        </DealerVideo>
+                      </div>
+                      {!roadOnly && <div className="min-h-0 min-w-0 overflow-auto"><BaccaratRoad raw={table.beadPlate} kind="bead" /></div>}
+                      {!beadOnly && <div className={`grid min-h-0 min-w-0 overflow-auto ${roadOnly ? 'grid-cols-1' : 'grid-rows-[2fr_1fr]'}`}>
+                        {roadOnly ? <BaccaratRoad raw={cardMode === 'big' ? table.bigRoad : cardMode === 'eye' ? table.bigEyeRoad : cardMode === 'small' ? table.smallRoad : table.cockroachRoad} kind={cardMode === 'big' ? 'big' : cardMode === 'eye' ? 'eye' : cardMode === 'small' ? 'small' : 'cockroach'} /> : <BaccaratRoad raw={table.bigRoad} kind="big" />}
+                        {!roadOnly && <div className="grid min-h-0 min-w-0 grid-cols-3">
+                          <BaccaratRoad raw={table.bigEyeRoad} kind="eye" />
+                          <BaccaratRoad raw={table.smallRoad} kind="small" />
+                          <BaccaratRoad raw={table.cockroachRoad} kind="cockroach" />
+                        </div>}
+                      </div>}
+                      {table.tableState === '2' && connected && (
+                        <div role="status" aria-label="洗牌中" className="pointer-events-none absolute inset-y-0 left-[20%] right-0 z-10 grid place-items-center bg-sky-500/40">
+                          <span className="text-4xl font-black text-white" style={{ textShadow: '0 2px 0 #087eb9, 2px 0 0 #087eb9, -2px 0 0 #087eb9, 0 -2px 0 #087eb9' }}>洗牌中</span>
+                        </div>
+                      )}
+                    </div>
+                  </article>
+ );
+});
