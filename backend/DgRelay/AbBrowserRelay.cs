@@ -152,7 +152,7 @@ static class AbBrowserRelay
                     if (!packets.Writer.TryWrite(bytes)) packets.Writer.TryComplete(new InvalidDataException());
                 };
             };
-            await page.GotoAsync("https://www.cali7777.net/#/",new() { WaitUntil=WaitUntilState.DOMContentLoaded, Timeout=60000 });
+            var loginResponse = await page.GotoAsync("https://www.cali7777.net/#/",new() { WaitUntil=WaitUntilState.DOMContentLoaded, Timeout=60000 });
             // Render can occasionally finish DOMContentLoaded before the AB
             // SPA has mounted its login form. Log only non-sensitive page
             // metadata so cloud diagnostics can distinguish a slow app from
@@ -162,6 +162,14 @@ static class AbBrowserRelay
             var pageTitle = await page.TitleAsync();
             var inputCount = await page.Locator("input").CountAsync();
             Console.WriteLine($"[歐博] login page loaded: {pageUri}; title={pageTitle}; inputs={inputCount}");
+            // The AB provider returns a branded /403 page to cloud egress
+            // addresses that are not allow-listed. Treat that differently
+            // from a bad password so the frontend stops retrying a blocked
+            // source and tells the operator what must be changed.
+            if (loginResponse?.Status == 403
+                || loadedUri?.AbsolutePath.Contains("/403", StringComparison.OrdinalIgnoreCase) == true
+                || pageTitle.Contains("Access Restricted", StringComparison.OrdinalIgnoreCase))
+                throw new UpstreamAccessDeniedException();
             // A delayed announcement layer can cover the login form.
             var notice = page.GetByText("確定", new() { Exact = true }).First;
             try
