@@ -442,10 +442,8 @@ export default function Home() {
   const [cardsPerRow, setCardsPerRow] = useState<CardColumns>(2);
   const [tableUpdatedAt, setTableUpdatedAt] = useState('');
   const [mtMessage, setMtMessage] = useState('等待牌桌資料');
-  const [mtLaunchUrl, setMtLaunchUrl] = useState('');
   const [mtConnection, setMtConnection] = useState<MtFrontendConnection | null>(null);
   const [mtDemand, setMtDemand] = useState(false);
-  const [mtUrlError, setMtUrlError] = useState('');
   const [username, setUsername] = useState(defaultUsername);
   const [password, setPassword] = useState(defaultPassword);
   const [loginStatus, setLoginStatus] = useState<'idle' | 'loading' | 'success' | 'error'>('idle');
@@ -454,7 +452,6 @@ export default function Home() {
   const [platform, setPlatform] = useState<'MT' | 'DG' | 'AB'>('MT');
   const [activeMenu, setActiveMenu] = useState<'tables' | 'payout' | 'compare' | 'regression'>('tables');
   const [menuCollapsed, setMenuCollapsed] = useState(false);
-  const [showMtSettings, setShowMtSettings] = useState(false);
   const [mtCollectorMode, setMtCollectorMode] = useState(false);
   const [loggingOut, setLoggingOut] = useState(false);
   const [logoutError, setLogoutError] = useState('');
@@ -464,7 +461,6 @@ export default function Home() {
   useEffect(() => {
     const collectorMode = new URLSearchParams(window.location.search).get('collector') === '1';
     setMtCollectorMode(collectorMode);
-    if (collectorMode) setShowMtSettings(true);
   }, []);
 
   // Presence is based on being logged in to this system, not on which
@@ -527,29 +523,6 @@ export default function Home() {
     setStatus('idle');
   };
 
-  const connectMtFromUrl = (event: SyntheticEvent<HTMLFormElement>) => {
-    event.preventDefault();
-    setMtUrlError('');
-    try {
-      const connection = parseMtLaunchUrl(mtLaunchUrl);
-      setTables([]);
-      setTablesByPlatform(previous => ({ ...previous, MT: [] }));
-      setTableUpdatedAt('');
-      setMtConnection(connection);
-      setMtMessage('正在由瀏覽器連線 MT…');
-      setStatus('connecting');
-      setShowMtSettings(false);
-    } catch (error) {
-      setMtConnection(null);
-      setStatus('error');
-      setMtUrlError(error instanceof Error ? error.message : 'MT 授權網址無法使用。');
-    }
-  };
-
-  const openMtOfficial = () => {
-    window.open('https://www.tz6868.com/', '_blank', 'noopener,noreferrer');
-  };
-
   const logout = async () => {
     setLoggingOut(true); setLogoutError('');
     try {
@@ -560,7 +533,7 @@ export default function Home() {
       setTables([]); setTableUpdatedAt('');
       setConnectedByPlatform({ MT: false, DG: false, AB: false });
       setPassword(''); setLoginStatus('idle'); setLoginMessage('');
-      setMtConnection(null); setMtLaunchUrl(''); setMtUrlError('');
+       setMtConnection(null);
       setIsAuthenticated(false);
     } catch { setLogoutError('登出未完成，請再試一次。'); }
     finally { setLoggingOut(false); }
@@ -594,6 +567,32 @@ export default function Home() {
       let result: { token?: string; message?: string; platforms?: { MT: { ready: boolean; error?: string }; DG: { ready: boolean; error?: string } } } = {};
       try { result = raw ? JSON.parse(raw) : {}; } catch { result = { message: raw.trim() || `登入服務回應錯誤（HTTP ${response.status}）。` }; }
       if (!response.ok || !result.platforms?.MT.ready) throw new Error(result.message || '平台後台尚未設定。');
+
+      // Collector mode performs the official MT login in this browser. The
+      // credentials come from the current login form and are never embedded
+      // in the bundle or sent to our backend after this request.
+      if (mtCollectorMode) {
+        const officialResponse = await fetch('https://www.tz6868.com/api/v1/login', {
+          method: 'POST',
+          mode: 'cors',
+          headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+          body: JSON.stringify({ username: username.trim(), password, device_id: deviceId }),
+        });
+        const officialPayload = await officialResponse.json().catch(() => null) as unknown;
+        const officialData = officialPayload && typeof officialPayload === 'object' && 'data' in officialPayload
+          && officialPayload.data && typeof officialPayload.data === 'object'
+          ? officialPayload.data as Record<string, unknown>
+          : {};
+        const officialToken = typeof officialData.token === 'string' ? officialData.token.trim() : '';
+        if (!officialResponse.ok || !officialToken) throw new Error('MT 官網登入失敗，請確認採集帳號密碼。');
+        const connection = parseMtLaunchUrl(`https://gsa.ofalive99.net/?token=${encodeURIComponent(officialToken)}&lang=zhtw`);
+        setMtConnection(connection);
+        setTables([]);
+        setTablesByPlatform(previous => ({ ...previous, MT: [] }));
+        setTableUpdatedAt('');
+        setMtMessage('正在由瀏覽器連線 MT…');
+        setStatus('connecting');
+      }
       localStorage.removeItem('table-monitor-token');
       setPassword('');
       setLoginStatus('success');
@@ -978,7 +977,6 @@ export default function Home() {
             className={`rounded-lg border px-6 py-2 font-bold ${platform === value ? 'border-cyan-400 bg-cyan-700 text-white' : 'border-slate-600 text-slate-400'}`}>{value === 'AB' ? '歐博' : value}</button>)}
         </div>}
         <div className="ml-auto flex flex-wrap items-center justify-end gap-2">
-              {activeMenu === 'tables' && platform === 'MT' && mtCollectorMode && <button type="button" onClick={() => setShowMtSettings(true)} className="flex h-10 items-center gap-2 rounded-lg border border-cyan-300/45 bg-cyan-950/40 px-3 text-sm text-cyan-100 hover:bg-cyan-800/50">連線設定</button>}
               <ContactLinks />
               <button type="button" onClick={logout} disabled={loggingOut}
                 className="flex h-10 items-center gap-2 rounded-lg border border-slate-600 px-4 text-sm text-white hover:bg-white/10 disabled:opacity-50">
@@ -987,19 +985,20 @@ export default function Home() {
               {logoutError && <span role="alert" className="text-sm text-rose-300">{logoutError}</span>}
         </div>
         </div>
+        {isAuthenticated && <div className={activeMenu === 'tables' && platform === 'DG' ? '' : 'hidden'} aria-hidden={activeMenu !== 'tables' || platform !== 'DG'}>
+          <DgMonitor onStatus={handleDgStatus} onTables={handleDgTables} onFocusTable={focusTable} cardColumns={cardsPerRow} onCardColumnsChange={setCardsPerRow} />
+        </div>}
         {activeMenu === 'regression' ? <RegressionTest /> : activeMenu === 'payout' ? <PayoutFeature /> : activeMenu === 'compare' ? <>
-          <FocusedTableCompare tablesByPlatform={tablesByPlatform} connectedByPlatform={connectedByPlatform} selected={focusedTables} onSelectedChange={setFocusedTables} cardsPerRow={cardsPerRow} onCardsPerRowChange={setCardsPerRow} onFocusTable={focusTable} />
-          <div className="hidden" aria-hidden="true">
-            {hasFocusedDg && <DgMonitor onStatus={handleDgStatus} onTables={handleDgTables} cardColumns={cardsPerRow} onCardColumnsChange={setCardsPerRow} />}
-            {hasFocusedAb && <AbMonitor onStatus={handleAbStatus} onTables={handleAbTables} cardColumns={cardsPerRow} onCardColumnsChange={setCardsPerRow} />}
-          </div>
+           <FocusedTableCompare tablesByPlatform={tablesByPlatform} connectedByPlatform={connectedByPlatform} selected={focusedTables} onSelectedChange={setFocusedTables} cardsPerRow={cardsPerRow} onCardsPerRowChange={setCardsPerRow} onFocusTable={focusTable} />
+           <div className="hidden" aria-hidden="true">
+             {hasFocusedAb && <AbMonitor onStatus={handleAbStatus} onTables={handleAbTables} cardColumns={cardsPerRow} onCardColumnsChange={setCardsPerRow} />}
+           </div>
         </> : <div id="platform-content" role="tabpanel" aria-labelledby={`platform-${platform}`}>
         <h1 className="sr-only">{platform === 'AB' ? '歐博' : platform} · 即時桌況</h1>
 
 
 
-        {platform === 'DG' && <DgMonitor onStatus={handleDgStatus} onTables={handleDgTables} onFocusTable={focusTable} cardColumns={cardsPerRow} onCardColumnsChange={setCardsPerRow} />}
-        {platform === 'AB' && <AbMonitor onStatus={handleAbStatus} onTables={handleAbTables} onFocusTable={focusTable} cardColumns={cardsPerRow} onCardColumnsChange={setCardsPerRow} />}
+         {platform === 'AB' && <AbMonitor onStatus={handleAbStatus} onTables={handleAbTables} onFocusTable={focusTable} cardColumns={cardsPerRow} onCardColumnsChange={setCardsPerRow} />}
         {platform === 'MT' && <>
           <section className="overflow-hidden rounded-2xl border border-[#86632f]/35 bg-[#0d0b08]/92">
             <header className="flex flex-wrap items-center justify-between gap-3 border-b border-[#5d451f]/60 px-6 py-4">
@@ -1013,26 +1012,6 @@ export default function Home() {
               ))}
             </div>
           </section>
-          {mtCollectorMode && showMtSettings && <div className="fixed inset-0 z-50 grid place-items-center bg-black/65 p-4" role="presentation" onMouseDown={event => { if (event.target === event.currentTarget) setShowMtSettings(false); }}>
-            <section role="dialog" aria-modal="true" aria-labelledby="mt-settings-title" className="w-full max-w-2xl overflow-hidden rounded-2xl border border-cyan-300/35 bg-[#0d111a] shadow-[0_24px_90px_rgba(0,0,0,.65)]">
-              <header className="flex items-center justify-between border-b border-cyan-300/20 px-5 py-4">
-                <div><h2 id="mt-settings-title" className="font-semibold text-cyan-100">MT 連線設定</h2><p className="mt-1 text-xs text-slate-400">貼上登入後的 MT 授權網址以開始即時連線。</p></div>
-                <button type="button" onClick={() => setShowMtSettings(false)} className="rounded border border-slate-600 px-2.5 py-1 text-slate-300 hover:bg-white/10" aria-label="關閉連線設定">×</button>
-              </header>
-              <form onSubmit={connectMtFromUrl} className="grid gap-3 px-5 py-5">
-                <label className="grid gap-1.5 text-xs font-medium text-cyan-100">MT 授權網址（網址需包含 token）
-                  <input value={mtLaunchUrl} onChange={event => { setMtLaunchUrl(event.target.value); setMtUrlError(''); }} type="url" inputMode="url" autoComplete="off" placeholder="https://gsa.ofalive99.net/?token=xxxx&lang=zhtw" className="h-10 rounded-lg border border-cyan-300/35 bg-black/30 px-3 text-xs text-white outline-none focus:border-cyan-200" />
-                </label>
-                <p className="text-[11px] leading-5 text-slate-400">授權網址只會保留在目前瀏覽器記憶體。</p>
-                {mtUrlError && <p role="alert" className="text-xs text-rose-300">{mtUrlError}</p>}
-                {mtConnection && !mtUrlError && <p className="text-xs text-emerald-300">已設定 MT 連線：{new URL(mtConnection.websocketUrl).host}</p>}
-                <div className="flex flex-wrap justify-end gap-2">
-                  <button type="button" onClick={openMtOfficial} className="h-10 rounded-lg border border-amber-300/50 bg-amber-900/40 px-3 text-xs font-semibold text-amber-100 hover:bg-amber-800/60">開啟 MT 官網</button>
-                  <button type="submit" className="h-10 rounded-lg border border-cyan-300/55 bg-cyan-800/70 px-4 text-xs font-semibold text-white hover:bg-cyan-700">開始連線</button>
-                </div>
-              </form>
-            </section>
-          </div>}
         </>}
         </div>}
         </div>
