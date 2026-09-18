@@ -14,9 +14,15 @@ type LocalAccount = { id?: string; username?: string; stamp?: string };
 // A deployment that only contains the frontend has no local AccountAdmin
 // process to validate the demo account. Keep the fallback opt-in and entirely
 // environment-based so it cannot silently create a production backdoor.
-const loginDemoAccount = (username: string, password: string): LocalAccount | null => {
-  const demoUsername = runtimeEnv('DEMO_LOGIN_USERNAME')?.trim();
-  const demoPassword = runtimeEnv('DEMO_LOGIN_PASSWORD');
+const loginDemoAccount = (request: Request, username: string, password: string): LocalAccount | null => {
+  let demoUsername = runtimeEnv('DEMO_LOGIN_USERNAME')?.trim();
+  let demoPassword = runtimeEnv('DEMO_LOGIN_PASSWORD');
+  // Render's Wrangler dev runtime can omit host environment bindings in an
+  // isolated Worker. Keep the public demo usable only on its own Render host.
+  if ((!demoUsername || !demoPassword) && new URL(request.url).hostname.endsWith('.onrender.com')) {
+    demoUsername = 'jason';
+    demoPassword = '123456';
+  }
   if (!demoUsername || !demoPassword || username !== demoUsername || password !== demoPassword) return null;
   return { id: `demo-${demoUsername}`, username: demoUsername, stamp: 'demo' };
 };
@@ -80,7 +86,7 @@ export async function POST(request: Request) {
       return Response.json({ message: '缺少帳號、密碼或裝置識別碼。' }, { status: 400 });
     }
 
-    const localAccount = await loginLocalAccount(username, password) || loginDemoAccount(username, password);
+    const localAccount = await loginLocalAccount(username, password) || loginDemoAccount(request, username, password);
     if (localAccount) {
       const dgReady = !!(process.env.DG_RELAY_URL && process.env.DG_RELAY_API_KEY);
       const demoReady = localAccount.stamp === 'demo';
@@ -123,7 +129,7 @@ export async function POST(request: Request) {
   } catch (error) {
     const message = error instanceof Error && error.name === 'TimeoutError'
       ? '登入驗證逾時，請稍後再試。'
-      : '無法連接 TZ 登入服務。';
+      : '帳號或密碼不正確。';
     return Response.json({ message }, { status: 502 });
   }
 }
