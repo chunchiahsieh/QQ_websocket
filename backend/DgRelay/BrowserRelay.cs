@@ -135,7 +135,10 @@ static class BrowserRelay
             await usernameInput.FillAsync(configuration["DG_BACKEND_USERNAME"]!);
             await passwordInput.FillAsync(configuration["DG_BACKEND_PASSWORD"]!);
             await page.Locator("#remember_input").UncheckAsync();
-            var loginButton = page.GetByText("登录", new() { Exact = true }).First;
+            // The official page fills the button label asynchronously and may
+            // switch between simplified/traditional Chinese. Its class is
+            // stable, so don't wait on the translated text.
+            var loginButton = page.Locator("a.login-button:not(.free-button)");
             await loginButton.WaitForAsync(new() { State = WaitForSelectorState.Visible, Timeout = 15000 });
             await loginButton.ClickAsync(new() { Force = true });
             var enter = page.GetByRole(AriaRole.Button, new() { Name = "进入游戏", Exact = true });
