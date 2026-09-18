@@ -1,9 +1,9 @@
 import { readSession } from '@/lib/monitor-session';
 import { browserRelayUrl } from '@/lib/relay-url';
+import { isSameRequestOrigin } from '@/lib/request-origin';
 
 export async function POST(request: Request) {
-  const origin = request.headers.get('origin');
-  if (origin && origin !== new URL(request.url).origin) return Response.json({ message: '來源不符。' }, { status: 403 });
+  if (!isSameRequestOrigin(request)) return Response.json({ message: '來源不符。' }, { status: 403 });
   const session = await readSession(request);
   if (!session?.dgDirectLogin) return Response.json({ message: '請重新登入，以啟用 歐博後台連線。' }, { status: 401 });
   if (!process.env.DG_RELAY_URL || !process.env.DG_RELAY_API_KEY)

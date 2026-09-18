@@ -30,3 +30,7 @@ services:
         sync: false
       - key: MT_BACKEND_PASSWORD
         sync: false
+      - key: DG_BACKEND_USERNAME
+        sync: false
+      - key: DG_BACKEND_PASSWORD
+        sync: false
