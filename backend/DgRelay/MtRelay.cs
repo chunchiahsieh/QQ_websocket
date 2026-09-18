@@ -342,8 +342,11 @@ static class MtRelay
             // the two login inputs in DOM order so this keeps working across
             // the page's localized/React markup.
             var loginInputs = page.Locator("input");
-            if (await loginInputs.CountAsync() < 2)
-                throw new PlaywrightException("MT Assistant login inputs were not found.");
+            // DOMContentLoaded can precede React Native Web hydration by more
+            // than a few seconds on a cold Render instance. Wait for both
+            // controls to be attached before attempting the form action.
+            await loginInputs.Nth(0).WaitForAsync(new() { State = WaitForSelectorState.Attached, Timeout = 30000 });
+            await loginInputs.Nth(1).WaitForAsync(new() { State = WaitForSelectorState.Attached, Timeout = 30000 });
             // React Native Web's inputs can remain behind a hydration overlay
             // for a moment in the Render virtual display. Force the fill after
             // a short settle delay so the form receives the same DOM events as
