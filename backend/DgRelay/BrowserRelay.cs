@@ -154,8 +154,11 @@ static class BrowserRelay
             {
                 if (!Uri.TryCreate(ws.Url, UriKind.Absolute, out var upstream)
                     || !(upstream.Scheme.Equals("wss", StringComparison.OrdinalIgnoreCase)
-                        || upstream.Scheme.Equals("ws", StringComparison.OrdinalIgnoreCase))
-                    || !(upstream.Host.EndsWith(".taxyss.com") || upstream.Host.EndsWith(".kindlestone.com") || upstream.Host.EndsWith(".ywjxi.com"))) return;
+                        || upstream.Scheme.Equals("ws", StringComparison.OrdinalIgnoreCase))) return;
+                // Keep diagnostics useful without ever writing query strings
+                // (the official page can put a session token in the URL).
+                Console.WriteLine($"[DG] websocket observed: {upstream.Host}{upstream.AbsolutePath}");
+                if (!(upstream.Host.EndsWith(".taxyss.com") || upstream.Host.EndsWith(".kindlestone.com") || upstream.Host.EndsWith(".ywjxi.com"))) return;
                 gamePage = observedPage;
                 lock (liveSockets) liveSockets.Add(ws);
                 feed!.Connection(true);
@@ -261,7 +264,8 @@ static class BrowserRelay
             await entryPage.GotoAsync(gameLaunchUrl, new() { WaitUntil = WaitUntilState.DOMContentLoaded, Timeout = 30000 });
             await entryPage.WaitForTimeoutAsync(5000);
             gamePage = entryPage;
-            Console.Error.WriteLine($"[DG] game launch page opened: {entryPage.Url}; pages={context.Pages.Count}");
+            var launched = new Uri(entryPage.Url);
+            Console.Error.WriteLine($"[DG] game launch page opened: {launched.Host}{launched.AbsolutePath}; pages={context.Pages.Count}");
             await publish( new { type = "status", message = "官方 DG 頁面已開啟，等待百家樂桌況…" }, ct);
             var decoder = new DgTableDecoder();
             var lastTables = DateTimeOffset.UtcNow;
