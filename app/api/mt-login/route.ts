@@ -108,7 +108,7 @@ export async function POST(request: Request) {
     const memberToken = extractMemberToken(loginPayload);
     if (!loginResponse.ok || !memberToken) {
       return Response.json(
-        { message: extractMessage(loginPayload, 'TZ 帳號或密碼不正確。') },
+        { message: '帳號或密碼不正確。' },
         { status: loginResponse.ok ? 401 : loginResponse.status },
       );
     }
