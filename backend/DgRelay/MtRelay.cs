@@ -324,6 +324,70 @@ static class MtRelay
             Console.WriteLine($"[MT] server-side API unavailable; retrying through Edge: {ex.Message}");
         }
 
+        // The MT Assistant UI is hosted on another origin.  Its browser
+        // fetch to tz6868 can be rejected by CORS before the response reaches
+        // the app (net::ERR_FAILED), even though the same request is allowed
+        // from a browser page on the official origin.  Establish that origin
+        // first and perform both API calls there, then hand the short-lived
+        // game URL back to the normal capture page.
+        try
+        {
+            await using var apiPage = await page.Context.NewPageAsync();
+            var apiNavigation = await apiPage.GotoAsync(baseUrl, new()
+            {
+                WaitUntil = WaitUntilState.DOMContentLoaded,
+                Timeout = 30000,
+            });
+            Console.WriteLine($"[MT] official API browser origin opened: {apiPage.Url} status={apiNavigation?.Status}");
+            await apiPage.WaitForTimeoutAsync(1500);
+            var browserApi = await apiPage.EvaluateAsync<JsonElement>("""
+                async ({ username, password, deviceId }) => {
+                  const headers = { "Content-Type": "application/json", "Accept": "application/json, text/plain, */*" };
+                  const login = await fetch("/api/v1/login", {
+                    method: "POST", credentials: "include", headers,
+                    body: JSON.stringify({ username, password, device_id: deviceId })
+                  });
+                  const loginText = await login.text();
+                  let loginJson = null;
+                  try { loginJson = loginText ? JSON.parse(loginText) : null; } catch {}
+                  const token = loginJson?.data?.token ?? loginJson?.token
+                    ?? loginJson?.data?.access_token ?? loginJson?.access_token;
+                  if (!login.ok || !token)
+                    return { loginStatus: login.status, loginText, gameStatus: 0, gameText: "" };
+                  const game = await fetch("/api/v2/game/MTLI/login", {
+                    method: "POST", credentials: "include",
+                    headers: { ...headers, Authorization: `Bearer ${token}` },
+                    body: JSON.stringify({ game_return_url: location.origin, game_kind: "", game_type: "", game_device: "Desktop" })
+                  });
+                  return { loginStatus: login.status, loginText: "", gameStatus: game.status, gameText: await game.text() };
+                }
+                """, new { username, password, deviceId = deviceId });
+            var loginStatus = browserApi.GetProperty("loginStatus").GetInt32();
+            var loginText = browserApi.GetProperty("loginText").GetString() ?? "";
+            var gameStatus = browserApi.GetProperty("gameStatus").GetInt32();
+            var gameText = browserApi.GetProperty("gameText").GetString() ?? "";
+            if (loginStatus is >= 200 and < 300 && gameStatus is >= 200 and < 300)
+            {
+                var gamePayload = System.Text.Json.Nodes.JsonNode.Parse(gameText);
+                var browserGameUrl = FirstString(gamePayload,
+                    "data.game_url", "data.url", "url", "game_url");
+                if (!string.IsNullOrWhiteSpace(browserGameUrl))
+                {
+                    Console.WriteLine("[MT] official same-origin browser API returned game URL");
+                    return ValidateMtGameUrl(browserGameUrl);
+                }
+            }
+            Console.WriteLine($"[MT] official same-origin browser API unavailable: login={loginStatus}, game={gameStatus}");
+        }
+        catch (PlaywrightException ex)
+        {
+            Console.WriteLine($"[MT] official same-origin browser API failed: {ex.Message}");
+        }
+        catch (JsonException ex)
+        {
+            Console.WriteLine($"[MT] official same-origin browser API returned invalid JSON: {ex.Message}");
+        }
+
         // Render's server-side HTTP client can receive the official anti-bot
         // HTML challenge even when a real Edge context is allowed. Perform the
         // same two API calls from the browser context, then navigate that page
