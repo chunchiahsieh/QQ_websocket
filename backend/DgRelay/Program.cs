@@ -61,7 +61,7 @@ app.MapPost("/api/dg/stream", async (HttpContext context) =>
     if (connected is null)
     {
         context.Response.StatusCode = 502;
-        await context.Response.WriteAsJsonAsync(new { message = "C# DG 握手失敗：" + string.Join("；", errors) }, context.RequestAborted);
+        await context.Response.WriteAsJsonAsync(new { message = "DG 握手失敗：" + string.Join("；", errors) }, context.RequestAborted);
         return;
     }
     using var upstream = connected;
@@ -74,7 +74,7 @@ app.MapPost("/api/dg/stream", async (HttpContext context) =>
     }
     try
     {
-        await Send(new { type = "status", message = "C# 已建立 DG WebSocket，等待授權與桌況…" });
+        await Send(new { type = "status", message = "已建立 DG WebSocket，等待授權與桌況…" });
         await upstream.SendAsync(DgProtocol.Login(input.Token).AsMemory(), WebSocketMessageType.Binary, true, context.RequestAborted);
         var buffer = new byte[16384];
         while (!context.RequestAborted.IsCancellationRequested && upstream.State == WebSocketState.Open)

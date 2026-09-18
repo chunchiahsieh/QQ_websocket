@@ -93,9 +93,12 @@ static class BrowserRelay
     {
         var packets = Channel.CreateBounded<byte[]>(new BoundedChannelOptions(256) { SingleReader = true, FullMode = BoundedChannelFullMode.Wait });
         Interlocked.Increment(ref active);
+        var budgetAcquired = false;
         try
         {
-            await publish( new { type = "status", message = "C# 正在啟動獨立 DG 瀏覽器…" }, ct);
+            await BrowserSessionBudget.Gate.WaitAsync(ct);
+            budgetAcquired = true;
+            await publish( new { type = "status", message = "正在啟動獨立 DG 瀏覽器…" }, ct);
             using var playwright = await Playwright.CreateAsync();
             await using var browser = await playwright.Chromium.LaunchAsync(new() {
                 Headless = true, Channel = configuration["DG_BROWSER_CHANNEL"] ?? "msedge", Timeout = 30000,
@@ -132,7 +135,9 @@ static class BrowserRelay
             await usernameInput.FillAsync(configuration["DG_BACKEND_USERNAME"]!);
             await passwordInput.FillAsync(configuration["DG_BACKEND_PASSWORD"]!);
             await page.Locator("#remember_input").UncheckAsync();
-            await page.GetByRole(AriaRole.Button, new() { Name = "登录", Exact = true }).ClickAsync();
+            var loginButton = page.GetByText("登录", new() { Exact = true }).First;
+            await loginButton.WaitForAsync(new() { State = WaitForSelectorState.Visible, Timeout = 15000 });
+            await loginButton.ClickAsync(new() { Force = true });
             var enter = page.GetByRole(AriaRole.Button, new() { Name = "进入游戏", Exact = true });
             try { await enter.WaitForAsync(new() { Timeout = 20000 }); }
             catch (System.TimeoutException)
@@ -199,6 +204,6 @@ static class BrowserRelay
             if (!ct.IsCancellationRequested)
                 await publish( new { type = "reset", message = "DG 重新連線中…" }, ct);
         }
-        finally { feed!.Connection(false); Interlocked.Decrement(ref active); }
+        finally { if (budgetAcquired) BrowserSessionBudget.Gate.Release(); feed!.Connection(false); Interlocked.Decrement(ref active); }
     }
 }

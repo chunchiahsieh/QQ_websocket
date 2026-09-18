@@ -93,8 +93,11 @@ static class AbBrowserRelay
     {
         var packets = Channel.CreateBounded<byte[]>(512);
         Interlocked.Increment(ref active);
+        var budgetAcquired = false;
         try
         {
+            await BrowserSessionBudget.Gate.WaitAsync(ct);
+            budgetAcquired = true;
             var media = new AbMediaCatalog();
             try { media = await AbMediaCatalog.Load(ct); }
             catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or JsonException or CryptographicException or FormatException or ArgumentException) {
@@ -138,7 +141,9 @@ static class AbBrowserRelay
             await usernameInput.WaitForAsync(new() { State = WaitForSelectorState.Visible, Timeout = 15000 });
             await usernameInput.FillAsync(configuration["DG_BACKEND_USERNAME"]!);
             await passwordInput.FillAsync(configuration["DG_BACKEND_PASSWORD"]!);
-            await page.GetByText("登入",new() { Exact=true }).First.ClickAsync(new() { Force = true });
+            var loginButton = page.GetByText("登入", new() { Exact = true }).First;
+            await loginButton.WaitForAsync(new() { State = WaitForSelectorState.Visible, Timeout = 15000 });
+            await loginButton.ClickAsync(new() { Force = true });
             try { await page.WaitForURLAsync(url => url.Contains("sessionId=", StringComparison.OrdinalIgnoreCase), new() { Timeout = 25000 }); }
             catch (System.TimeoutException)
             {
@@ -177,6 +182,6 @@ static class AbBrowserRelay
                 else if(DateTimeOffset.UtcNow-lastTables > TimeSpan.FromMinutes(3)) return;
             }
         }
-        finally { feed!.Connection(false); Interlocked.Decrement(ref active); }
+        finally { if (budgetAcquired) BrowserSessionBudget.Gate.Release(); feed!.Connection(false); Interlocked.Decrement(ref active); }
     }
 }
