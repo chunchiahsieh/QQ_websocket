@@ -1,4 +1,5 @@
 import { sessionCookie } from '@/lib/monitor-session';
+import { runtimeEnv } from '@/lib/runtime-env';
 
 const TZ_BASE_URL = 'https://www.tz6868.cc';
 
@@ -14,8 +15,8 @@ type LocalAccount = { id?: string; username?: string; stamp?: string };
 // process to validate the demo account. Keep the fallback opt-in and entirely
 // environment-based so it cannot silently create a production backdoor.
 const loginDemoAccount = (username: string, password: string): LocalAccount | null => {
-  const demoUsername = process.env.DEMO_LOGIN_USERNAME?.trim();
-  const demoPassword = process.env.DEMO_LOGIN_PASSWORD;
+  const demoUsername = runtimeEnv('DEMO_LOGIN_USERNAME')?.trim();
+  const demoPassword = runtimeEnv('DEMO_LOGIN_PASSWORD');
   if (!demoUsername || !demoPassword || username !== demoUsername || password !== demoPassword) return null;
   return { id: `demo-${demoUsername}`, username: demoUsername, stamp: 'demo' };
 };

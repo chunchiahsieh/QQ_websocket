@@ -1,3 +1,5 @@
+import { runtimeEnv } from '@/lib/runtime-env';
+
 // Encrypted HttpOnly sessions; development sessions expire on server restart.
 // Keep the random fallback lazy. Cloudflare Workers disallow calls that use
 // randomness at module/global scope, which otherwise makes every API route
@@ -19,7 +21,7 @@ export type MonitorSession = {
   accountStamp?: string;
 };
 async function key() {
-  const secret = process.env.MONITOR_SESSION_SECRET || (process.env.NODE_ENV !== 'production' ? getLocalSecret() : '');
+  const secret = runtimeEnv('MONITOR_SESSION_SECRET') || (process.env.NODE_ENV !== 'production' ? getLocalSecret() : '');
   if (!secret) throw new Error('Missing session secret');
   const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(secret));
   return crypto.subtle.importKey('raw', digest, 'AES-GCM', false, ['encrypt', 'decrypt']);
