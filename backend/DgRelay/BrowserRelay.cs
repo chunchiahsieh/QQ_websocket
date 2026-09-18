@@ -106,25 +106,39 @@ static class BrowserRelay
             await using var context = await browser.NewContextAsync(new() { AcceptDownloads = false });
             using var cancellation = ct.Register(() => { _ = browser.CloseAsync(); });
             IPage? gamePage = null;
-            Microsoft.Playwright.IWebSocket? liveSocket = null;
+            // DG opens a primary socket plus one or more fail-over sockets.
+            // Keep all official sockets active: the last socket opened is not
+            // guaranteed to be the one carrying baccarat table packets.
+            var liveSockets = new HashSet<Microsoft.Playwright.IWebSocket>();
             void AttachPage(IPage observedPage) => observedPage.WebSocket += (_, ws) =>
             {
                 if (!Uri.TryCreate(ws.Url, UriKind.Absolute, out var upstream) || upstream.Scheme != "wss"
                     || !(upstream.Host.EndsWith(".taxyss.com") || upstream.Host.EndsWith(".kindlestone.com") || upstream.Host.EndsWith(".ywjxi.com"))) return;
                 gamePage = observedPage;
-                liveSocket = ws;
+                lock (liveSockets) liveSockets.Add(ws);
                 feed!.Connection(true);
-                ws.Close += (_, _) => { if (ReferenceEquals(liveSocket, ws)) feed.Connection(false); };
+                Console.WriteLine($"[DG] official socket connected: {upstream.Host}");
+                ws.Close += (_, _) =>
+                {
+                    lock (liveSockets) liveSockets.Remove(ws);
+                    lock (liveSockets)
+                    {
+                        if (liveSockets.Count == 0) feed.Connection(false);
+                    }
+                };
                 ws.FrameReceived += (_, frame) =>
                 {
                     var bytes = frame.Binary;
-                    if (!ReferenceEquals(liveSocket, ws)) return;
                     if (bytes is null || bytes.Length > 1024 * 1024) return;
                     if (!packets.Writer.TryWrite(bytes)) packets.Writer.TryComplete(new InvalidDataException("Packet queue exceeded"));
                 };
             };
             context.Page += (_, openedPage) => AttachPage(openedPage);
             var page = await context.NewPageAsync();
+            // Keep this explicit as well as subscribing to context.Page. This
+            // avoids missing the initial page on Playwright/Edge combinations
+            // that deliver the Page event before the handler is observed.
+            AttachPage(page);
             await page.GotoAsync("https://dg18.cc/", new() { WaitUntil = WaitUntilState.DOMContentLoaded, Timeout = 30000 });
             // DG currently renders icon-only inputs without stable placeholder
             // attributes. The login form contains exactly two text inputs:
@@ -211,7 +225,7 @@ static class BrowserRelay
                         {
                             reloaded = true;
                             decoder = new DgTableDecoder();
-                            liveSocket = null;
+                            lock (liveSockets) liveSockets.Clear();
                             while (packets.Reader.TryRead(out _)) { }
                             await gamePage.ReloadAsync(new() { WaitUntil = WaitUntilState.DOMContentLoaded, Timeout = 30000 });
                             lastPacket = lastTables = DateTimeOffset.UtcNow;
@@ -221,7 +235,14 @@ static class BrowserRelay
                     }
                     await publish( new { type = "heartbeat" }, ct); continue;
                 }
-                var tables = decoder.Accept(bytes);
+                List<Dictionary<string, object>> tables;
+                try { tables = decoder.Accept(bytes); }
+                catch (InvalidDataException)
+                {
+                    // Control/heartbeat frames can share the same official
+                    // sockets. They are not table protobuf messages.
+                    continue;
+                }
                 lastPacket = DateTimeOffset.UtcNow;
                 feed!.Packet();
                 if (tables.Count > 0)
