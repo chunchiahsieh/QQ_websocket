@@ -86,7 +86,11 @@ export async function POST(request: Request) {
       return Response.json({ message: '缺少帳號、密碼或裝置識別碼。' }, { status: 400 });
     }
 
-    const localAccount = await loginLocalAccount(username, password) || loginDemoAccount(request, username, password);
+    // Resolve the deployment demo account before attempting any local or
+    // external authentication. This keeps the public Render demo independent
+    // from the optional AccountAdmin/TZ services and avoids a false 502.
+    const localAccount = loginDemoAccount(request, username, password)
+      || await loginLocalAccount(username, password);
     if (localAccount) {
       const dgReady = !!(process.env.DG_RELAY_URL && process.env.DG_RELAY_API_KEY);
       const demoReady = localAccount.stamp === 'demo';
