@@ -107,11 +107,38 @@ static class AbBrowserRelay
             }
             using var playwright = await Playwright.CreateAsync();
             await using var browser = await playwright.Chromium.LaunchAsync(new() {
-                Headless = true, Channel = configuration["DG_BROWSER_CHANNEL"] ?? "msedge", Timeout = 30000
+                Headless = true,
+                Channel = configuration["DG_BROWSER_CHANNEL"] ?? "msedge",
+                Timeout = 30000,
+                // The AB browser is a long-lived relay worker on the small
+                // Render instance. Disable background Edge services so they
+                // cannot compete with the page that supplies the table feed.
+                Args = new[] {
+                    "--disable-gpu",
+                    "--disable-extensions",
+                    "--disable-background-networking",
+                    "--disable-component-update",
+                    "--disable-default-apps",
+                    "--disable-sync",
+                    "--no-first-run",
+                    "--no-default-browser-check",
+                    "--disable-dev-shm-usage"
+                }
             });
             await using var context = await browser.NewContextAsync(new() { AcceptDownloads = false });
             using var cancellation = ct.Register(() => { _ = browser.CloseAsync(); });
             var page = await context.NewPageAsync();
+            page.PageError += (_, error) => Console.Error.WriteLine($"[歐博] page error: {error}");
+            page.Console += (_, message) =>
+            {
+                if (message.Type is "error" or "warning")
+                    Console.Error.WriteLine($"[歐博] browser console {message.Type}");
+            };
+            page.RequestFailed += (_, request) =>
+            {
+                if (Uri.TryCreate(request.Url, UriKind.Absolute, out var failed))
+                    Console.Error.WriteLine($"[歐博] request failed: {failed.Host}{failed.AbsolutePath}");
+            };
             Microsoft.Playwright.IWebSocket? liveSocket = null;
             page.WebSocket += (_, ws) => {
                 if (!Uri.TryCreate(ws.Url,UriKind.Absolute,out var uri) || uri.Scheme != "wss"
@@ -126,6 +153,15 @@ static class AbBrowserRelay
                 };
             };
             await page.GotoAsync("https://www.cali7777.net/#/",new() { WaitUntil=WaitUntilState.DOMContentLoaded, Timeout=60000 });
+            // Render can occasionally finish DOMContentLoaded before the AB
+            // SPA has mounted its login form. Log only non-sensitive page
+            // metadata so cloud diagnostics can distinguish a slow app from
+            // an upstream challenge or blocked resource.
+            var pageUri = Uri.TryCreate(page.Url, UriKind.Absolute, out var loadedUri)
+                ? $"{loadedUri.Host}{loadedUri.AbsolutePath}" : "invalid-url";
+            var pageTitle = await page.TitleAsync();
+            var inputCount = await page.Locator("input").CountAsync();
+            Console.WriteLine($"[歐博] login page loaded: {pageUri}; title={pageTitle}; inputs={inputCount}");
             // A delayed announcement layer can cover the login form.
             var notice = page.GetByText("確定", new() { Exact = true }).First;
             try
@@ -138,7 +174,7 @@ static class AbBrowserRelay
             // #passwordInput IDs. It has exactly two text inputs in order.
             var usernameInput = page.Locator("input").Nth(0);
             var passwordInput = page.Locator("input").Nth(1);
-            await usernameInput.WaitForAsync(new() { State = WaitForSelectorState.Visible, Timeout = 45000 });
+            await usernameInput.WaitForAsync(new() { State = WaitForSelectorState.Visible, Timeout = 90000 });
             await usernameInput.FillAsync(configuration["DG_BACKEND_USERNAME"]!);
             await passwordInput.FillAsync(configuration["DG_BACKEND_PASSWORD"]!);
             var loginButton = page.GetByText("登入", new() { Exact = true }).First;
