@@ -524,7 +524,7 @@ export default function Home() {
               <div className="mx-auto mb-5 grid h-16 w-16 place-items-center rounded-2xl border border-[#e6c273]/35 bg-gradient-to-b from-[#2a2012] to-[#0e0b07] shadow-[0_0_35px_rgba(197,145,52,.14)]">
                 <img src="/jshen-logo.svg" alt="J神・圖形來世 Logo" width="56" height="56" />
               </div>
-              <p className="text-[10px] font-semibold tracking-[.24em] text-[#c9a55e]">百家樂即時桌況 · 多平台路圖觀察</p>
+              <p className="text-[10px] font-semibold tracking-[.24em] text-[#c9a55e]">即時牌卡預測系統</p>
               <h1 className="mt-2 text-2xl font-semibold text-[#fff7e6]">J神・圖形來世</h1>
             </div>
             {(defaultUsername || defaultPassword) && (
@@ -572,7 +572,7 @@ export default function Home() {
             </div>
             <div className={menuCollapsed ? 'hidden' : ''}>
               <p className="whitespace-nowrap text-base font-bold text-[#f7e5bc]">J神・圖形來世</p>
-              <p className="mt-1 text-[10px] tracking-wide text-[#a98a50]">百家樂即時桌況</p>
+              <p className="mt-1 text-[10px] tracking-wide text-[#a98a50]">即時牌卡預測系統</p>
             </div>
           </div>
           <button type="button" onClick={() => setMenuCollapsed((value) => !value)} className="mt-5 hidden h-9 w-full items-center justify-center rounded-lg border border-[#765728]/35 text-[#a98a50] transition hover:bg-white/[0.04] hover:text-[#f0ce83] lg:flex" aria-label={menuCollapsed ? '展開選單' : '收合選單'}>

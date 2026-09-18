@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { BaccaratRoad, type RoadConnection, type RoadHighlight } from '@/components/baccarat-road';
 
-type GraphicalMode = 'v' | 'cross';
+type GraphicalMode = 'v3' | 'v5' | 'cross';
 type ShapeOrientation = 'down' | 'up' | 'right' | 'left' | 'cross' | 'x';
 type Outcome = '1' | '2' | '3';
 type Side = '1' | '2';
@@ -75,25 +75,32 @@ function shapeLines(mode: GraphicalMode, centerColumn: number, centerRow: number
     Array.from({ length: 3 }, (_, index) => ({ column: centerColumn, row: centerRow - 1 + index })),
     Array.from({ length: 3 }, (_, index) => ({ column: centerColumn - 1 + index, row: centerRow })),
   ];
+  if (mode === 'v5') {
+    if (orientation === 'down') return [[{ column: centerColumn - 2, row: centerRow - 2 }, { column: centerColumn - 1, row: centerRow - 1 }, { column: centerColumn, row: centerRow }, { column: centerColumn + 1, row: centerRow - 1 }, { column: centerColumn + 2, row: centerRow - 2 }]];
+    if (orientation === 'up') return [[{ column: centerColumn - 2, row: centerRow + 2 }, { column: centerColumn - 1, row: centerRow + 1 }, { column: centerColumn, row: centerRow }, { column: centerColumn + 1, row: centerRow + 1 }, { column: centerColumn + 2, row: centerRow + 2 }]];
+    if (orientation === 'right') return [[{ column: centerColumn - 2, row: centerRow - 2 }, { column: centerColumn - 1, row: centerRow - 1 }, { column: centerColumn, row: centerRow }, { column: centerColumn - 1, row: centerRow + 1 }, { column: centerColumn - 2, row: centerRow + 2 }]];
+    return [[{ column: centerColumn + 2, row: centerRow - 2 }, { column: centerColumn + 1, row: centerRow - 1 }, { column: centerColumn, row: centerRow }, { column: centerColumn + 1, row: centerRow + 1 }, { column: centerColumn + 2, row: centerRow + 2 }]];
+  }
+  // V-3 uses two known arm points and the next cell as the prediction.
   if (orientation === 'down') return [[
-    { column: centerColumn - 2, row: centerRow - 2 }, { column: centerColumn - 1, row: centerRow - 1 },
-    { column: centerColumn, row: centerRow }, { column: centerColumn + 1, row: centerRow - 1 },
-    { column: centerColumn + 2, row: centerRow - 2 },
+    { column: centerColumn - 1, row: centerRow - 1 },
+    { column: centerColumn, row: centerRow },
+    { column: centerColumn + 1, row: centerRow - 1 },
   ]];
   if (orientation === 'up') return [[
-    { column: centerColumn - 2, row: centerRow + 2 }, { column: centerColumn - 1, row: centerRow + 1 },
-    { column: centerColumn, row: centerRow }, { column: centerColumn + 1, row: centerRow + 1 },
-    { column: centerColumn + 2, row: centerRow + 2 },
+    { column: centerColumn - 1, row: centerRow + 1 },
+    { column: centerColumn, row: centerRow },
+    { column: centerColumn + 1, row: centerRow + 1 },
   ]];
   if (orientation === 'right') return [[
-    { column: centerColumn - 2, row: centerRow - 2 }, { column: centerColumn - 1, row: centerRow - 1 },
-    { column: centerColumn, row: centerRow }, { column: centerColumn - 1, row: centerRow + 1 },
-    { column: centerColumn - 2, row: centerRow + 2 },
+    { column: centerColumn - 1, row: centerRow - 1 },
+    { column: centerColumn, row: centerRow },
+    { column: centerColumn - 1, row: centerRow + 1 },
   ]];
   return [[
-    { column: centerColumn + 2, row: centerRow - 2 }, { column: centerColumn + 1, row: centerRow - 1 },
-    { column: centerColumn, row: centerRow }, { column: centerColumn + 1, row: centerRow + 1 },
-    { column: centerColumn + 2, row: centerRow + 2 },
+    { column: centerColumn + 1, row: centerRow - 1 },
+    { column: centerColumn, row: centerRow },
+    { column: centerColumn + 1, row: centerRow + 1 },
   ]];
 }
 
@@ -104,7 +111,8 @@ const crossOrientationPriority: ShapeOrientation[] = ['cross', 'x'];
 
 function findPattern(columns: Cell[][], mode: GraphicalMode, targetPoints: Point[]): Pattern {
   const candidates: Pattern[] = [];
-  const orientations: ShapeOrientation[] = mode === 'v' ? vOrientationPriority : crossOrientationPriority;
+  const isVMode = mode === 'v3' || mode === 'v5';
+  const orientations: ShapeOrientation[] = isVMode ? vOrientationPriority : crossOrientationPriority;
   for (let centerColumn = 2; centerColumn <= columns.length - 3; centerColumn += 1) {
     // Include row 0: an inverted V can have its apex on the top bead row.
     for (const centerRow of [0, 1, 2, 3, 4, 5]) {
@@ -127,12 +135,12 @@ function findPattern(columns: Cell[][], mode: GraphicalMode, targetPoints: Point
       }
     }
   }
-  // A V/cross contains five points. The fifth point is the next empty cell;
-  // only four existing points are required to establish the prediction.
-  const minimumScore = 4;
+  // V-3 uses three points (two existing points predict the third); V-5 and
+  // cross use five points and require four existing points.
+  const minimumScore = mode === 'v3' ? 2 : 4;
   const valid = candidates.filter(candidate => candidate.score >= minimumScore)
     .sort((left, right) => {
-      const priority = mode === 'v' ? vOrientationPriority : crossOrientationPriority;
+      const priority = isVMode ? vOrientationPriority : crossOrientationPriority;
       const leftOrder = left.orientation ? priority.indexOf(left.orientation) : 0;
       const rightOrder = right.orientation ? priority.indexOf(right.orientation) : 0;
       return leftOrder - rightOrder || right.score - left.score;
@@ -142,6 +150,7 @@ function findPattern(columns: Cell[][], mode: GraphicalMode, targetPoints: Point
 }
 
 export function GraphicalCard({ beadRaw, fallbackRaw, mode }: { beadRaw: string; fallbackRaw: string; mode: GraphicalMode }) {
+  const modeLabel = mode === 'v3' ? 'V型-3' : mode === 'v5' ? 'V型-5' : '十字';
   const host = useRef<HTMLDivElement>(null);
   const [size, setSize] = useState({ width: 0, height: 0 });
   useEffect(() => {
@@ -187,6 +196,14 @@ export function GraphicalCard({ beadRaw, fallbackRaw, mode }: { beadRaw: string;
       !columns[point.column]?.[point.row] && futurePoints.some(next => next.column === point.column && next.row === point.row));
     return { candidate, targetPoints };
   });
+  // 若同一個下一局位置同時出現莊、閒兩種圖形命中，保留所有連線，
+  // 但將預測格標成黑色表示「建議不打」，避免誤導使用者下注。
+  const conflictingPrediction = new Set(candidateEntries.map(({ candidate, targetPoints }) =>
+    targetPoints.length ? candidate.side : undefined).filter((side): side is Side => Boolean(side))).size > 1;
+  const bankerDoubleHit = candidateEntries.filter(({ candidate, targetPoints }) =>
+    candidate.side === '2' && targetPoints.length > 0).length >= 2;
+  const playerDoubleHit = candidateEntries.filter(({ candidate, targetPoints }) =>
+    candidate.side === '1' && targetPoints.length > 0).length >= 2;
   const matched = new Set(candidateEntries.flatMap(({ candidate, targetPoints }) => candidate.points
     .filter(point => !targetPoints.some(target => target.column === point.column && target.row === point.row))
     .filter(point => Boolean(columns[point.column]?.[point.row]))
@@ -202,24 +219,27 @@ export function GraphicalCard({ beadRaw, fallbackRaw, mode }: { beadRaw: string;
     const predictionBackground = side === '2' ? '#fecaca' : '#bfdbfe';
     const matchedHighlights = candidate.points
       .filter(point => matched.has(`${point.column}:${point.row}`))
-      .map(point => ({ column: point.column, row: point.row, color: predictionBackground, label: `預測${outcomeView[side].label}${mode === 'v' ? 'V型' : '十字'}線路` }));
-    return [...matchedHighlights, ...targetPoints.map(point => ({ column: point.column, row: point.row, color: predictionBackground, fillOpacity: .24, dashed: true, label: `下一局預測補上${outcomeView[side].label}` }))];
+      .map(point => ({ column: point.column, row: point.row, color: predictionBackground, label: `預測${outcomeView[side].label}${modeLabel}線路` }));
+    const strongHit = (bankerDoubleHit && side === '2') || (playerDoubleHit && side === '1');
+    const targetColor = conflictingPrediction ? '#111827' : strongHit ? (side === '2' ? '#991b1b' : '#1d4ed8') : predictionBackground;
+    const targetLabel = conflictingPrediction ? '莊閒衝突，建議不打' : strongHit ? `${outcomeView[side].label}連線兩次，高機率` : `下一局預測補上${outcomeView[side].label}`;
+    return [...matchedHighlights, ...targetPoints.map(point => ({ column: point.column, row: point.row, color: targetColor, fillOpacity: .34, dashed: true, label: targetLabel }))];
   });
   const connections: RoadConnection[] = candidateEntries.flatMap(({ candidate, targetPoints }) => {
     if (!targetPoints.length) return [];
     const side = candidate.side ?? prediction;
-    return candidate.lines.map(points => ({ points, color: side === '2' ? '#ef3535' : '#2864e8', label: `${outcomeView[side].label}${mode === 'v' ? 'V型' : '十字'}預測線` }));
+    return candidate.lines.map(points => ({ points, color: side === '2' ? '#ef3535' : '#2864e8', label: `${outcomeView[side].label}${modeLabel}預測線` }));
   });
   return (
-    <section className="graphical-card grid h-full min-h-0 grid-rows-[minmax(0,1fr)_auto]" aria-label={`${mode === 'v' ? 'V型' : '十字'}圖形牌卡`}>
+    <section className="graphical-card grid h-full min-h-0 grid-rows-[minmax(0,1fr)_auto]" aria-label={`${modeLabel}圖形牌卡`}>
       <div ref={host} className="relative min-h-0 min-w-0 overflow-hidden">
         <BaccaratRoad raw={displayRaw} kind="bead" columnLimit={columnCount} highlights={highlights} connections={connections} />
       </div>
       <footer className="graphical-card-footer grid gap-0.5 border-t border-slate-600 px-2 py-1 text-[11px] font-semibold leading-4">
         <div className="flex flex-wrap items-center justify-between gap-2">
-          <span>{mode === 'v' ? 'V型' : '十字'}偵測：已標示 {matched.size} 個符號{predictionPoints.length ? '，下一局位置已標示' : ''}</span>
+          <span>{modeLabel}偵測：已標示 {matched.size} 個符號{predictionPoints.length ? '，下一局位置已標示' : ''}</span>
           <span className="flex items-center gap-2">
-            <span>下一局預測：<strong style={{ color: outcomeView[prediction].color }}>{outcomeView[prediction].label}</strong> · 實際：{actual ? outcomeView[actual].label : '等待'}</span>
+            <span>下一局預測：{conflictingPrediction ? <strong style={{ color: '#f8fafc' }}>不打</strong> : <strong style={{ color: outcomeView[prediction].color }}>{outcomeView[prediction].label}</strong>} · 實際：{actual ? outcomeView[actual].label : '等待'}</span>
           </span>
         </div>
       </footer>

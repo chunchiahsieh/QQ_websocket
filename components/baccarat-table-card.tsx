@@ -14,8 +14,8 @@ export type TableInfo = {
   banker: string; player: string; tie: string; players: string;
   beadPlate: string; bigRoad: string; bigEyeRoad: string; smallRoad: string; cockroachRoad: string;
 };
-type CardMode = 'full' | 'bead' | 'big' | 'eye' | 'small' | 'cockroach' | 'v' | 'cross' | 'chartgpt' | 'gemini' | 'deepseek' | 'claude';
-const roadOnlyModes: CardMode[] = ['big', 'eye', 'small', 'cockroach', 'v', 'cross', 'chartgpt', 'gemini', 'deepseek', 'claude'];
+type CardMode = 'full' | 'bead' | 'big' | 'eye' | 'small' | 'cockroach' | 'v3' | 'v5' | 'cross' | 'chartgpt' | 'gemini' | 'deepseek' | 'claude';
+const roadOnlyModes: CardMode[] = ['big', 'eye', 'small', 'cockroach', 'v3', 'v5', 'cross', 'chartgpt', 'gemini', 'deepseek', 'claude'];
 const aiModes: AiProvider[] = ['chartgpt', 'gemini', 'deepseek', 'claude'];
 
 const dealerPhotos: Record<string,string> = {'艾希':'https://ds.ofalive99.net/static/imagesx/ad/2FMz3PC89Dsp2ZTfvCbL.png'};
@@ -42,7 +42,7 @@ export const BaccaratTableCard = memo(function BaccaratTableCard({table, connect
  const beadOnly = cardMode === 'bead';
  const roadOnly = roadOnlyModes.includes(cardMode);
  const isAiCard = aiModes.includes(cardMode as AiProvider);
- const isGraphicalCard = cardMode === 'v' || cardMode === 'cross';
+ const isGraphicalCard = cardMode === 'v3' || cardMode === 'v5' || cardMode === 'cross';
  const roadKind = cardMode === 'eye' ? 'eye' : cardMode === 'small' ? 'small' : cardMode === 'cockroach' ? 'cockroach' : 'big';
  const roadRaw = cardMode === 'eye' ? table.bigEyeRoad : cardMode === 'small' ? table.smallRoad : cardMode === 'cockroach' ? table.cockroachRoad : table.bigRoad;
  const resolvedPlatformLabel = platformLabel ?? (table.id.startsWith('DG:') ? 'DG' : table.id.startsWith('AB:') ? '歐博' : 'MT');
@@ -58,7 +58,7 @@ export const BaccaratTableCard = memo(function BaccaratTableCard({table, connect
                       </div>
                       <div className="table-card-controls flex items-center gap-1.5"><span className="hidden text-[10px] text-slate-400 sm:inline">牌卡</span><select value={cardMode} onChange={event => setCardMode(event.target.value as CardMode)} aria-label={`${table.name}牌卡樣式`} className="table-card-mode h-8 rounded-md border border-cyan-300/65 bg-cyan-950/70 px-2.5 text-xs font-semibold text-cyan-100 outline-none focus:ring-2 focus:ring-cyan-300/40">
                         <optgroup label="一般牌卡"><option value="full">MT牌卡</option><option value="bead">珠盤牌卡</option><option value="big">大路牌卡</option><option value="eye">大眼牌卡</option><option value="small">小路牌卡</option><option value="cockroach">蟑螂牌卡</option></optgroup>
-                        <optgroup label="圖形牌卡"><option value="v">V型牌卡</option><option value="cross">十字牌卡</option></optgroup>
+                        <optgroup label="圖形牌卡"><option value="v3">V型牌卡-3</option><option value="v5">V型牌卡-5</option><option value="cross">十字牌卡</option></optgroup>
                         <optgroup label="AI牌卡"><option value="chartgpt">ChartGPT</option><option value="gemini">Google Gemini</option><option value="deepseek">Deepseek</option><option value="claude">Claude</option></optgroup>
                       </select></div>
                       <select defaultValue="" onChange={event => { const action = event.target.value; if (action === 'focus') onFocusTable?.(table); if (action === 'toggle-dealer') setShowDealer(value => !value); event.currentTarget.value = ''; }} aria-label={`${table.name}功能`} className="table-card-function h-8 rounded-md border border-cyan-300/60 bg-cyan-950/70 px-2 text-xs font-semibold text-cyan-100"><option value="">功能</option>{onFocusTable && <option value="focus">關注牌桌</option>}<option value="toggle-dealer">{showDealer ? '隱藏荷官' : '顯示荷官'}</option></select>
