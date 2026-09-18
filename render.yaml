@@ -9,3 +9,24 @@ services:
     envVars:
       - key: NODE_VERSION
         value: 22.13.0
+
+  # MT/DG/歐博 browser relay. This is intentionally a separate service from
+  # the frontend because it owns the Edge session and the upstream credentials.
+  - type: web
+    name: jshen-mt-relay
+    runtime: docker
+    plan: free
+    dockerfilePath: ./backend/DgRelay/Dockerfile
+    dockerContext: .
+    healthCheckPath: /health/mt
+    envVars:
+      - key: DG_BROWSER_CHANNEL
+        value: msedge
+      - key: DG_FRONTEND_ORIGIN
+        value: https://qq-websocket.onrender.com
+      - key: DG_RELAY_API_KEY
+        sync: false
+      - key: MT_BACKEND_USERNAME
+        sync: false
+      - key: MT_BACKEND_PASSWORD
+        sync: false

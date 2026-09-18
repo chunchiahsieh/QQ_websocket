@@ -4,8 +4,10 @@ using System.Text;
 using System.Text.Json;
 
 var builder = WebApplication.CreateBuilder(args);
-// Bind on all interfaces so LAN clients can open the browser WebSocket.
-builder.WebHost.UseUrls("http://0.0.0.0:5091");
+// Render supplies PORT at runtime. Keep 5091 as the local-development default
+// so the existing LAN relay URL continues to work unchanged.
+var relayPort = Environment.GetEnvironmentVariable("PORT") ?? "5091";
+builder.WebHost.UseUrls($"http://0.0.0.0:{relayPort}");
 builder.Logging.ClearProviders(); // Never log signed upstream URLs or credentials.
 var apiKey = builder.Configuration["DG_RELAY_API_KEY"];
 if (string.IsNullOrWhiteSpace(apiKey) || apiKey.Length < 32)
