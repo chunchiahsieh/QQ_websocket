@@ -11,6 +11,7 @@ sealed class SharedDgFeed
     readonly Func<Func<object, CancellationToken, Task>, CancellationToken, Task> capture;
     Task? worker;
     CancellationTokenSource? workerCancellation;
+    CancellationTokenSource? idleCancellation;
     long nextId;
     DateTimeOffset packetAt, tableAt, retryAt;
     bool upstreamOpen;
@@ -18,10 +19,17 @@ sealed class SharedDgFeed
     bool loginBlocked;
     bool accessBlocked;
     readonly string name;
+    readonly TimeSpan idleGracePeriod;
 
     public SharedDgFeed(CancellationToken shutdown,
-        Func<Func<object, CancellationToken, Task>, CancellationToken, Task> capture, string name = "DG")
-    { this.shutdown = shutdown; this.capture = capture; this.name = name; }
+        Func<Func<object, CancellationToken, Task>, CancellationToken, Task> capture,
+        string name = "DG", TimeSpan? idleGracePeriod = null)
+    {
+        this.shutdown = shutdown;
+        this.capture = capture;
+        this.name = name;
+        this.idleGracePeriod = idleGracePeriod ?? TimeSpan.Zero;
+    }
 
     bool Healthy => upstreamOpen && tables.Count > 0
         && DateTimeOffset.UtcNow - packetAt < TimeSpan.FromSeconds(60)
@@ -39,6 +47,12 @@ sealed class SharedDgFeed
     {
         lock (gate)
         {
+            // A quick platform switch should reuse the existing browser
+            // session instead of forcing another login. The idle timer is
+            // cancelled as soon as a new subscriber arrives.
+            var pendingIdle = idleCancellation;
+            idleCancellation = null;
+            pendingIdle?.Cancel();
             var channel = Channel.CreateBounded<byte[]>(new BoundedChannelOptions(8) {
                 SingleReader = true, FullMode = BoundedChannelFullMode.DropOldest
             });
@@ -63,9 +77,43 @@ sealed class SharedDgFeed
         lock (gate)
         {
             if (clients.Remove(id, out var channel)) channel.Writer.TryComplete();
-            // Stop the upstream browser as soon as the last frontend leaves.
-            // This prevents abandoned Edge sessions from consuming Render memory.
-            if (clients.Count == 0) workerCancellation?.Cancel();
+            if (clients.Count != 0) return;
+
+            // Keep DG alive for a short idle grace period. This avoids an
+            // Edge restart when the operator only switches to another page
+            // briefly, while still reclaiming the browser after 15 minutes.
+            if (idleGracePeriod > TimeSpan.Zero)
+            {
+                if (idleCancellation is null)
+                {
+                    var pendingIdle = CancellationTokenSource.CreateLinkedTokenSource(shutdown);
+                    idleCancellation = pendingIdle;
+                    _ = StopAfterIdleAsync(pendingIdle);
+                }
+            }
+            else
+            {
+                workerCancellation?.Cancel();
+            }
+        }
+    }
+
+    async Task StopAfterIdleAsync(CancellationTokenSource pendingIdle)
+    {
+        try { await Task.Delay(idleGracePeriod, pendingIdle.Token); }
+        catch (OperationCanceledException) { return; }
+        finally
+        {
+            lock (gate)
+            {
+                if (ReferenceEquals(idleCancellation, pendingIdle))
+                {
+                    idleCancellation = null;
+                    if (!pendingIdle.IsCancellationRequested && clients.Count == 0)
+                        workerCancellation?.Cancel();
+                }
+            }
+            pendingIdle.Dispose();
         }
     }
 

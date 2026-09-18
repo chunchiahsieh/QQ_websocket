@@ -19,7 +19,8 @@ static class BrowserRelay
     public static void Map(WebApplication app, string key)
     {
         feed = new SharedDgFeed(app.Lifetime.ApplicationStopping,
-            (publish, ct) => Capture(app.Configuration, publish, ct));
+            (publish, ct) => Capture(app.Configuration, publish, ct),
+            "DG", TimeSpan.FromMinutes(15));
         app.MapPost("/api/dg/start", async (HttpContext http) =>
         {
             if (!CryptographicOperations.FixedTimeEquals(Encoding.UTF8.GetBytes(http.Request.Headers["X-Relay-Key"].ToString()), Encoding.UTF8.GetBytes(key)))
