@@ -190,6 +190,19 @@ static class BrowserRelay
             // avoids missing the initial page on Playwright/Edge combinations
             // that deliver the Page event before the handler is observed.
             AttachPage(page);
+            page.PageError += (_, error) => Console.Error.WriteLine($"[DG] page error: {error}");
+            page.Console += (_, message) =>
+            {
+                // Console output can contain the current URL (and therefore a
+                // session token), so keep only the message type here.
+                if (message.Type is "error" or "warning")
+                    Console.Error.WriteLine($"[DG] browser console {message.Type}");
+            };
+            page.RequestFailed += (_, request) =>
+            {
+                if (Uri.TryCreate(request.Url, UriKind.Absolute, out var failed))
+                    Console.Error.WriteLine($"[DG] request failed: {failed.Host}{failed.AbsolutePath}");
+            };
             await page.GotoAsync("https://dg18.cc/", new() { WaitUntil = WaitUntilState.DOMContentLoaded, Timeout = 30000 });
             Console.Error.WriteLine($"[DG] login page loaded: {page.Url}");
             // DG currently renders icon-only inputs without stable placeholder
