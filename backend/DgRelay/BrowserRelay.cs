@@ -101,10 +101,13 @@ static class BrowserRelay
         var budgetAcquired = false;
         try
         {
+            Console.Error.WriteLine("[DG] capture starting");
             await BrowserSessionBudget.Gate.WaitAsync(ct);
             budgetAcquired = true;
+            Console.Error.WriteLine("[DG] browser budget acquired");
             await publish( new { type = "status", message = "正在啟動獨立 DG 瀏覽器…" }, ct);
             using var playwright = await Playwright.CreateAsync();
+            Console.Error.WriteLine("[DG] Playwright initialized");
             await using var browser = await playwright.Chromium.LaunchAsync(new() {
                 Headless = true,
                 Channel = configuration["DG_BROWSER_CHANNEL"] ?? "msedge",
@@ -124,7 +127,21 @@ static class BrowserRelay
                     "--disable-dev-shm-usage"
                 }
             });
+            Console.Error.WriteLine("[DG] Edge launched");
             await using var context = await browser.NewContextAsync(new() { AcceptDownloads = false });
+            // The official game does not need local media to produce its
+            // WebSocket table feed. Avoid retaining large dealer images/fonts
+            // in the relay browser's renderer process.
+            await context.RouteAsync("**/*", async route =>
+            {
+                var resourceType = route.Request.ResourceType;
+                if (resourceType is "image" or "font" or "media")
+                {
+                    await route.AbortAsync();
+                    return;
+                }
+                await route.ContinueAsync();
+            });
             using var cancellation = ct.Register(() => { _ = browser.CloseAsync(); });
             IPage? gamePage = null;
             // DG opens a primary socket plus one or more fail-over sockets.
@@ -168,6 +185,7 @@ static class BrowserRelay
             // that deliver the Page event before the handler is observed.
             AttachPage(page);
             await page.GotoAsync("https://dg18.cc/", new() { WaitUntil = WaitUntilState.DOMContentLoaded, Timeout = 30000 });
+            Console.Error.WriteLine($"[DG] login page loaded: {page.Url}");
             // DG currently renders icon-only inputs without stable placeholder
             // attributes. The login form contains exactly two text inputs:
             // account first, password second.
@@ -183,6 +201,7 @@ static class BrowserRelay
             var loginButton = page.Locator("a.login-button:not(.free-button)");
             await loginButton.WaitForAsync(new() { State = WaitForSelectorState.Visible, Timeout = 15000 });
             await loginButton.ClickAsync(new() { Force = true });
+            Console.Error.WriteLine("[DG] login submitted");
             // The official site may render the post-login action in either
             // simplified or traditional Chinese, and it is not always a
             // semantic button (some versions use an anchor).  Login can also
@@ -226,10 +245,12 @@ static class BrowserRelay
             }
             if (entryPage is null || enter is null)
             {
+                Console.Error.WriteLine("[DG] no join-game entry found");
                 await publish( new { type = "error", message = "dg18.cc 登入未完成，請確認專用帳密或是否需要人工驗證。" }, ct);
                 throw new DgLoginRequiredException();
             }
             gamePage = entryPage;
+            Console.Error.WriteLine($"[DG] join-game entry found: {new Uri(entryPage.Url).Host}");
             await enter.ClickAsync(new() { Force = true });
             Console.WriteLine($"[DG] game entry clicked; pages={context.Pages.Count}");
             await publish( new { type = "status", message = "官方 DG 頁面已開啟，等待百家樂桌況…" }, ct);
