@@ -1,4 +1,8 @@
 @model AdminDashboardView
+@{
+  var taiwanOffset = TimeSpan.FromHours(8);
+  var defaultExpiry = DateTimeOffset.UtcNow.ToOffset(taiwanOffset).AddDays(30);
+}
 <header>
   <div>
     <h1>J神・圖形來世 · 管理中心</h1>
@@ -64,7 +68,21 @@
   <form asp-action="Create" method="post" class="row">
     <div class="field"><label for="new-user">帳號</label><input id="new-user" name="username" required minlength="3" maxlength="64" pattern="[a-zA-Z0-9_.\-]+" autocomplete="off" /></div>
     <div class="field"><label for="new-pass">初始密碼（至少 6 字元）</label><input id="new-pass" name="password" type="password" required minlength="6" maxlength="128" autocomplete="new-password" /></div>
-    <div class="field"><label for="new-expiry">到期時間</label><input id="new-expiry" name="expires" type="datetime-local" required /></div>
+    <div class="field expiry-picker" data-expiry-picker>
+      <label>到期時間</label>
+      <div class="expiry-inputs">
+        <input id="new-expiry-date" type="date" value="@defaultExpiry.ToString("yyyy-MM-dd")" min="@DateTimeOffset.UtcNow.ToOffset(taiwanOffset).ToString("yyyy-MM-dd")" aria-label="到期日期" required />
+        <input id="new-expiry-time" type="time" value="@defaultExpiry.ToString("HH:mm")" aria-label="到期時間" required />
+      </div>
+      <input id="new-expiry" name="expires" type="hidden" value="@defaultExpiry.ToString("yyyy-MM-ddTHH:mm")" />
+      <div class="expiry-presets" aria-label="到期時間快捷選擇">
+        <button type="button" class="chip" data-expiry-days="7">7 天</button>
+        <button type="button" class="chip" data-expiry-days="30">30 天</button>
+        <button type="button" class="chip" data-expiry-days="90">90 天</button>
+        <button type="button" class="chip" data-expiry-days="365">1 年</button>
+      </div>
+      <small class="expiry-preview" data-expiry-preview></small>
+    </div>
     <button>建立帳號</button>
   </form>
 </section>
@@ -77,7 +95,20 @@
       <td>@account.Username <span class="badge">@(!account.Enabled ? "已停用" : account.ExpiresAt<=DateTimeOffset.UtcNow ? "已到期" : "有效")</span></td>
       <td><form asp-action="Update" method="post" class="row">
         <input type="hidden" name="id" value="@account.Id" />
-        <input aria-label="@account.Username 到期時間" name="expires" type="datetime-local" value="@account.ExpiresAt.ToOffset(TimeSpan.FromHours(8)).ToString("yyyy-MM-ddTHH:mm")" required />
+        @{ var localExpiry = account.ExpiresAt.ToOffset(taiwanOffset); }
+        <div class="expiry-picker compact" data-expiry-picker>
+          <label class="sr-only" for="expiry-date-@account.Id">@account.Username 到期日期</label>
+          <div class="expiry-inputs">
+            <input id="expiry-date-@account.Id" type="date" value="@localExpiry.ToString("yyyy-MM-dd")" min="@DateTimeOffset.UtcNow.ToOffset(taiwanOffset).ToString("yyyy-MM-dd")" aria-label="@account.Username 到期日期" required />
+            <input type="time" value="@localExpiry.ToString("HH:mm")" aria-label="@account.Username 到期時間" required />
+          </div>
+          <input type="hidden" name="expires" value="@localExpiry.ToString("yyyy-MM-ddTHH:mm")" />
+          <div class="expiry-presets" aria-label="到期時間快捷選擇">
+            <button type="button" class="chip" data-expiry-days="30">+30 天</button>
+            <button type="button" class="chip" data-expiry-days="365">+1 年</button>
+          </div>
+          <small class="expiry-preview" data-expiry-preview></small>
+        </div>
         <label><input type="checkbox" name="enabled" value="true" checked="@account.Enabled" /> 啟用</label>
         <input aria-label="@account.Username 新密碼" name="password" type="password" placeholder="留空不更改密碼" minlength="6" maxlength="128" autocomplete="new-password" />
         <button>儲存</button>
@@ -87,6 +118,33 @@
   }
   </tbody></table></div>
 </section>
+
+<script>
+(() => {
+  const format = value => value ? new Intl.DateTimeFormat('zh-TW', { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(value)) : '請選擇日期與時間';
+  const pad = value => String(value).padStart(2, '0');
+  document.querySelectorAll('[data-expiry-picker]').forEach(picker => {
+    const date = picker.querySelector('input[type="date"]');
+    const time = picker.querySelector('input[type="time"]');
+    const hidden = picker.querySelector('input[type="hidden"]');
+    const preview = picker.querySelector('[data-expiry-preview]');
+    const sync = () => {
+      hidden.value = date.value && time.value ? `${date.value}T${time.value}` : '';
+      preview.textContent = hidden.value ? `將於 ${format(hidden.value)}` : '請選擇到期時間';
+    };
+    picker.querySelectorAll('[data-expiry-days]').forEach(button => button.addEventListener('click', () => {
+      const next = new Date();
+      next.setDate(next.getDate() + Number(button.dataset.expiryDays));
+      date.value = `${next.getFullYear()}-${pad(next.getMonth() + 1)}-${pad(next.getDate())}`;
+      if (!time.value) time.value = '23:59';
+      sync();
+    }));
+    date.addEventListener('change', sync);
+    time.addEventListener('change', sync);
+    sync();
+  });
+})();
+</script>
 
 <section id="security" class="panel">
   <h2>變更管理員密碼</h2>
