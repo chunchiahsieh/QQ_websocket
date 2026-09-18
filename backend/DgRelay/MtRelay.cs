@@ -103,10 +103,11 @@ static class MtRelay
                 // inspected while troubleshooting the upstream flow.
                 Headless = false,
                 Channel = configuration["DG_BROWSER_CHANNEL"] ?? "msedge",
-                Args = new[] { "--start-maximized" },
+                Args = new[] { "--start-maximized", "--disable-blink-features=AutomationControlled", "--disable-dev-shm-usage" },
                 Timeout = 30000
             });
             await using var context = await browser.NewContextAsync(new() { AcceptDownloads = false });
+            await context.AddInitScriptAsync("Object.defineProperty(navigator, 'webdriver', { get: () => undefined });");
             using var cancellation = ct.Register(() => { _ = browser.CloseAsync(); });
             var page = await context.NewPageAsync();
             var packets = Channel.CreateBounded<string>(512);
@@ -129,7 +130,7 @@ static class MtRelay
             };
             Attach(page);
             context.Page += (_, opened) => Attach(opened);
-            var navigation = await page.GotoAsync("https://jrk.tz6868.com/", new() { WaitUntil = WaitUntilState.DOMContentLoaded, Timeout = 30000 });
+            var navigation = await page.GotoAsync("https://jrk.tz6868.com/login?id=login", new() { WaitUntil = WaitUntilState.DOMContentLoaded, Timeout = 30000 });
             Console.WriteLine($"[MT] portal opened: {page.Url} status={navigation?.Status}");
             if (navigation?.Status == 403) throw new UpstreamAccessDeniedException();
             var notice = page.GetByText("確定", new() { Exact = true }).First;
