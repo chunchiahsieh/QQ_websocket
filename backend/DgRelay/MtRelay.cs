@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using System.Net.Http.Headers;
 using System.Net.WebSockets;
 using System.Security.Cryptography;
 using System.Text;
@@ -130,99 +131,21 @@ static class MtRelay
             };
             Attach(page);
             context.Page += (_, opened) => Attach(opened);
-            var navigation = await page.GotoAsync("https://jrk.tz6868.com/login?id=login", new() { WaitUntil = WaitUntilState.DOMContentLoaded, Timeout = 30000 });
-            Console.WriteLine($"[MT] portal opened: {page.Url} status={navigation?.Status}");
-            if (navigation?.Status == 403) throw new UpstreamAccessDeniedException();
-            var notice = page.GetByText("確定", new() { Exact = true }).First;
-            try
-            {
-                await notice.WaitForAsync(new() { State = WaitForSelectorState.Visible, Timeout = 5000 });
-                await notice.ClickAsync(new() { Force = true, Timeout = 3000 });
-            }
+            // Use the same official API flow as the working MT web client:
+            // authenticate at tz6868.cc, obtain the short-lived MTLI game URL,
+            // then let Edge observe the official ofalive WebSocket. Opening
+            // jrk.tz6868.com first is blocked with HTTP 403 from Render even
+            // when the account and source IP are valid.
+            var gameUrl = await ResolveMtGameUrl(configuration, ct);
+            Console.WriteLine($"[MT] game URL obtained: {new Uri(gameUrl).Host}");
+            var platformNavigation = await page.GotoAsync(gameUrl, new() { WaitUntil = WaitUntilState.DOMContentLoaded, Timeout = 30000 });
+            Console.WriteLine($"[MT] game page opened: {page.Url} status={platformNavigation?.Status}");
+            if (platformNavigation?.Status == 403) throw new UpstreamAccessDeniedException();
+            if (!page.Url.Contains(".ofalive99.net/", StringComparison.OrdinalIgnoreCase))
+                throw new InvalidOperationException("MT 授權後未取得 ofalive 遊戲頁。");
+            try { await page.WaitForLoadStateAsync(LoadState.DOMContentLoaded, new() { Timeout = 15000 }); }
             catch (System.TimeoutException) { }
-            // The official portal has changed its markup and no longer exposes
-            // 帳號/密碼 placeholders. Prefer them when present, otherwise use
-            // the two visible login inputs shown by the current portal.
-            var loginInputs = page.Locator("input");
-            try
-            {
-                await page.GetByPlaceholder("帳號", new() { Exact = true }).FillAsync(configuration["MT_BACKEND_USERNAME"]!, new() { Timeout = 2000 });
-                await page.GetByPlaceholder("密碼", new() { Exact = true }).FillAsync(configuration["MT_BACKEND_PASSWORD"]!, new() { Timeout = 2000 });
-            }
-            catch (System.TimeoutException)
-            {
-                await loginInputs.Nth(0).FillAsync(configuration["MT_BACKEND_USERNAME"]!);
-                await loginInputs.Nth(1).FillAsync(configuration["MT_BACKEND_PASSWORD"]!);
-            }
-            Console.WriteLine($"[MT] login form page: {page.Url}");
-            await page.GetByText("登入", new() { Exact = true }).First.ClickAsync(new() { Force = true });
-            Console.WriteLine("[MT] login submitted");
-            var loginReady = false;
-            try { await page.GetByText("登出", new() { Exact = true }).WaitForAsync(new() { Timeout = 20000 }); loginReady = true; }
-            catch (System.TimeoutException) { }
-            if (!loginReady)
-            {
-                // Some official builds do not render a literal "登出" label
-                // after login, but expose the 真人 entry immediately.
-                try { await page.GetByText("真人", new() { Exact = false }).First.WaitForAsync(new() { Timeout = 3000 }); loginReady = true; }
-                catch (System.TimeoutException) { }
-            }
-            if (!loginReady)
-            {
-                // Surface the official, non-sensitive reason when the site
-                // rejects the credentials; do not mistake it for a socket
-                // handshake failure.
-                var body = await page.Locator("body").InnerTextAsync();
-                if (body.Contains("密碼錯誤", StringComparison.Ordinal))
-                    throw new DgLoginRequiredException("官方登入頁回報會員密碼錯誤（4401）。");
-                throw new DgLoginRequiredException();
-            }
-            await page.GetByText("真人", new() { Exact = false }).First.ClickAsync(new() { Force = true });
-            Console.WriteLine("[MT] 真人 selected");
-            await Task.Delay(500);
-            IPage platformPage;
-            try
-            {
-                platformPage = await context.RunAndWaitForPageAsync(async () => {
-                    await page.GetByText("MT真人", new() { Exact = false }).First.ClickAsync(new() { Force = true });
-                }, new() { Timeout = 30000 });
-            }
-            catch (System.TimeoutException)
-            {
-                // MT真人 can reuse the current tab in some official builds.
-                platformPage = context.Pages.LastOrDefault() ?? page;
-            }
-            Console.WriteLine($"[MT] game link page: {platformPage.Url}");
-            // The popup is initially about:blank and navigates a moment later.
-            // Waiting only for DOMContentLoaded would return too early and
-            // leave the capture loop attached to an empty page.
-            var platformReady = false;
-            // The official MT portal can take considerably longer to open the
-            // 真人 game page on a cold browser/session. Do not report a false
-            // connection failure while that redirect is still in progress.
-            for (var wait = 0; wait < 60 && !ct.IsCancellationRequested; wait++)
-            {
-                if (platformPage.Url.Contains(".ofalive99.net/", StringComparison.OrdinalIgnoreCase)) { platformReady = true; break; }
-                await Task.Delay(1000, ct);
-            }
-            if (!platformReady)
-            {
-                Console.Error.WriteLine($"[MT] platform redirect timeout: url={platformPage.Url}");
-                try { await platformPage.CloseAsync(); } catch (PlaywrightException) { }
-                throw new InvalidOperationException("MT 遊戲頁未完成跳轉。");
-            }
-            // The portal hands back a short-lived token in the ofalive URL.
-            // Always use the stable GSA entrypoint requested by MT so the
-            // websocket capture is independent of which game alias was opened.
-            var tokenMatch = Regex.Match(platformPage.Url, @"(?:[?&])token=([^&]+)", RegexOptions.IgnoreCase);
-            if (!tokenMatch.Success)
-                throw new InvalidOperationException("MT 登入後未取得遊戲 token。");
-            var mtToken = Uri.UnescapeDataString(tokenMatch.Groups[1].Value);
-            await platformPage.GotoAsync($"https://gsa.ofalive99.net/?token={Uri.EscapeDataString(mtToken)}&lang=zhtw",
-                new() { WaitUntil = WaitUntilState.DOMContentLoaded, Timeout = 30000 });
-            try { await platformPage.WaitForLoadStateAsync(LoadState.DOMContentLoaded, new() { Timeout = 15000 }); }
-            catch (System.TimeoutException) { }
-            var platformText = await platformPage.Locator("body").InnerTextAsync();
+            var platformText = await page.Locator("body").InnerTextAsync();
             if (platformText.Contains("ACCESS RESTRICTED", StringComparison.OrdinalIgnoreCase)
                 || platformText.Contains("訪問受限制", StringComparison.Ordinal))
                 throw new UpstreamAccessDeniedException();
@@ -237,7 +160,7 @@ static class MtRelay
                 catch (OperationCanceledException) when (!ct.IsCancellationRequested)
                 {
                     if (++recoveries >= 3) throw;
-                    try { await platformPage.ReloadAsync(new() { WaitUntil = WaitUntilState.DOMContentLoaded, Timeout = 20000 }); }
+                    try { await page.ReloadAsync(new() { WaitUntil = WaitUntilState.DOMContentLoaded, Timeout = 20000 }); }
                     catch (PlaywrightException) { }
                     continue;
                 }
@@ -316,5 +239,71 @@ static class MtRelay
         }
         catch (Exception) { throw; }
         finally { Interlocked.Decrement(ref active); feed!.Connection(false); }
+    }
+
+    static async Task<string> ResolveMtGameUrl(IConfiguration configuration, CancellationToken ct)
+    {
+        using var client = new HttpClient { Timeout = TimeSpan.FromSeconds(20) };
+        client.DefaultRequestHeaders.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+        client.DefaultRequestHeaders.Accept.Add(new MediaTypeWithQualityHeaderValue("text/plain"));
+        var baseUrl = "https://www.tz6868.cc";
+        var deviceId = configuration["MT_BACKEND_DEVICE_ID"]
+            ?? configuration["DG_BACKEND_DEVICE_ID"]
+            ?? Guid.NewGuid().ToString();
+        var loginBody = JsonSerializer.Serialize(new {
+            username = configuration["MT_BACKEND_USERNAME"],
+            password = configuration["MT_BACKEND_PASSWORD"],
+            device_id = deviceId,
+        });
+        using var loginResponse = await client.PostAsync(
+            $"{baseUrl}/api/v1/login",
+            new StringContent(loginBody, Encoding.UTF8, "application/json"), ct);
+        var loginPayload = System.Text.Json.Nodes.JsonNode.Parse(await loginResponse.Content.ReadAsStringAsync(ct));
+        if (loginResponse.StatusCode == System.Net.HttpStatusCode.Forbidden)
+            throw new UpstreamAccessDeniedException();
+        var memberToken = FirstString(loginPayload,
+            "data.token", "token", "data.access_token", "access_token");
+        if (!loginResponse.IsSuccessStatusCode || string.IsNullOrWhiteSpace(memberToken))
+            throw new DgLoginRequiredException("MT 官方帳號驗證失敗。");
+
+        using var gameRequest = new HttpRequestMessage(HttpMethod.Post, $"{baseUrl}/api/v2/game/MTLI/login");
+        gameRequest.Headers.Authorization = new AuthenticationHeaderValue("Bearer", memberToken);
+        gameRequest.Content = new StringContent(JsonSerializer.Serialize(new {
+            game_return_url = baseUrl,
+            game_kind = "",
+            game_type = "",
+            game_device = "Desktop",
+        }), Encoding.UTF8, "application/json");
+        using var gameResponse = await client.SendAsync(gameRequest, ct);
+        var gamePayload = System.Text.Json.Nodes.JsonNode.Parse(await gameResponse.Content.ReadAsStringAsync(ct));
+        if (gameResponse.StatusCode == System.Net.HttpStatusCode.Forbidden)
+            throw new UpstreamAccessDeniedException();
+        var gameUrl = FirstString(gamePayload,
+            "data.game_url", "data.url", "url", "game_url");
+        if (!gameResponse.IsSuccessStatusCode || string.IsNullOrWhiteSpace(gameUrl))
+            throw new DgLoginRequiredException("MT 官方未提供遊戲授權網址。");
+        if (!Uri.TryCreate(gameUrl.Replace("\\/", "/"), UriKind.Absolute, out var parsed)
+            || parsed.Scheme != Uri.UriSchemeHttps
+            || !parsed.Host.EndsWith("ofalive99.net", StringComparison.OrdinalIgnoreCase)
+            || string.IsNullOrWhiteSpace(parsed.Query))
+            throw new InvalidOperationException("MT 官方回傳的遊戲授權網址無效。");
+        return parsed.ToString();
+    }
+
+    static string FirstString(System.Text.Json.Nodes.JsonNode? root, params string[] paths)
+    {
+        foreach (var path in paths)
+        {
+            var value = root;
+            foreach (var segment in path.Split('.', StringSplitOptions.RemoveEmptyEntries))
+            {
+                value = value?[segment];
+                if (value is null) break;
+            }
+            if (value is System.Text.Json.Nodes.JsonValue jsonValue
+                && jsonValue.TryGetValue<string>(out var text)
+                && !string.IsNullOrWhiteSpace(text)) return text.Trim();
+        }
+        return "";
     }
 }
