@@ -19,10 +19,8 @@ var app = builder.Build();
 Console.WriteLine($"[Relay] listening on 0.0.0.0:{relayPort}");
 app.UseWebSockets();
 BrowserRelay.Map(app, apiKey);
-AbBrowserRelay.Map(app, apiKey);
 MtRelay.Map(app, apiKey);
 app.MapGet("/health/mt", () => Results.Json(new { status = "ok", activeSessions = MtRelay.Active, feed = MtRelay.Health }));
-app.MapGet("/health/ab", () => Results.Json(new { status = "ok", activeSessions = AbBrowserRelay.Active, feed = AbBrowserRelay.Health }));
 app.MapGet("/health", () => Results.Json(new { status = "ok", transport = "BrowserWebSocket", activeSessions = BrowserRelay.Active, feed = BrowserRelay.Health }));
 app.MapPost("/api/dg/stream", async (HttpContext context) =>
 {

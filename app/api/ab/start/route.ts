@@ -1,33 +1,3 @@
-import { readSession } from '@/lib/monitor-session';
-import { browserRelayUrl } from '@/lib/relay-url';
-import { isSameRequestOrigin } from '@/lib/request-origin';
-import { readJsonResponse } from '@/lib/safe-response-json';
-
-const RELAY_START_TIMEOUT_MS = 45000;
-
-export async function POST(request: Request) {
-  if (!isSameRequestOrigin(request)) return Response.json({ message: '來源不符。' }, { status: 403 });
-  const session = await readSession(request);
-  if (!session?.dgDirectLogin) return Response.json({ message: '請重新登入，以啟用 歐博後台連線。' }, { status: 401 });
-  if (!process.env.DG_RELAY_URL || !process.env.DG_RELAY_API_KEY)
-    return Response.json({ message: '歐博瀏覽器服務尚未設定。' }, { status: 503 });
-  try {
-    const input = await request.json().catch(() => ({})) as { gameUrl?: unknown; collector?: unknown };
-    const gameUrl = typeof input.gameUrl === 'string' ? input.gameUrl.trim() : '';
-    const collector = input.collector === true;
-    if (gameUrl.length > 4096) return Response.json({ message: '歐博遊戲授權網址過長。' }, { status: 400 });
-    const response = await fetch(new URL('/api/ab/start', process.env.DG_RELAY_URL), {
-      method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Relay-Key': process.env.DG_RELAY_API_KEY },
-      body: JSON.stringify({ directLogin: true, gameUrl: gameUrl || undefined, collector }), signal: AbortSignal.any([request.signal, AbortSignal.timeout(RELAY_START_TIMEOUT_MS)]),
-    });
-    const result = await readJsonResponse<{ ticket?: string; message?: string }>(response);
-    if (!response.ok) {
-      const upstreamJson = response.headers.get('content-type')?.toLowerCase().includes('json');
-      const message = upstreamJson
-        ? result.message || '無法建立 歐博瀏覽器工作階段。'
-        : '歐博 Relay 正在啟動或暫時無法回應，請稍候再試。';
-      return Response.json({ message }, { status: response.status });
-    }
-    return Response.json({ ticket: result.ticket, wsUrl: browserRelayUrl(request, process.env.DG_RELAY_PUBLIC_URL || process.env.DG_RELAY_URL, '/ws/ab') }, { headers: { 'Cache-Control': 'no-store' } });
-  } catch { return Response.json({ message: '無法連接歐博服務，請確認已啟動。' }, { status: 502 }); }
+export async function POST() {
+  return Response.json({ message: '歐博目前暫停服務。' }, { status: 410 });
 }

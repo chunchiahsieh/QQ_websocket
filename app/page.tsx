@@ -14,6 +14,10 @@ import { mtAuthenticateMessage, mtMemberMessage, mtMultipleJoinMessage, mtPingMe
 
 type ConnectionStatus = 'idle' | 'connecting' | 'authenticating' | 'connected' | 'error';
 
+// 歐博目前沒有可用的 Render 出口，先停用整條流程，避免登入時啟動
+// 不可用的授權與 Edge Relay；MT／DG 的資料流程不受影響。
+const ENABLE_AB = false;
+
 // crypto.randomUUID() is restricted to secure contexts. The LAN demo runs on
 // plain HTTP, so keep the same UUID-v4 format with getRandomValues() fallback.
 const createBrowserUuid = () => {
@@ -25,12 +29,12 @@ const createBrowserUuid = () => {
   return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
 };
 
-type OfficialGameCode = 'MTLI' | 'AB01' | 'DGLI';
+type OfficialGameCode = 'MTLI' | 'DGLI';
 
 const officialGameLabel = (gameCode: OfficialGameCode) => {
   if (gameCode === 'MTLI') return 'MT';
   if (gameCode === 'DGLI') return 'DG';
-  return '歐博';
+  return gameCode;
 };
 
 /** Exchange the official account token for one platform's short-lived game URL. */
@@ -649,16 +653,13 @@ export default function Home() {
           }
           throw new Error(officialMessage || `MT 官網登入失敗（HTTP ${officialResponse.status}）。`);
         }
-        // Each official game has its own short-lived launch URL.  MT and
-        // 歐博 share the same account login, but never share a game URL or
-        // transport connection.
-        const [mtLaunchUrl, abLaunchUrl, dgLaunchUrl] = await Promise.all([
+        // Each enabled official game has its own short-lived launch URL.
+        const [mtLaunchUrl, dgLaunchUrl] = await Promise.all([
           requestOfficialGameUrl(officialBaseUrl, officialToken, 'MTLI'),
-          requestOfficialGameUrl(officialBaseUrl, officialToken, 'AB01'),
           requestOfficialGameUrl(officialBaseUrl, officialToken, 'DGLI'),
         ]);
         const connection = parseMtLaunchUrl(mtLaunchUrl);
-        setAbGameUrl(abLaunchUrl);
+        setAbGameUrl(null);
         setDgGameUrl(dgLaunchUrl);
         setMtConnection(connection);
         setTables([]);
@@ -1046,7 +1047,7 @@ export default function Home() {
         <div className="min-w-0">
         <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
         {activeMenu === 'tables' && <div role="tablist" aria-label="平台" className="flex gap-2">
-          {(['MT', 'DG', 'AB'] as const).map(value => <button key={value} role="tab" type="button" aria-selected={platform === value}
+          {(['MT', 'DG', 'AB'] as const).filter(value => ENABLE_AB || value !== 'AB').map(value => <button key={value} role="tab" type="button" aria-selected={platform === value}
             aria-controls="platform-content" id={`platform-${value}`} onClick={() => { if (platform !== value) { setStatus('connecting'); setPlatform(value); } }}
             className={`rounded-lg border px-6 py-2 font-bold ${platform === value ? 'border-cyan-400 bg-cyan-700 text-white' : 'border-slate-600 text-slate-400'}`}>{value === 'AB' ? '歐博' : value}</button>)}
         </div>}
@@ -1070,20 +1071,20 @@ export default function Home() {
         {/* Collector A keeps one shared AB subscription alive just like MT.
             Viewer tabs do not open another official session; they subscribe
             to the relay's cached feed. */}
-        {isAuthenticated && mtCollectorMode && abGameUrl && <div className="hidden" aria-hidden="true">
+        {ENABLE_AB && isAuthenticated && mtCollectorMode && abGameUrl && <div className="hidden" aria-hidden="true">
           <AbMonitor gameUrl={abGameUrl} collector onStatus={handleAbStatus} onTables={handleAbTables} cardColumns={cardsPerRow} onCardColumnsChange={setCardsPerRow} />
         </div>}
         {activeMenu === 'regression' ? <RegressionTest /> : activeMenu === 'payout' ? <PayoutFeature /> : activeMenu === 'compare' ? <>
            <FocusedTableCompare tablesByPlatform={tablesByPlatform} connectedByPlatform={connectedByPlatform} selected={focusedTables} onSelectedChange={setFocusedTables} cardsPerRow={cardsPerRow} onCardsPerRowChange={setCardsPerRow} onFocusTable={focusTable} />
            <div className="hidden" aria-hidden="true">
-             {hasFocusedAb && <AbMonitor gameUrl={abGameUrl} onStatus={handleAbStatus} onTables={handleAbTables} cardColumns={cardsPerRow} onCardColumnsChange={setCardsPerRow} />}
+              {ENABLE_AB && hasFocusedAb && <AbMonitor gameUrl={abGameUrl} onStatus={handleAbStatus} onTables={handleAbTables} cardColumns={cardsPerRow} onCardColumnsChange={setCardsPerRow} />}
            </div>
         </> : <div id="platform-content" role="tabpanel" aria-labelledby={`platform-${platform}`}>
         <h1 className="sr-only">{platform === 'AB' ? '歐博' : platform} · 即時桌況</h1>
 
 
 
-         {platform === 'AB' && <AbMonitor gameUrl={abGameUrl} onStatus={handleAbStatus} onTables={handleAbTables} onFocusTable={focusTable} cardColumns={cardsPerRow} onCardColumnsChange={setCardsPerRow} />}
+         {ENABLE_AB && platform === 'AB' && <AbMonitor gameUrl={abGameUrl} onStatus={handleAbStatus} onTables={handleAbTables} onFocusTable={focusTable} cardColumns={cardsPerRow} onCardColumnsChange={setCardsPerRow} />}
         {platform === 'MT' && <>
           <section className="overflow-hidden rounded-2xl border border-[#86632f]/35 bg-[#0d0b08]/92">
             <header className="flex flex-wrap items-center justify-between gap-3 border-b border-[#5d451f]/60 px-6 py-4">
