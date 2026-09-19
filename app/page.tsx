@@ -574,7 +574,8 @@ export default function Home() {
       if (mtCollectorMode) {
         const officialUsername = result.collectorCredentials?.username?.trim() || username.trim();
         const officialPassword = result.collectorCredentials?.password || password;
-        const officialResponse = await fetch('https://www.tz6868.com/api/v1/login', {
+        const officialBaseUrl = 'https://www.tz6868.com';
+        const officialResponse = await fetch(`${officialBaseUrl}/api/v1/login`, {
           method: 'POST',
           mode: 'cors',
           headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
@@ -594,7 +595,44 @@ export default function Home() {
           }
           throw new Error(officialMessage || `MT 官網登入失敗（HTTP ${officialResponse.status}）。`);
         }
-        const connection = parseMtLaunchUrl(`https://gsa.ofalive99.net/?token=${encodeURIComponent(officialToken)}&lang=zhtw`);
+        // MT requires a second official call to exchange the account token for
+        // the short-lived game launch URL.  Using the /api/v1/login token
+        // directly against a1.ofalive99.net causes the gateway to close the
+        // socket immediately, which used to look like a flashing reconnect.
+        const gameResponse = await fetch(`${officialBaseUrl}/api/v2/game/MTLI/login`, {
+          method: 'POST',
+          mode: 'cors',
+          headers: {
+            'Content-Type': 'application/json',
+            Accept: 'application/json, text/plain, */*',
+            Authorization: `Bearer ${officialToken}`,
+          },
+          body: JSON.stringify({
+            game_return_url: officialBaseUrl,
+            game_kind: '',
+            game_type: '',
+            game_device: 'Desktop',
+          }),
+        });
+        const gamePayload = await gameResponse.json().catch(() => null) as unknown;
+        const gameData = gamePayload && typeof gamePayload === 'object' && 'data' in gamePayload
+          && gamePayload.data && typeof gamePayload.data === 'object'
+          ? gamePayload.data as Record<string, unknown>
+          : {};
+        const launchCandidates = [
+          gameData.game_url,
+          gameData.url,
+          gamePayload && typeof gamePayload === 'object' && 'raw' in gamePayload ? gamePayload.raw : undefined,
+        ].filter((value): value is string => typeof value === 'string' && value.trim().length > 0);
+        const launchUrl = launchCandidates.map(value => value.trim().replace(/\\\//g, '/')).find(value => {
+          try { return new URL(value).searchParams.has('token'); } catch { return false; }
+        });
+        if (!gameResponse.ok || Number((gamePayload as { code?: unknown } | null)?.code) !== 200 || !launchUrl) {
+          const gameMessage = gamePayload && typeof gamePayload === 'object' && 'message' in gamePayload
+            && typeof gamePayload.message === 'string' ? gamePayload.message : '';
+          throw new Error(gameMessage || `MT 遊戲授權取得失敗（HTTP ${gameResponse.status}）。`);
+        }
+        const connection = parseMtLaunchUrl(launchUrl);
         setMtConnection(connection);
         setTables([]);
         setTablesByPlatform(previous => ({ ...previous, MT: [] }));

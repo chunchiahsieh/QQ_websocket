@@ -51,12 +51,15 @@ export function parseMtLaunchUrl(raw: string): MtFrontendConnection {
     ? new URL(source.toString())
     : new URL('/game/ws', source.origin);
 
-  // The official MT page opens a1.<platform>/game/ws and authenticates by
-  // sending a JSON message after open. The launch token is intentionally not
-  // put in the WS query string; it is sent once in the browser's auth frame.
+  // The official MT page returns a short-lived launch URL on gsa/gs1 and then
+  // opens a1.<platform>/game/ws. The launch token is intentionally not put in
+  // the WS query string; it is sent once in the browser's auth frame.
   if (!isWebSocket) {
-    const host = source.hostname.replace(/^gsa\./i, 'a1.');
-    websocket.hostname = host;
+    // MT currently uses both gsa.ofalive99.net and gs1.ofalive99.net for the
+    // browser launch page. Both are served by the same a1 WebSocket gateway.
+    websocket.hostname = source.hostname.endsWith('.ofalive99.net')
+      ? 'a1.ofalive99.net'
+      : source.hostname.replace(/^gsa\./i, 'a1.');
     websocket.protocol = source.protocol === 'http:' ? 'ws:' : 'wss:';
   }
   websocket.search = '';
@@ -71,7 +74,7 @@ export function parseMtLaunchUrl(raw: string): MtFrontendConnection {
 export function mtAuthenticateMessage(token: string) {
   return JSON.stringify({
     method: 'POST',
-    action: { name: '/api/v1/authenticate' },
+    action: { name: '/api/v1/authenticate', path: '/api/v1/authenticate' },
     body: { type: 3, token },
   });
 }
