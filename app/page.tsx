@@ -1096,7 +1096,10 @@ export default function Home() {
               {logoutError && <span role="alert" className="text-sm text-rose-300">{logoutError}</span>}
         </div>
         </div>
-        {isAuthenticated && <div className={activeMenu === 'tables' && platform === 'DG' ? '' : 'hidden'} aria-hidden={activeMenu !== 'tables' || platform !== 'DG'}>
+        {/* Collector A owns the upstream DG session.  It must not also mount a
+            viewer subscription here: doing so creates a second DG socket from
+            the same browser and can make the shared feed reset/reconnect. */}
+        {isAuthenticated && !mtCollectorMode && <div className={activeMenu === 'tables' && platform === 'DG' ? '' : 'hidden'} aria-hidden={activeMenu !== 'tables' || platform !== 'DG'}>
           <DgMonitor gameUrl={dgGameUrl} onStatus={handleDgStatus} onTables={handleDgTables} onFocusTable={focusTable} cardColumns={cardsPerRow} onCardColumnsChange={setCardsPerRow} />
         </div>}
         {/* Collector A opens the official DG game URL in the relay worker.
