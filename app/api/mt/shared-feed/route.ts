@@ -42,12 +42,36 @@ export async function GET(request: Request) {
   const session = await readSession(request);
   if (!session) return Response.json({ message: '請先登入系統。' }, { status: 401 });
   const room = mtRoomForSession(session);
-  const role = new URL(request.url).searchParams.get('role') || 'viewer';
+  const searchParams = new URL(request.url).searchParams;
+  const role = searchParams.get('role') || 'viewer';
   if (role === 'collector') {
     return Response.json(mtFeedInfo(room), { headers: { 'Cache-Control': 'no-store' } });
   }
-  const requestedViewerId = new URL(request.url).searchParams.get('viewerId');
+  const requestedViewerId = searchParams.get('viewerId');
   const viewerId = requestedViewerId?.trim().slice(0, 120) || session.accountId || session.accountUsername || request.headers.get('x-viewer-id') || 'viewer';
+
+  // Render's edge runtime can keep a long-lived SSE request around for several
+  // minutes after the browser is gone. That starves the short POST requests
+  // used by the collector, so provide a short-lived JSON poll endpoint for the
+  // viewer. The UI uses this transport for both LAN and Render, keeping the
+  // runtime behavior identical while avoiding a persistent connection.
+  if (searchParams.get('poll') === '1') {
+    touchMtViewer(room, viewerId, true);
+    const feed = getMtFeed(room);
+    const message: SharedMtMessage = feed.latest || {
+      type: 'status',
+      status: 'connecting',
+      message: '等待 MT 即時資料…',
+      receivedAt: Date.now(),
+    };
+    return Response.json(message, {
+      headers: {
+        'Cache-Control': 'no-store, no-cache, must-revalidate',
+        Connection: 'close',
+      },
+    });
+  }
+
   let stop = () => {};
   const stream = new ReadableStream<Uint8Array>({
     start(controller) {

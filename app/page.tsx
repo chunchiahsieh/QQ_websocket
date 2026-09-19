@@ -925,21 +925,31 @@ export default function Home() {
     };
   }, [platform, isAuthenticated, activeMenu, hasFocusedMt, mtConnection, mtDemand, handleMtStatus]);
 
-  // Viewer mode: when this browser has no MT launch URL, it subscribes to the
-  // authenticated shared feed published by collector A.  No token or MT
-  // WebSocket is opened in this branch.
+  // Viewer mode: when this browser has no MT launch URL, it polls the
+  // authenticated shared feed published by collector A.  A short-lived JSON
+  // request is deliberate: Render's edge runtime can retain long-lived SSE
+  // connections after a tab closes, which then delays collector POSTs and
+  // makes every MT countdown appear as the initial placeholder 0. No token or
+  // MT WebSocket is opened in this branch.
   useEffect(() => {
     const shouldSubscribe = isAuthenticated && activeMenu === 'tables' && platform === 'MT' && mtConnection === null;
     if (!shouldSubscribe) return;
     const abort = new AbortController();
     const viewerId = mtViewerId.current;
-    const stream = new EventSource(`/api/mt/shared-feed?viewerId=${encodeURIComponent(viewerId)}`);
+    let inFlight = false;
     setTables([]); setTableUpdatedAt('');
     handleMtStatus('connecting');
     setMtMessage('等待 MT 即時資料…');
-    stream.onmessage = event => {
+    const poll = async () => {
+      if (inFlight || abort.signal.aborted) return;
+      inFlight = true;
       try {
-        const message = JSON.parse(event.data) as { type?: string; tables?: TableInfo[]; status?: string; message?: string };
+        const response = await fetch(`/api/mt/shared-feed?poll=1&viewerId=${encodeURIComponent(viewerId)}`, {
+          cache: 'no-store',
+          signal: abort.signal,
+        });
+        if (!response.ok) throw new Error(`shared feed ${response.status}`);
+        const message = await response.json() as { type?: string; tables?: TableInfo[]; status?: string; message?: string };
         if (message.type === 'snapshot' && Array.isArray(message.tables)) {
           setTables(message.tables);
           setTablesByPlatform(previous => ({ ...previous, MT: message.tables! }));
@@ -960,17 +970,20 @@ export default function Home() {
             setMtMessage(message.message || '等待 MT 即時資料…');
           }
         }
-      } catch { /* ignore malformed relay events */ }
-    };
-    stream.onerror = () => {
-      if (!abort.signal.aborted) {
-        handleMtStatus('connecting');
-        setMtMessage('MT 即時資料重新連線中…');
+      } catch {
+        if (!abort.signal.aborted) {
+          handleMtStatus('connecting');
+          setMtMessage('MT 即時資料重新連線中…');
+        }
+      } finally {
+        inFlight = false;
       }
     };
+    void poll();
+    const timer = setInterval(() => { void poll(); }, 3000);
     return () => {
       abort.abort();
-      stream.close();
+      clearInterval(timer);
       setConnectedByPlatform(previous => ({ ...previous, MT: false }));
     };
   }, [activeMenu, handleMtStatus, isAuthenticated, mtConnection, platform]);
