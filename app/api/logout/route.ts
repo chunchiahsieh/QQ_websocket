@@ -1,6 +1,7 @@
+import { isSameRequestOrigin } from '@/lib/request-origin';
+
 export async function POST(request: Request) {
-  const origin = request.headers.get('origin');
-  if (origin && origin !== new URL(request.url).origin) {
+  if (!isSameRequestOrigin(request)) {
     return Response.json({ message: '來源不符。' }, { status: 403 });
   }
   return Response.json({ ok: true }, { headers: {
