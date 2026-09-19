@@ -111,7 +111,8 @@ static class BrowserRelay
         var allowed = host.EndsWith(".ahsy114.com", StringComparison.Ordinal)
             || host.EndsWith(".20299999.com", StringComparison.Ordinal)
             || host.EndsWith(".dggw.vip", StringComparison.Ordinal)
-            || host.EndsWith(".ywjxi.com", StringComparison.Ordinal);
+            || host.EndsWith(".ywjxi.com", StringComparison.Ordinal)
+            || host.EndsWith(".dingdangmail.com", StringComparison.Ordinal);
         if (!allowed || !uri.Query.Contains("token=", StringComparison.OrdinalIgnoreCase)) return false;
         normalized = uri.ToString();
         return true;

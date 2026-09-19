@@ -19,4 +19,4 @@ MT 與 DG 現已共用 BaccaratTableCard：雙欄、照片、倒數及五種路�
 MONITOR_SESSION_SECRET=自行產生的至少32字元隨機密鑰
 ```
 
-正式環境必須設定穩定的 `MONITOR_SESSION_SECRET`。DG Relay 只接受採集端提供的 HTTPS DGLI 網址，並限制在官方 DG 網域（含輪替的 `*.ywjxi.com`）；不接受任意代理網址。
+正式環境必須設定穩定的 `MONITOR_SESSION_SECRET`。DG Relay 只接受採集端提供的 HTTPS DGLI 網址，並限制在官方 DG 網域（含輪替的 `*.ywjxi.com`、`*.dingdangmail.com`）；不接受任意代理網址。

@@ -32,7 +32,8 @@ DG_BROWSER_CHANNEL=chromium and install the matching Playwright browser first.
 - Only loopback :5091 is bound. Production needs TLS and a protected reverse proxy.
 - C# start endpoint requires an internal shared key.
 - Launch URLs are accepted only over HTTPS from the allow-listed official DG domains
-  (`*.ahsy114.com`, `*.20299999.com`, `*.dggw.vip`, `*.ywjxi.com`) and must contain a token.
+  (`*.ahsy114.com`, `*.20299999.com`, `*.dggw.vip`, `*.ywjxi.com`,
+  `*.dingdangmail.com`) and must contain a token.
 - Ticket expires in one minute and is consumed once; the URL is not returned to viewers.
 - WebSocket Origin defaults to http://localhost:3000; DG_FRONTEND_ORIGIN overrides it.
 - DG_RELAY_PUBLIC_URL configures the browser-facing relay URL when deployed.
