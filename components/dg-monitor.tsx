@@ -13,60 +13,89 @@ export function DgMonitor({ gameUrl, collector = false, onStatus, onTables, onFo
   useEffect(() => {
     const abort = new AbortController();
     let socket: WebSocket | undefined;
-    let failed = false;
-    const fail = (message: string) => {
-      if (abort.signal.aborted) return;
-      failed = true; setConnected(false); onStatus('error'); setMessage(message); socket?.close();
-    };
-    onStatus('connecting');
-    void (async () => {
-      try {
-        const response = await fetch('/api/dg/start', {
-          method: 'POST', signal: abort.signal, cache: 'no-store',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ gameUrl: gameUrl || undefined, collector }),
-        });
-        const result = await readJsonResponse<{ wsUrl?: string; ticket?: string; message?: string }>(response);
-        if (!response.ok || !result.wsUrl || !result.ticket) throw new Error(result.message || 'DG 工作階段建立失敗。');
-        if (abort.signal.aborted) return;
-        socket = new WebSocket(result.wsUrl);
-        socket.onopen = () => {
-          if (abort.signal.aborted) { socket?.close(); return; }
-          socket?.send(JSON.stringify({ ticket: result.ticket }));
-        };
-        socket.onmessage = event => {
-          if (abort.signal.aborted) return;
-          try {
-            const data = JSON.parse(event.data);
-            if (data.type === 'reset') {
-              setConnected(false); onStatus('connecting'); setTables([]);
-              setMessage('DG 重新連線中…'); return;
-            }
-            if (data.type === 'error') { fail(data.message || 'DG 串流錯誤。'); return; }
-            if (data.type === 'status') setMessage('正在取得 DG 桌況…');
-            if (data.type === 'tables' && Array.isArray(data.tables) && data.tables.length) {
-              onStatus('connected'); setConnected(true); setUpdatedAt(new Date().toLocaleTimeString('zh-TW', { hour12: false }));
-              setMessage('DG 即時連線中');
-              setTables(current => {
-                const next = new Map((data.snapshot ? [] : current).map((table: LiveDgTable) => [table.tableId, table]));
-                for (const table of data.tables as LiveDgTable[]) {
-                  if (table.tableId) next.set(table.tableId, { ...next.get(table.tableId), ...table,
-                    ...(table.countDown != null && table.receivedAt != null ? { countdownDeadline: table.receivedAt + Math.max(0, table.countDown) * 1000 } : {}) });
+    let retryTimer: ReturnType<typeof setTimeout> | undefined;
+    let retryAttempt = 0;
+    const waitBeforeRetry = (delay: number) => new Promise<void>(resolve => {
+      retryTimer = setTimeout(resolve, delay);
+      abort.signal.addEventListener('abort', () => {
+        if (retryTimer) clearTimeout(retryTimer);
+        resolve();
+      }, { once: true });
+    });
+    const connect = async () => {
+      while (!abort.signal.aborted) {
+        let settled = false;
+        try {
+          setConnected(false); onStatus('connecting');
+          setMessage(collector ? '正在連接 DG 採集端…' : '正在取得 DG 桌況…');
+          const response = await fetch('/api/dg/start', {
+            method: 'POST', signal: abort.signal, cache: 'no-store',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ gameUrl: gameUrl || undefined, collector }),
+          });
+          const result = await readJsonResponse<{ wsUrl?: string; ticket?: string; message?: string }>(response);
+          if (!response.ok || !result.wsUrl || !result.ticket) throw new Error(result.message || 'DG 工作階段建立失敗。');
+          if (abort.signal.aborted) break;
+          await new Promise<void>(resolve => {
+            const finish = () => { if (!settled) { settled = true; resolve(); } };
+            socket = new WebSocket(result.wsUrl!);
+            socket.onopen = () => {
+              if (abort.signal.aborted) { socket?.close(); return; }
+              socket?.send(JSON.stringify({ ticket: result.ticket }));
+            };
+            socket.onmessage = event => {
+              if (abort.signal.aborted) return;
+              try {
+                const data = JSON.parse(event.data);
+                if (data.type === 'reset') {
+                  setConnected(false); onStatus('connecting'); setTables([]);
+                  setMessage('DG 重新連線中…'); return;
                 }
-                const updated = [...next.values()].sort((a, b) => (a.tableName || '').localeCompare(b.tableName || '', undefined, { numeric: true }));
-                onTables?.(updated.map(dgCard));
-                return updated;
-              });
-            }
-          } catch { fail('DG JSON 資料解析失敗。'); }
-        };
-        socket.onerror = () => fail('DG 連線失敗，請稍後重試。');
-        socket.onclose = () => { if (!failed) fail('DG 工作階段已結束，請切換分頁重試。'); };
-      } catch (error) {
-        if (!abort.signal.aborted) fail(error instanceof Error ? error.message : 'DG 連線失敗。');
+                if (data.type === 'error') {
+                  setConnected(false); onStatus('connecting'); setTables([]);
+                  setMessage(data.message || 'DG 串流錯誤，正在重試…');
+                  socket?.close(); return;
+                }
+                if (data.type === 'status') setMessage('正在取得 DG 桌況…');
+                if (data.type === 'tables' && Array.isArray(data.tables) && data.tables.length) {
+                  retryAttempt = 0;
+                  onStatus('connected'); setConnected(true); setUpdatedAt(new Date().toLocaleTimeString('zh-TW', { hour12: false }));
+                  setMessage('DG 即時連線中');
+                  setTables(current => {
+                    const next = new Map((data.snapshot ? [] : current).map((table: LiveDgTable) => [table.tableId, table]));
+                    for (const table of data.tables as LiveDgTable[]) {
+                      if (table.tableId) next.set(table.tableId, { ...next.get(table.tableId), ...table,
+                        ...(table.countDown != null && table.receivedAt != null ? { countdownDeadline: table.receivedAt + Math.max(0, table.countDown) * 1000 } : {}) });
+                    }
+                    const updated = [...next.values()].sort((a, b) => (a.tableName || '').localeCompare(b.tableName || '', undefined, { numeric: true }));
+                    onTables?.(updated.map(dgCard));
+                    return updated;
+                  });
+                }
+              } catch {
+                setConnected(false); onStatus('connecting'); setMessage('DG JSON 資料解析失敗，正在重試…');
+                socket?.close();
+              }
+            };
+            socket.onerror = finish;
+            socket.onclose = finish;
+          });
+        } catch (error) {
+          if (abort.signal.aborted) break;
+          setConnected(false); onStatus('connecting');
+          setMessage(error instanceof Error ? `${error.message} 正在重試…` : 'DG 連線失敗，正在重試…');
+        } finally {
+          socket?.close(); socket = undefined;
+        }
+        if (abort.signal.aborted) break;
+        const delay = Math.min(5000 * (2 ** retryAttempt), 30000);
+        retryAttempt = Math.min(retryAttempt + 1, 4);
+        setConnected(false); onStatus('connecting'); setMessage('DG 重新連線中…');
+        await waitBeforeRetry(delay);
       }
-    })();
-    return () => { abort.abort(); socket?.close(); };
+    };
+    void connect();
+    return () => { abort.abort(); if (retryTimer) clearTimeout(retryTimer); socket?.close(); };
   }, [collector, gameUrl, onStatus, onTables]);
   return <section className="overflow-hidden rounded-2xl border border-[#86632f]/35 bg-[#0d0b08]/92">
      <header className="flex flex-wrap items-center justify-between gap-3 border-b border-[#5d451f]/60 px-6 py-4">
