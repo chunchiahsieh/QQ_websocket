@@ -347,6 +347,12 @@ const extractTableUpdates = (payload: unknown): Array<Partial<TableInfo> & { id:
         ?? table.countdownSeconds ?? table.remaining_seconds ?? table.remainingSeconds
         ?? table.remain ?? table.remainSeconds ?? table.wait_time ?? table.waitTime
         ?? (waitEvent ? table.count : undefined));
+      // The lobby snapshot commonly carries a placeholder countdown of 0;
+      // the authoritative live value arrives from the per-table /wait event.
+      // Keep the source so mergeTableUpdates can distinguish those packets
+      // without allowing a stale snapshot to reset a live countdown.
+      const countdownSource = explicitDeadline !== undefined ? 'explicit'
+        : countDown !== undefined ? (waitEvent ? 'wait' : 'snapshot') : undefined;
       const roundValue = optionalText(table.round ?? table.round_id ?? trend.current_round);
       const countdownRound = optionalText(table.game_sn ?? table.gameSn ?? table.round ?? table.round_id ?? trend.current_round);
       const endEvent = ['/show_poker', '/summary', '/result', '/end'].some(suffix => eventName.toLowerCase().endsWith(suffix));
@@ -359,6 +365,7 @@ const extractTableUpdates = (payload: unknown): Array<Partial<TableInfo> & { id:
         }),
         ...(countDown !== undefined && { countdownValue: Math.max(0, countDown) }),
         ...(countdownRound !== undefined && { countdownRound }),
+        ...(countdownSource !== undefined && { countdownSource }),
         ...(Array.isArray(table.video) && { videoUrl: videoUrl ?? '' }),
         ...(optionalText(table.state) !== undefined && { tableState: optionalText(table.state) }),
         ...(explicitDeadline === undefined && countDown !== undefined && {
@@ -403,7 +410,22 @@ const mergeTableUpdates = (
       && update.countdownValue !== undefined
       && previous?.countdownValue !== undefined
       && update.countdownValue > previous.countdownValue;
-    const acceptCountdown = !countdownWentBack;
+    // A table snapshot may report 0 while the live /wait stream has not yet
+    // supplied its first value. Conversely, a later snapshot can still carry
+    // that placeholder and must not erase a running countdown. Allow the
+    // first positive /wait value to replace that placeholder, while retaining
+    // the no-jump guarantee for an already-running round.
+    const initialWaitValue = sameCountdownRound
+      && update.countdownSource === 'wait'
+      && update.countdownValue !== undefined
+      && previous?.countdownValue === 0
+      && update.countdownValue > 0;
+    const staleSnapshotZero = sameCountdownRound
+      && update.countdownSource === 'snapshot'
+      && update.countdownValue === 0
+      && previous?.countdownValue !== undefined
+      && previous.countdownValue > 0;
+    const acceptCountdown = (!countdownWentBack || initialWaitValue) && !staleSnapshotZero;
     tables.set(update.id, {
       id: update.id,
       videoUrl: update.videoUrl ?? previous?.videoUrl,
@@ -412,6 +434,7 @@ const mergeTableUpdates = (
       countdownReceivedAt: acceptCountdown ? (update.countdownReceivedAt ?? previous?.countdownReceivedAt) : previous?.countdownReceivedAt,
       countdownValue: acceptCountdown ? (update.countdownValue ?? previous?.countdownValue) : previous?.countdownValue,
       countdownRound: update.countdownRound ?? previous?.countdownRound,
+      countdownSource: acceptCountdown ? (update.countdownSource ?? previous?.countdownSource) : previous?.countdownSource,
       name: update.name ?? previous?.name ?? update.id,
       gameType: update.gameType ?? previous?.gameType ?? '',
       dealer: update.dealer ?? previous?.dealer ?? '未指派',

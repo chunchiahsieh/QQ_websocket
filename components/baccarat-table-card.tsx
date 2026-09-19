@@ -10,6 +10,7 @@ export type TableInfo = {
   videoUrl?: string;
   tableState?: string; countdownDeadline?: number; countdownReceivedAt?: number;
   countdownValue?: number; countdownRound?: string;
+  countdownSource?: 'wait' | 'snapshot' | 'explicit' | 'end';
   dealerPhoto?: string;
   id: string; name: string; gameType: string; dealer: string; room: string; shoe: string; round: string;
   banker: string; player: string; tie: string; players: string;
