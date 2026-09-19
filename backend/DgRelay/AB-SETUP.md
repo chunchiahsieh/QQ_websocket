@@ -1,7 +1,9 @@
 # 歐博常駐串流
 
-入口固定為 https://www.cali7777.net/，使用 DG_BACKEND_USERNAME / DG_BACKEND_PASSWORD。
-帳密只由後台送往指定登入頁，不回傳前端、不寫入來源碼。
+採集端先用 TZ 官方登入取得歐博 `AB01` 的短效遊戲網址，再把網址交給本機
+Edge relay 開啟；沒有採集網址時才回退到 `https://www.cali7777.net/` 的
+`DG_BACKEND_USERNAME` / `DG_BACKEND_PASSWORD` 登入流程。帳密只由後台送往指定登入頁，
+不回傳前端、不寫入來源碼。
 
 登入監控系統後切換「歐博」，前端呼叫 `/api/ab/start` 取得單次票券，
 再連接 `/ws/ab`。後台為歐博啟動獨立 Edge 瀏覽器；與 DG 各自保有自己的
@@ -9,7 +11,8 @@
 服務重新啟動後，各平台於下一次訂閱時重新啟動瀏覽器。
 
 平台官網正常登入並自行管理上游訂閱與心跳；監控只接收桌況，沒有投注操作。
-歐博已觀察到的 WebSocket 網域為 maofeiyan.com、51shengce.com 的子網域。
+歐博已觀察到的 WebSocket 網域為 maofeiyan.com、51shengce.com、kindlestone.com
+的子網域。AB01 授權網址通常使用 `sessionId` 查詢參數，不是 MT 的 `token`。
 若平台日後換線，需核對後更新 allowlist。
 
 資料欄位依官方公開前端 V4.23.29 的 TableDO / BacRoadmap 解碼：

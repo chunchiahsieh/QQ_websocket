@@ -8,10 +8,11 @@ using Microsoft.Playwright;
 
 static class BrowserRelay
 {
-    record LaunchRequest(bool DirectLogin);
-    record Ticket(DateTimeOffset Expires);
+    record LaunchRequest(bool DirectLogin, string? GameUrl, bool Collector);
+    record Ticket(DateTimeOffset Expires, string? GameUrl, bool Collector);
     static readonly ConcurrentDictionary<string, Ticket> Tickets = new();
     static SharedDgFeed? feed;
+    static string? requestedGameUrl;
     public static object? Health => feed?.Health;
     static int active;
     public static int Active => Volatile.Read(ref active);
@@ -30,12 +31,21 @@ static class BrowserRelay
             try { input = await http.Request.ReadFromJsonAsync<LaunchRequest>(); }
             catch (JsonException) { return Results.BadRequest(); }
             if (input?.DirectLogin != true) return Results.BadRequest();
-            if (string.IsNullOrWhiteSpace(app.Configuration["DG_BACKEND_USERNAME"]) || string.IsNullOrWhiteSpace(app.Configuration["DG_BACKEND_PASSWORD"]))
-                return Results.Json(new { message = "DG 後台專用帳密尚未設定。" }, statusCode: 503);
+            string? gameUrl = null;
+            if (!string.IsNullOrWhiteSpace(input.GameUrl))
+            {
+                if (!TryValidateGameUrl(input.GameUrl, out gameUrl))
+                    return Results.Json(new { message = "DG 遊戲授權網址不受支援。" }, statusCode: 400);
+                // The DGLI URL is short-lived and is used only by the relay
+                // browser. Never return it to viewers or write it to logs.
+                requestedGameUrl = gameUrl;
+            }
+            if (gameUrl is null && requestedGameUrl is null)
+                return Results.Json(new { message = "DG 授權網址尚未由採集端提供。" }, statusCode: 503);
             foreach (var entry in Tickets.Where(e => e.Value.Expires < DateTimeOffset.UtcNow)) Tickets.TryRemove(entry.Key, out _);
             if (Tickets.Count >= 32) return Results.StatusCode(429);
             var ticket = Convert.ToHexString(RandomNumberGenerator.GetBytes(32));
-            Tickets[ticket] = new(DateTimeOffset.UtcNow.AddMinutes(1));
+            Tickets[ticket] = new(DateTimeOffset.UtcNow.AddMinutes(1), gameUrl, input.Collector);
             http.Response.Headers.CacheControl = "no-store";
             return Results.Json(new { ticket });
         });
@@ -55,7 +65,8 @@ static class BrowserRelay
                 using var json = JsonDocument.Parse(buffer.AsMemory(0, auth.Count));
                 if (!json.RootElement.TryGetProperty("ticket", out var field) || field.ValueKind != JsonValueKind.String) return;
                 if (!Tickets.TryRemove(field.GetString()!, out var ticket) || ticket.Expires < DateTimeOffset.UtcNow) return;
-                var subscription = feed.Subscribe();
+                if (ticket.GameUrl is not null) requestedGameUrl = ticket.GameUrl;
+                var subscription = ticket.Collector ? feed.SubscribeCollector() : feed.Subscribe();
                 try
                 {
                     var receiving = WatchClient(socket, lifetime.Token);
@@ -89,6 +100,22 @@ static class BrowserRelay
 
     static Task Send(System.Net.WebSockets.WebSocket socket, object data, CancellationToken ct) =>
         socket.SendAsync(JsonSerializer.SerializeToUtf8Bytes(data).AsMemory(), WebSocketMessageType.Text, true, ct).AsTask();
+
+    static bool TryValidateGameUrl(string raw, out string normalized)
+    {
+        normalized = "";
+        var value = raw.Trim();
+        if (!value.Contains("://", StringComparison.Ordinal)) value = "https://" + value;
+        if (!Uri.TryCreate(value, UriKind.Absolute, out var uri) || uri.Scheme != Uri.UriSchemeHttps) return false;
+        var host = uri.Host.ToLowerInvariant();
+        var allowed = host.EndsWith(".ahsy114.com", StringComparison.Ordinal)
+            || host.EndsWith(".20299999.com", StringComparison.Ordinal)
+            || host.EndsWith(".dggw.vip", StringComparison.Ordinal)
+            || host.EndsWith(".ywjxi.com", StringComparison.Ordinal);
+        if (!allowed || !uri.Query.Contains("token=", StringComparison.OrdinalIgnoreCase)) return false;
+        normalized = uri.ToString();
+        return true;
+    }
 
     static async Task Capture(IConfiguration configuration, Func<object, CancellationToken, Task> publish, CancellationToken ct)
     {
@@ -204,86 +231,15 @@ static class BrowserRelay
                 if (Uri.TryCreate(request.Url, UriKind.Absolute, out var failed))
                     Console.Error.WriteLine($"[DG] request failed: {failed.Host}{failed.AbsolutePath}");
             };
-            await page.GotoAsync("https://dg18.cc/", new() { WaitUntil = WaitUntilState.DOMContentLoaded, Timeout = 30000 });
-            Console.Error.WriteLine($"[DG] login page loaded: {page.Url}");
-            // DG currently renders icon-only inputs without stable placeholder
-            // attributes. The login form contains exactly two text inputs:
-            // account first, password second.
-            var usernameInput = page.Locator("input").Nth(0);
-            var passwordInput = page.Locator("input").Nth(1);
-            await usernameInput.WaitForAsync(new() { State = WaitForSelectorState.Visible, Timeout = 15000 });
-            await usernameInput.FillAsync(configuration["DG_BACKEND_USERNAME"]!);
-            await passwordInput.FillAsync(configuration["DG_BACKEND_PASSWORD"]!);
-            await page.Locator("#remember_input").UncheckAsync();
-            // The official page fills the button label asynchronously and may
-            // switch between simplified/traditional Chinese. Its class is
-            // stable, so don't wait on the translated text.
-            var loginButton = page.Locator("a.login-button:not(.free-button)");
-            await loginButton.WaitForAsync(new() { State = WaitForSelectorState.Visible, Timeout = 15000 });
-            await loginButton.ClickAsync(new() { Force = true });
-            Console.Error.WriteLine("[DG] login submitted");
-            // The official site may render the post-login action in either
-            // simplified or traditional Chinese, and it is not always a
-            // semantic button (some versions use an anchor).  Login can also
-            // open the account page in a second tab, so scan every page in
-            // the context instead of assuming the original page is reused.
-            IPage? entryPage = null;
-            ILocator? enter = null;
-            var entryDeadline = DateTimeOffset.UtcNow.AddSeconds(30);
-            while (!ct.IsCancellationRequested && DateTimeOffset.UtcNow < entryDeadline && entryPage is null)
+            var directGameUrl = requestedGameUrl;
+            if (directGameUrl is null)
             {
-                foreach (var candidate in context.Pages.Where(p => !p.IsClosed))
-                {
-                    var joinGame = candidate.Locator("[data-tag='joinGame']").First;
-                    try
-                    {
-                        if (await joinGame.IsVisibleAsync())
-                        {
-                            entryPage = candidate;
-                            enter = joinGame;
-                            break;
-                        }
-                    }
-                    catch (PlaywrightException) { }
-                    foreach (var label in new[] { "進入遊戲", "进入游戏" })
-                    {
-                        var candidateEnter = candidate.GetByText(label, new() { Exact = true }).First;
-                        try
-                        {
-                            if (await candidateEnter.IsVisibleAsync())
-                            {
-                                entryPage = candidate;
-                                enter = candidateEnter;
-                                break;
-                            }
-                        }
-                        catch (PlaywrightException) { }
-                    }
-                    if (entryPage is not null) break;
-                }
-                if (entryPage is null) await Task.Delay(500, ct);
+                throw new DgLoginRequiredException("等待前端提供 DGLI 遊戲授權網址。", false);
             }
-            if (entryPage is null || enter is null)
-            {
-                Console.Error.WriteLine("[DG] no join-game entry found");
-                await publish( new { type = "error", message = "dg18.cc 登入未完成，請確認專用帳密或是否需要人工驗證。" }, ct);
-                throw new DgLoginRequiredException();
-            }
-            gamePage = entryPage;
-            Console.Error.WriteLine($"[DG] join-game entry found: {new Uri(entryPage.Url).Host}");
-            // The official handler uses window.open('/game.html?...').
-            // Headless Edge on Render can block that popup even though the
-            // login session is valid. Navigate the same official launch page
-            // in the authenticated tab so its own API redirect can create the
-            // data WebSocket without relying on popup behavior.
-            var gameLaunchOrigin = new Uri(entryPage.Url).GetLeftPart(UriPartial.Authority);
-            var gameLaunchUrl = gameLaunchOrigin + "/game.html?gameId=103&tableId=0";
-            await entryPage.GotoAsync(gameLaunchUrl, new() { WaitUntil = WaitUntilState.DOMContentLoaded, Timeout = 30000 });
-            await entryPage.WaitForTimeoutAsync(5000);
-            gamePage = entryPage;
-            var launched = new Uri(entryPage.Url);
-            Console.Error.WriteLine($"[DG] game launch page opened: {launched.Host}{launched.AbsolutePath}; pages={context.Pages.Count}");
-            await publish( new { type = "status", message = "官方 DG 頁面已開啟，等待百家樂桌況…" }, ct);
+            await page.GotoAsync(directGameUrl, new() { WaitUntil = WaitUntilState.DOMContentLoaded, Timeout = 60000 });
+            Console.Error.WriteLine($"[DG] DGLI game page loaded: {new Uri(page.Url).Host}{new Uri(page.Url).AbsolutePath}");
+            gamePage = page;
+            await publish(new { type = "status", message = "官方 DG 頁面已開啟，等待百家樂桌況…" }, ct);
             var decoder = new DgTableDecoder();
             var lastTables = DateTimeOffset.UtcNow;
             var lastPacket = DateTimeOffset.UtcNow;

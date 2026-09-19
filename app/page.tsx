@@ -25,6 +25,55 @@ const createBrowserUuid = () => {
   return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
 };
 
+type OfficialGameCode = 'MTLI' | 'AB01' | 'DGLI';
+
+const officialGameLabel = (gameCode: OfficialGameCode) => {
+  if (gameCode === 'MTLI') return 'MT';
+  if (gameCode === 'DGLI') return 'DG';
+  return '歐博';
+};
+
+/** Exchange the official account token for one platform's short-lived game URL. */
+const requestOfficialGameUrl = async (baseUrl: string, memberToken: string, gameCode: OfficialGameCode) => {
+  const response = await fetch(`${baseUrl}/api/v2/game/${gameCode}/login`, {
+    method: 'POST',
+    mode: 'cors',
+    headers: {
+      'Content-Type': 'application/json',
+      Accept: 'application/json, text/plain, */*',
+      Authorization: `Bearer ${memberToken}`,
+    },
+    body: JSON.stringify({
+      game_return_url: baseUrl,
+      game_kind: '',
+      game_type: '',
+      game_device: 'Desktop',
+    }),
+  });
+  const payload = await response.json().catch(() => null) as unknown;
+  const data = payload && typeof payload === 'object' && 'data' in payload
+    && payload.data && typeof payload.data === 'object'
+    ? payload.data as Record<string, unknown>
+    : {};
+  const candidates = [
+    data.game_url,
+    data.url,
+    payload && typeof payload === 'object' && 'raw' in payload ? payload.raw : undefined,
+  ].filter((value): value is string => typeof value === 'string' && value.trim().length > 0);
+  const gameUrl = candidates.map(value => value.trim().replace(/\\\//g, '/')).find(value => {
+    try {
+      const url = new URL(value);
+      return url.searchParams.has('token') || url.searchParams.has('sessionId');
+    } catch { return false; }
+  });
+  if (!response.ok || Number((payload as { code?: unknown } | null)?.code) !== 200 || !gameUrl) {
+    const message = payload && typeof payload === 'object' && 'message' in payload
+      && typeof payload.message === 'string' ? payload.message : '';
+    throw new Error(message || `${officialGameLabel(gameCode)} 遊戲授權取得失敗（HTTP ${response.status}）。`);
+  }
+  return gameUrl;
+};
+
 const payoutPools = [
   { code: 'GRAND', name: 'ULTIMATE POWER', amount: 323846.67, base: 100000, cap: 500000, color: 'from-red-950/90 to-rose-800/70', border: 'border-amber-300/60', menu: 'border-red-400/60 bg-red-950/35', bar: 'bg-red-400' },
   { code: 'MAJOR', name: 'SUPER POWER', amount: 86214.32, base: 20000, cap: 100000, color: 'from-fuchsia-950/90 to-purple-800/70', border: 'border-amber-300/60', menu: 'border-fuchsia-400/60 bg-fuchsia-950/35', bar: 'bg-fuchsia-400' },
@@ -443,6 +492,8 @@ export default function Home() {
   const [tableUpdatedAt, setTableUpdatedAt] = useState('');
   const [mtMessage, setMtMessage] = useState('等待牌桌資料');
   const [mtConnection, setMtConnection] = useState<MtFrontendConnection | null>(null);
+  const [abGameUrl, setAbGameUrl] = useState<string | null>(null);
+  const [dgGameUrl, setDgGameUrl] = useState<string | null>(null);
   const [mtDemand, setMtDemand] = useState(false);
   const [username, setUsername] = useState(defaultUsername);
   const [password, setPassword] = useState(defaultPassword);
@@ -469,7 +520,9 @@ export default function Home() {
   // authenticated user is online, including users currently on DG, AB, or
   // another menu.
   useEffect(() => {
-    if (!isAuthenticated) return;
+    // The collector browser is not a viewer. Its heartbeat must not keep the
+    // shared feed alive when all real users have left.
+    if (!isAuthenticated || mtCollectorMode) return;
     const viewerId = mtViewerId.current;
     const heartbeat = () => sendMtPresence(true, viewerId);
     heartbeat();
@@ -519,7 +572,8 @@ export default function Home() {
     setConnectedByPlatform(previous => ({ ...previous, MT: false }));
     setMtDemand(false);
     setMtConnection(null);
-    setMtLaunchUrl('');
+    setAbGameUrl(null);
+    setDgGameUrl(null);
     setStatus('idle');
   };
 
@@ -595,44 +649,17 @@ export default function Home() {
           }
           throw new Error(officialMessage || `MT 官網登入失敗（HTTP ${officialResponse.status}）。`);
         }
-        // MT requires a second official call to exchange the account token for
-        // the short-lived game launch URL.  Using the /api/v1/login token
-        // directly against a1.ofalive99.net causes the gateway to close the
-        // socket immediately, which used to look like a flashing reconnect.
-        const gameResponse = await fetch(`${officialBaseUrl}/api/v2/game/MTLI/login`, {
-          method: 'POST',
-          mode: 'cors',
-          headers: {
-            'Content-Type': 'application/json',
-            Accept: 'application/json, text/plain, */*',
-            Authorization: `Bearer ${officialToken}`,
-          },
-          body: JSON.stringify({
-            game_return_url: officialBaseUrl,
-            game_kind: '',
-            game_type: '',
-            game_device: 'Desktop',
-          }),
-        });
-        const gamePayload = await gameResponse.json().catch(() => null) as unknown;
-        const gameData = gamePayload && typeof gamePayload === 'object' && 'data' in gamePayload
-          && gamePayload.data && typeof gamePayload.data === 'object'
-          ? gamePayload.data as Record<string, unknown>
-          : {};
-        const launchCandidates = [
-          gameData.game_url,
-          gameData.url,
-          gamePayload && typeof gamePayload === 'object' && 'raw' in gamePayload ? gamePayload.raw : undefined,
-        ].filter((value): value is string => typeof value === 'string' && value.trim().length > 0);
-        const launchUrl = launchCandidates.map(value => value.trim().replace(/\\\//g, '/')).find(value => {
-          try { return new URL(value).searchParams.has('token'); } catch { return false; }
-        });
-        if (!gameResponse.ok || Number((gamePayload as { code?: unknown } | null)?.code) !== 200 || !launchUrl) {
-          const gameMessage = gamePayload && typeof gamePayload === 'object' && 'message' in gamePayload
-            && typeof gamePayload.message === 'string' ? gamePayload.message : '';
-          throw new Error(gameMessage || `MT 遊戲授權取得失敗（HTTP ${gameResponse.status}）。`);
-        }
-        const connection = parseMtLaunchUrl(launchUrl);
+        // Each official game has its own short-lived launch URL.  MT and
+        // 歐博 share the same account login, but never share a game URL or
+        // transport connection.
+        const [mtLaunchUrl, abLaunchUrl, dgLaunchUrl] = await Promise.all([
+          requestOfficialGameUrl(officialBaseUrl, officialToken, 'MTLI'),
+          requestOfficialGameUrl(officialBaseUrl, officialToken, 'AB01'),
+          requestOfficialGameUrl(officialBaseUrl, officialToken, 'DGLI'),
+        ]);
+        const connection = parseMtLaunchUrl(mtLaunchUrl);
+        setAbGameUrl(abLaunchUrl);
+        setDgGameUrl(dgLaunchUrl);
         setMtConnection(connection);
         setTables([]);
         setTablesByPlatform(previous => ({ ...previous, MT: [] }));
@@ -1033,19 +1060,30 @@ export default function Home() {
         </div>
         </div>
         {isAuthenticated && <div className={activeMenu === 'tables' && platform === 'DG' ? '' : 'hidden'} aria-hidden={activeMenu !== 'tables' || platform !== 'DG'}>
-          <DgMonitor onStatus={handleDgStatus} onTables={handleDgTables} onFocusTable={focusTable} cardColumns={cardsPerRow} onCardColumnsChange={setCardsPerRow} />
+          <DgMonitor gameUrl={dgGameUrl} onStatus={handleDgStatus} onTables={handleDgTables} onFocusTable={focusTable} cardColumns={cardsPerRow} onCardColumnsChange={setCardsPerRow} />
+        </div>}
+        {/* Collector A opens the official DG game URL in the relay worker.
+            Viewer tabs subscribe to that shared feed without opening DG. */}
+        {isAuthenticated && mtCollectorMode && dgGameUrl && <div className="hidden" aria-hidden="true">
+          <DgMonitor gameUrl={dgGameUrl} collector onStatus={handleDgStatus} onTables={handleDgTables} cardColumns={cardsPerRow} onCardColumnsChange={setCardsPerRow} />
+        </div>}
+        {/* Collector A keeps one shared AB subscription alive just like MT.
+            Viewer tabs do not open another official session; they subscribe
+            to the relay's cached feed. */}
+        {isAuthenticated && mtCollectorMode && abGameUrl && <div className="hidden" aria-hidden="true">
+          <AbMonitor gameUrl={abGameUrl} collector onStatus={handleAbStatus} onTables={handleAbTables} cardColumns={cardsPerRow} onCardColumnsChange={setCardsPerRow} />
         </div>}
         {activeMenu === 'regression' ? <RegressionTest /> : activeMenu === 'payout' ? <PayoutFeature /> : activeMenu === 'compare' ? <>
            <FocusedTableCompare tablesByPlatform={tablesByPlatform} connectedByPlatform={connectedByPlatform} selected={focusedTables} onSelectedChange={setFocusedTables} cardsPerRow={cardsPerRow} onCardsPerRowChange={setCardsPerRow} onFocusTable={focusTable} />
            <div className="hidden" aria-hidden="true">
-             {hasFocusedAb && <AbMonitor onStatus={handleAbStatus} onTables={handleAbTables} cardColumns={cardsPerRow} onCardColumnsChange={setCardsPerRow} />}
+             {hasFocusedAb && <AbMonitor gameUrl={abGameUrl} onStatus={handleAbStatus} onTables={handleAbTables} cardColumns={cardsPerRow} onCardColumnsChange={setCardsPerRow} />}
            </div>
         </> : <div id="platform-content" role="tabpanel" aria-labelledby={`platform-${platform}`}>
         <h1 className="sr-only">{platform === 'AB' ? '歐博' : platform} · 即時桌況</h1>
 
 
 
-         {platform === 'AB' && <AbMonitor onStatus={handleAbStatus} onTables={handleAbTables} onFocusTable={focusTable} cardColumns={cardsPerRow} onCardColumnsChange={setCardsPerRow} />}
+         {platform === 'AB' && <AbMonitor gameUrl={abGameUrl} onStatus={handleAbStatus} onTables={handleAbTables} onFocusTable={focusTable} cardColumns={cardsPerRow} onCardColumnsChange={setCardsPerRow} />}
         {platform === 'MT' && <>
           <section className="overflow-hidden rounded-2xl border border-[#86632f]/35 bg-[#0d0b08]/92">
             <header className="flex flex-wrap items-center justify-between gap-3 border-b border-[#5d451f]/60 px-6 py-4">

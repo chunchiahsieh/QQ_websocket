@@ -5,7 +5,7 @@ import { readJsonResponse } from '@/lib/safe-response-json';
 import { BaccaratTableCard, type TableInfo } from '@/components/baccarat-table-card';
 import { CardLayoutSelect, cardGridColumns, type CardColumns } from '@/components/card-layout';
 
-export function AbMonitor({ onStatus, onTables, onFocusTable, cardColumns, onCardColumnsChange }: { onStatus: (status: 'connecting' | 'connected' | 'error') => void; onTables?: (tables: TableInfo[]) => void; onFocusTable?: (table: TableInfo) => void; cardColumns: CardColumns; onCardColumnsChange: (value: CardColumns) => void }) {
+export function AbMonitor({ gameUrl, collector = false, onStatus, onTables, onFocusTable, cardColumns, onCardColumnsChange }: { gameUrl?: string | null; collector?: boolean; onStatus: (status: 'connecting' | 'connected' | 'error') => void; onTables?: (tables: TableInfo[]) => void; onFocusTable?: (table: TableInfo) => void; cardColumns: CardColumns; onCardColumnsChange: (value: CardColumns) => void }) {
   const [tables, setTables] = useState<LiveAbTable[]>([]);
   const [connected, setConnected] = useState(false);
   const [updatedAt, setUpdatedAt] = useState('');
@@ -21,7 +21,11 @@ export function AbMonitor({ onStatus, onTables, onFocusTable, cardColumns, onCar
     onStatus('connecting');
     void (async () => {
       try {
-        const response = await fetch('/api/ab/start', { method: 'POST', signal: abort.signal, cache: 'no-store' });
+        const response = await fetch('/api/ab/start', {
+          method: 'POST', signal: abort.signal, cache: 'no-store',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ gameUrl: gameUrl || undefined, collector }),
+        });
         const result = await readJsonResponse<{ wsUrl?: string; ticket?: string; message?: string }>(response);
         if (!response.ok || !result.wsUrl || !result.ticket) throw new Error(result.message || '歐博 工作階段建立失敗。');
         if (abort.signal.aborted) return;
@@ -63,7 +67,7 @@ export function AbMonitor({ onStatus, onTables, onFocusTable, cardColumns, onCar
       }
     })();
     return () => { abort.abort(); socket?.close(); };
-  }, [onStatus]);
+  }, [collector, gameUrl, onStatus, onTables]);
   return <section className="overflow-hidden rounded-2xl border border-[#86632f]/35 bg-[#0d0b08]/92">
      <header className="flex flex-wrap items-center justify-between gap-3 border-b border-[#5d451f]/60 px-6 py-4">
        <div><h2 className="text-lg font-semibold">即時桌況 <span className="ml-2 rounded-md border px-2 py-0.5 text-xs">{tables.length} 桌</span></h2>

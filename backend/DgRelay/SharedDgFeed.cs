@@ -6,6 +6,7 @@ sealed class SharedDgFeed
 {
     readonly object gate = new();
     readonly Dictionary<long, Channel<byte[]>> clients = new();
+    readonly HashSet<long> collectors = new();
     readonly Dictionary<string, JsonElement> tables = new();
     readonly CancellationToken shutdown;
     readonly Func<Func<object, CancellationToken, Task>, CancellationToken, Task> capture;
@@ -28,7 +29,10 @@ sealed class SharedDgFeed
         this.shutdown = shutdown;
         this.capture = capture;
         this.name = name;
-        this.idleGracePeriod = idleGracePeriod ?? TimeSpan.Zero;
+        // Keep the default aligned with the platform lifecycle: a brief tab
+        // switch must not rebuild Edge, while an unused collector is reclaimed
+        // after fifteen minutes.
+        this.idleGracePeriod = idleGracePeriod ?? TimeSpan.FromMinutes(15);
     }
 
     bool Healthy => upstreamOpen && tables.Count > 0
@@ -36,14 +40,19 @@ sealed class SharedDgFeed
         && DateTimeOffset.UtcNow - tableAt < TimeSpan.FromMinutes(3);
 
     public object Health { get { lock (gate) return new {
-        healthy = Healthy, subscribers = clients.Count, generation,
+        healthy = Healthy, subscribers = clients.Count,
+        viewers = clients.Keys.Count(id => !collectors.Contains(id)), generation,
         running = worker is { IsCompleted: false }, loginRequired = loginBlocked
     }; } }
 
     public void Connection(bool open) { lock (gate) upstreamOpen = open; }
     public void Packet() { lock (gate) packetAt = DateTimeOffset.UtcNow; }
 
-    public (long Id, ChannelReader<byte[]> Reader) Subscribe()
+    public (long Id, ChannelReader<byte[]> Reader) Subscribe() => SubscribeInternal(false);
+
+    public (long Id, ChannelReader<byte[]> Reader) SubscribeCollector() => SubscribeInternal(true);
+
+    (long Id, ChannelReader<byte[]> Reader) SubscribeInternal(bool collector)
     {
         lock (gate)
         {
@@ -58,6 +67,7 @@ sealed class SharedDgFeed
             });
             var id = ++nextId;
             clients.Add(id, channel);
+            if (collector) collectors.Add(id);
             channel.Writer.TryWrite(Healthy ? Snapshot() : JsonSerializer.SerializeToUtf8Bytes(new {
                 type = loginBlocked || accessBlocked ? "error" : "status",
                 message = accessBlocked ? $"{name} 上游拒絕連線（HTTP 403），請確認服務存取權限；不代表密碼錯誤。" : loginBlocked ? $"{name} 登入未完成，請確認後台帳密或人工驗證。" : $"正在取得 {name} 桌況…"
@@ -77,7 +87,8 @@ sealed class SharedDgFeed
         lock (gate)
         {
             if (clients.Remove(id, out var channel)) channel.Writer.TryComplete();
-            if (clients.Count != 0) return;
+            collectors.Remove(id);
+            if (clients.Keys.Any(clientId => !collectors.Contains(clientId))) return;
 
             // Keep DG alive for a short idle grace period. This avoids an
             // Edge restart when the operator only switches to another page
@@ -109,7 +120,7 @@ sealed class SharedDgFeed
                 if (ReferenceEquals(idleCancellation, pendingIdle))
                 {
                     idleCancellation = null;
-                    if (!pendingIdle.IsCancellationRequested && clients.Count == 0)
+                    if (!pendingIdle.IsCancellationRequested && !clients.Keys.Any(clientId => !collectors.Contains(clientId)))
                         workerCancellation?.Cancel();
                 }
             }

@@ -1,12 +1,14 @@
 # C# DG browser relay
 
 ## Current path
-Browser DG tab → POST /api/dg/start (web app validates login) → C# one-use ticket.
-Browser then opens C# /ws/dg and sends the ticket as its first message.
-C# launches a fresh headless Edge context, signs in at https://dg18.cc/ using
-DG_BACKEND_USERNAME / DG_BACKEND_PASSWORD and clicks the normal enter-game button,
-observes received WebSocket frames, decodes table Protobuf, and sends baccarat JSON.
-The official DG application itself handles authentication, subscriptions and heartbeat.
+The collector browser logs into TZ once, calls the official `DGLI` game-launch API,
+and receives a short-lived DG URL such as
+`https://new-dd-cn.ahsy114.com/ddnewpc/index.html?token=...`.
+It sends that URL to `POST /api/dg/start`; C# launches a fresh headless Edge
+context, observes the official WebSocket, decodes table Protobuf, and broadcasts
+baccarat JSON. DG account credentials are never used by C#.
+Viewer browsers receive a one-use ticket, open C# `/ws/dg`, and subscribe to the
+same shared feed. No viewer opens a second DG session or sends credentials.
 No betting actions or arbitrary upstream commands are exposed by the relay.
 
 ## Local startup
@@ -14,31 +16,30 @@ Web server secrets in ignored .env.local:
 ```
 DG_RELAY_URL=http://127.0.0.1:5091
 DG_RELAY_API_KEY=<random-secret-at-least-32-characters>
-DG_BACKEND_USERNAME=<dedicated-DG-account>
-DG_BACKEND_PASSWORD=<dedicated-DG-password>
 ```
 Start from this directory:
 ```powershell
 ./start-local.ps1
 ```
 Restart the web dev service after environment changes, then log in again.
-The script reads the relay key and dedicated DG credentials; it does not print them.
-The web login still authenticates the monitor user through TZ; DG credentials are
-used only by C# at dg18.cc, never sent to TZ or returned to the frontend.
-Actual DG login starts on the first DG subscription and stays alive afterward. CAPTCHA/manual verification
-is not bypassed; incomplete login is reported without guessing a password failure.
+The script reads the relay key and does not print it. The collector browser
+authenticates the shared TZ account and supplies DGLI. CAPTCHA/manual verification
+is not bypassed; an incomplete official login is reported to the collector.
 Microsoft Edge must be installed. For a configured Chromium installation, set
 DG_BROWSER_CHANNEL=chromium and install the matching Playwright browser first.
 
 ## Lifecycle and security
 - Only loopback :5091 is bound. Production needs TLS and a protected reverse proxy.
 - C# start endpoint requires an internal shared key.
-- The entry is fixed to https://dg18.cc/; clients cannot supply arbitrary launch URLs.
-- Ticket expires in one minute and is consumed once; DG token is not sent to frontend JS.
+- Launch URLs are accepted only over HTTPS from the allow-listed official DG domains
+  (`*.ahsy114.com`, `*.20299999.com`, `*.dggw.vip`, `*.ywjxi.com`) and must contain a token.
+- Ticket expires in one minute and is consumed once; the URL is not returned to viewers.
 - WebSocket Origin defaults to http://localhost:3000; DG_FRONTEND_ORIGIN overrides it.
 - DG_RELAY_PUBLIC_URL configures the browser-facing relay URL when deployed.
-- One shared browser context serves the fixed backend account. Tab switches only
+- One shared browser context serves the collector URL. Tab switches only
   subscribe/unsubscribe; they never close this browser. Process shutdown closes it.
+- The shared browser stays alive for 15 minutes after the last subscriber, then stops.
+- An expired DGLI URL requires the collector browser to publish a new URL.
 - Frontend tickets remain single-use and frontend connections expire after one hour.
 - Healthy subscriptions immediately receive a full cached snapshot, preserving
   original countdown timestamps. Slow subscribers coalesce full snapshots safely.
@@ -46,8 +47,8 @@ DG_BROWSER_CHANNEL=chromium and install the matching Playwright browser first.
   table updates within three minutes; it does not rely on new game results alone.
 - On stalled data, reload the game page once before rebuilding the browser.
   Rebuilds are serialized with 5/10/20/40/60-second backoff. Cached data is cleared
-  and frontend shows reconnecting during recovery. Failed normal login stops retries
-  until credentials/manual verification are addressed and the service restarts.
+  and frontend shows reconnecting during recovery. An expired or rejected DGLI URL
+  is reported to the collector instead of retrying with hidden credentials.
 - /health includes feed health, subscriber count and browser generation, no secrets.
 - Only incoming table fields are forwarded. Wallet, member and credential fields are discarded.
 - Health exposes only status and active session count, no credentials.

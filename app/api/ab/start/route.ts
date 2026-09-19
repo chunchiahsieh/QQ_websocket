@@ -12,9 +12,13 @@ export async function POST(request: Request) {
   if (!process.env.DG_RELAY_URL || !process.env.DG_RELAY_API_KEY)
     return Response.json({ message: '歐博瀏覽器服務尚未設定。' }, { status: 503 });
   try {
+    const input = await request.json().catch(() => ({})) as { gameUrl?: unknown; collector?: unknown };
+    const gameUrl = typeof input.gameUrl === 'string' ? input.gameUrl.trim() : '';
+    const collector = input.collector === true;
+    if (gameUrl.length > 4096) return Response.json({ message: '歐博遊戲授權網址過長。' }, { status: 400 });
     const response = await fetch(new URL('/api/ab/start', process.env.DG_RELAY_URL), {
       method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Relay-Key': process.env.DG_RELAY_API_KEY },
-      body: JSON.stringify({ directLogin: true }), signal: AbortSignal.any([request.signal, AbortSignal.timeout(RELAY_START_TIMEOUT_MS)]),
+      body: JSON.stringify({ directLogin: true, gameUrl: gameUrl || undefined, collector }), signal: AbortSignal.any([request.signal, AbortSignal.timeout(RELAY_START_TIMEOUT_MS)]),
     });
     const result = await readJsonResponse<{ ticket?: string; message?: string }>(response);
     if (!response.ok) {
