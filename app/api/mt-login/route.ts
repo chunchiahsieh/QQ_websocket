@@ -7,6 +7,7 @@ type LoginBody = {
   username?: unknown;
   password?: unknown;
   deviceId?: unknown;
+  collectorMode?: unknown;
 };
 
 type LocalAccount = { id?: string; username?: string; stamp?: string };
@@ -27,6 +28,23 @@ const loginDemoAccount = (username: string, password: string): LocalAccount | nu
   if (!configuredMatch && !demoMatch) return null;
   const accountUsername = configuredMatch ? configuredUsername! : 'jason';
   return { id: `demo-${accountUsername}`, username: accountUsername, stamp: 'demo' };
+};
+
+// The collector browser must be able to authenticate the shared system
+// account without asking Render to log in to MT. Render's egress can be
+// rejected by the official site, so this local comparison is deliberately
+// limited to collector mode and uses secrets configured on the frontend
+// service (never values committed to the repository).
+const loginConfiguredCollectorAccount = (username: string, password: string, collectorMode: boolean): LocalAccount | null => {
+  if (!collectorMode) return null;
+  const configuredUsername = (runtimeEnv('SYSTEM_LOGIN_USERNAME')
+    || runtimeEnv('DEMO_LOGIN_USERNAME')
+    || runtimeEnv('NEXT_PUBLIC_TZ_USERNAME'))?.trim();
+  const configuredPassword = runtimeEnv('SYSTEM_LOGIN_PASSWORD')
+    || runtimeEnv('DEMO_LOGIN_PASSWORD')
+    || runtimeEnv('NEXT_PUBLIC_TZ_PASSWORD');
+  if (!configuredUsername || !configuredPassword || username !== configuredUsername || password !== configuredPassword) return null;
+  return { id: `collector-${configuredUsername}`, username: configuredUsername, stamp: 'collector' };
 };
 
 const extractMessage = (payload: unknown, fallback: string) => {
@@ -84,6 +102,7 @@ export async function POST(request: Request) {
     const username = typeof body.username === 'string' ? body.username.trim() : '';
     const password = typeof body.password === 'string' ? body.password : '';
     const deviceId = typeof body.deviceId === 'string' ? body.deviceId.trim() : '';
+    const collectorMode = body.collectorMode === true;
     if (!username || !password || !deviceId) {
       return Response.json({ message: '缺少帳號、密碼或裝置識別碼。' }, { status: 400 });
     }
@@ -92,6 +111,7 @@ export async function POST(request: Request) {
     // external authentication. This keeps the public Render demo independent
     // from the optional AccountAdmin/TZ services and avoids a false 502.
     const localAccount = loginDemoAccount(username, password)
+      || loginConfiguredCollectorAccount(username, password, collectorMode)
       || await loginLocalAccount(username, password);
     if (localAccount) {
       const dgReady = !!(runtimeEnv('DG_RELAY_URL') && runtimeEnv('DG_RELAY_API_KEY'));

@@ -9,6 +9,12 @@ services:
     envVars:
       - key: NODE_VERSION
         value: 22.13.0
+      # Shared system account used by collector mode. Keep these as Render
+      # secrets; they are checked only by /api/mt-login in collector mode.
+      - key: SYSTEM_LOGIN_USERNAME
+        sync: false
+      - key: SYSTEM_LOGIN_PASSWORD
+        sync: false
 
   # MT/DG/歐博 browser relay. This is intentionally a separate service from
   # the frontend because it owns the Edge session and the upstream credentials.

@@ -446,10 +446,6 @@ export default function Home() {
   const [mtDemand, setMtDemand] = useState(false);
   const [username, setUsername] = useState(defaultUsername);
   const [password, setPassword] = useState(defaultPassword);
-  // Collector A has a separate MT account.  Keep it in the browser only;
-  // it must never be sent to our Render login endpoint or embedded in JS.
-  const [mtCollectorUsername, setMtCollectorUsername] = useState('');
-  const [mtCollectorPassword, setMtCollectorPassword] = useState('');
   const [loginStatus, setLoginStatus] = useState<'idle' | 'loading' | 'success' | 'error'>('idle');
   const [loginMessage, setLoginMessage] = useState('');
   const [isAuthenticated, setIsAuthenticated] = useState(false);
@@ -562,7 +558,7 @@ export default function Home() {
       const response = await fetch('/api/mt-login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ username: username.trim(), password, deviceId }),
+        body: JSON.stringify({ username: username.trim(), password, deviceId, collectorMode: mtCollectorMode }),
       });
       // Some reverse proxies return a plain-text error page for a 5xx. Read
       // once and parse defensively so the UI shows the real error instead of
@@ -573,18 +569,14 @@ export default function Home() {
       if (!response.ok || !result.platforms?.MT.ready) throw new Error(result.message || '平台後台尚未設定。');
 
       // Collector mode performs the official MT login in this browser. The
-      // dedicated MT credentials are used only by this browser and are never
-      // embedded in the bundle or sent to our backend.
+      // same credentials entered for the shared system account are sent only
+      // to the official MT API, never to our Render relay.
       if (mtCollectorMode) {
-        const officialUsername = mtCollectorUsername.trim();
-        if (!officialUsername || !mtCollectorPassword) {
-          throw new Error('請輸入 MT 專用帳號與密碼。');
-        }
         const officialResponse = await fetch('https://www.tz6868.com/api/v1/login', {
           method: 'POST',
           mode: 'cors',
           headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
-          body: JSON.stringify({ username: officialUsername, password: mtCollectorPassword, device_id: deviceId }),
+          body: JSON.stringify({ username: username.trim(), password, device_id: deviceId }),
         });
         const officialPayload = await officialResponse.json().catch(() => null) as unknown;
         const officialData = officialPayload && typeof officialPayload === 'object' && 'data' in officialPayload
@@ -921,17 +913,6 @@ export default function Home() {
                 密碼
                 <input type="password" value={password} onChange={(event) => setPassword(event.target.value)} autoComplete="current-password" placeholder="輸入密碼" className="h-12 rounded-lg border border-[#705429]/55 bg-black/40 px-4 text-sm text-[#fff4dc] outline-none transition placeholder:text-[#675b48] focus:border-[#d0a653] focus:ring-2 focus:ring-[#d0a653]/10" />
               </label>
-              {mtCollectorMode && <div className="grid gap-3 rounded-lg border border-cyan-300/20 bg-cyan-300/[0.05] p-3">
-                <p className="text-xs leading-5 text-cyan-100/80">採集模式：系統帳密與 MT 官方帳密分開。MT 帳密只會由此瀏覽器直接送往 MT 官方，不會傳到 Render。</p>
-                <label className="grid gap-2 text-sm font-medium text-[#cbb894]">
-                  MT 專用帳號
-                  <input value={mtCollectorUsername} onChange={(event) => setMtCollectorUsername(event.target.value)} autoComplete="off" placeholder="輸入 MT 專用帳號" className="h-12 rounded-lg border border-[#705429]/55 bg-black/40 px-4 text-sm text-[#fff4dc] outline-none transition placeholder:text-[#675b48] focus:border-[#d0a653] focus:ring-2 focus:ring-[#d0a653]/10" />
-                </label>
-                <label className="grid gap-2 text-sm font-medium text-[#cbb894]">
-                  MT 專用密碼
-                  <input type="password" value={mtCollectorPassword} onChange={(event) => setMtCollectorPassword(event.target.value)} autoComplete="off" placeholder="輸入 MT 專用密碼" className="h-12 rounded-lg border border-[#705429]/55 bg-black/40 px-4 text-sm text-[#fff4dc] outline-none transition placeholder:text-[#675b48] focus:border-[#d0a653] focus:ring-2 focus:ring-[#d0a653]/10" />
-                </label>
-              </div>}
               {loginMessage && <p className="text-sm text-rose-300">{loginMessage}</p>}
               <button type="submit" disabled={loginStatus === 'loading'} className="mt-2 flex h-12 items-center justify-center gap-2 rounded-lg bg-gradient-to-b from-[#f0d58f] to-[#bd8734] px-6 text-sm font-bold text-[#211406] shadow-[0_10px_28px_rgba(186,128,41,.2)] transition hover:brightness-110 disabled:cursor-wait disabled:opacity-60">
                 {loginStatus === 'loading' ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <LogIn className="h-4 w-4" />}
