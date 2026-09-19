@@ -35,16 +35,21 @@ const loginDemoAccount = (username: string, password: string): LocalAccount | nu
 // rejected by the official site, so this local comparison is deliberately
 // limited to collector mode and uses secrets configured on the frontend
 // service (never values committed to the repository).
-const loginConfiguredCollectorAccount = (username: string, password: string, collectorMode: boolean): LocalAccount | null => {
-  if (!collectorMode) return null;
+const configuredCollectorCredentials = () => {
   const configuredUsername = (runtimeEnv('SYSTEM_LOGIN_USERNAME')
     || runtimeEnv('DEMO_LOGIN_USERNAME')
     || runtimeEnv('NEXT_PUBLIC_TZ_USERNAME'))?.trim();
   const configuredPassword = runtimeEnv('SYSTEM_LOGIN_PASSWORD')
     || runtimeEnv('DEMO_LOGIN_PASSWORD')
     || runtimeEnv('NEXT_PUBLIC_TZ_PASSWORD');
-  if (!configuredUsername || !configuredPassword || username !== configuredUsername || password !== configuredPassword) return null;
-  return { id: `collector-${configuredUsername}`, username: configuredUsername, stamp: 'collector' };
+  return configuredUsername && configuredPassword ? { username: configuredUsername, password: configuredPassword } : null;
+};
+
+const loginConfiguredCollectorAccount = (username: string, password: string, collectorMode: boolean): LocalAccount | null => {
+  if (!collectorMode) return null;
+  const configured = configuredCollectorCredentials();
+  if (!configured || username !== configured.username || password !== configured.password) return null;
+  return { id: `collector-${configured.username}`, username: configured.username, stamp: 'collector' };
 };
 
 const extractMessage = (payload: unknown, fallback: string) => {
@@ -121,6 +126,7 @@ export async function POST(request: Request) {
         // longer depends on the server-side Edge relay being configured.
         platforms: { MT: { ready: true }, DG: { ready: dgReady, error: dgReady ? undefined : '平台後台尚未設定。' } },
         account: { username: localAccount.username },
+        ...(collectorMode && localAccount.stamp === 'collector' ? { collectorCredentials: configuredCollectorCredentials() } : {}),
       }, { headers: {
         'Set-Cookie': await sessionCookie(request, {
           dgDirectLogin: dgReady || demoReady,

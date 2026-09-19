@@ -564,7 +564,7 @@ export default function Home() {
       // once and parse defensively so the UI shows the real error instead of
       // masking it with "Unexpected token ... is not valid JSON".
       const raw = await response.text();
-      let result: { token?: string; message?: string; platforms?: { MT: { ready: boolean; error?: string }; DG: { ready: boolean; error?: string } } } = {};
+      let result: { token?: string; message?: string; collectorCredentials?: { username?: string; password?: string }; platforms?: { MT: { ready: boolean; error?: string }; DG: { ready: boolean; error?: string } } } = {};
       try { result = raw ? JSON.parse(raw) : {}; } catch { result = { message: raw.trim() || `登入服務回應錯誤（HTTP ${response.status}）。` }; }
       if (!response.ok || !result.platforms?.MT.ready) throw new Error(result.message || '平台後台尚未設定。');
 
@@ -572,11 +572,13 @@ export default function Home() {
       // same credentials entered for the shared system account are sent only
       // to the official MT API, never to our Render relay.
       if (mtCollectorMode) {
+        const officialUsername = result.collectorCredentials?.username?.trim() || username.trim();
+        const officialPassword = result.collectorCredentials?.password || password;
         const officialResponse = await fetch('https://www.tz6868.com/api/v1/login', {
           method: 'POST',
           mode: 'cors',
           headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
-          body: JSON.stringify({ username: username.trim(), password, device_id: deviceId }),
+          body: JSON.stringify({ username: officialUsername, password: officialPassword, device_id: deviceId }),
         });
         const officialPayload = await officialResponse.json().catch(() => null) as unknown;
         const officialData = officialPayload && typeof officialPayload === 'object' && 'data' in officialPayload
