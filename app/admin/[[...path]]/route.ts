@@ -1,4 +1,5 @@
 import { accountAdminBaseUrl } from '@/lib/account-admin-url';
+import { isSameRequestOrigin } from '@/lib/request-origin';
 
 // Same-site MVC gateway. The C# service remains private on Render's private
 // network in production and on loopback during local development.
@@ -9,7 +10,7 @@ async function proxy(request: Request) {
   const allowed = request.method === 'POST' ? ['Login', 'Logout', 'Create', 'Update', 'Delete', 'SavePayout', 'Password'] : ['Index', 'Login', 'Error'];
   const canonical = allowed.find(value => value.toLowerCase() === action.toLowerCase());
   if (!canonical) return new Response('Not found', { status: 404 });
-  if (request.method === 'POST' && request.headers.get('origin') !== url.origin)
+  if (request.method === 'POST' && !isSameRequestOrigin(request))
     return new Response('來源不符', { status: 403 });
   const headers = new Headers();
   const cookies = request.headers.get('cookie')?.split(';').filter(pair => {
