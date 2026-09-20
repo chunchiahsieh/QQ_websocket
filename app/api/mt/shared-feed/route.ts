@@ -1,4 +1,4 @@
-import { readSession } from '@/lib/monitor-session';
+import { readCollectorSession, readSession } from '@/lib/monitor-session';
 import { runtimeEnv } from '@/lib/runtime-env';
 import { addMtSubscriber, currentMtFeedMessage, mtFeedInfo, mtRoomForSession, publishMtFeed, touchMtViewer, type SharedMtMessage } from '@/lib/mt-shared-feed';
 
@@ -8,12 +8,13 @@ const isRecord = (value: unknown): value is Record<string, unknown> => Boolean(v
 const event = (message: SharedMtMessage) => encoder.encode(`data: ${JSON.stringify(message)}\n\n`);
 
 export async function POST(request: Request) {
-  const session = await readSession(request);
-  if (!session) return Response.json({ message: '請先登入系統。' }, { status: 401 });
   const body = await request.json().catch(() => null) as unknown;
   if (!isRecord(body) || (body.type !== 'snapshot' && body.type !== 'status' && body.type !== 'presence')) {
     return Response.json({ message: '共享桌況資料格式不正確。' }, { status: 400 });
   }
+  const collector = body.collector === true;
+  const session = await (collector ? readCollectorSession : readSession)(request);
+  if (!session) return Response.json({ message: collector ? '採集端尚未登入。' : '請先登入系統。' }, { status: 401 });
 
   const room = mtRoomForSession(session, runtimeEnv('MT_SHARED_FEED_ROOM'));
   const viewerId = typeof body.viewerId === 'string' && body.viewerId.trim()
@@ -47,11 +48,12 @@ export async function POST(request: Request) {
 }
 
 export async function GET(request: Request) {
-  const session = await readSession(request);
-  if (!session) return Response.json({ message: '請先登入系統。' }, { status: 401 });
-  const room = mtRoomForSession(session, runtimeEnv('MT_SHARED_FEED_ROOM'));
   const searchParams = new URL(request.url).searchParams;
   const role = searchParams.get('role') || 'viewer';
+  const collector = role === 'collector';
+  const session = await (collector ? readCollectorSession : readSession)(request);
+  if (!session) return Response.json({ message: collector ? '採集端尚未登入。' : '請先登入系統。' }, { status: 401 });
+  const room = mtRoomForSession(session, runtimeEnv('MT_SHARED_FEED_ROOM'));
   if (role === 'collector') {
     return Response.json(mtFeedInfo(room), { headers: { 'Cache-Control': 'no-store' } });
   }

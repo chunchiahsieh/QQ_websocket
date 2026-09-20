@@ -17,6 +17,7 @@ for (const key of [
   'DG_RELAY_URL',
   'DG_RELAY_PUBLIC_URL',
   'DG_RELAY_API_KEY',
+  'COLLECTOR_BOOTSTRAP_KEY',
 ]) {
   const value = process.env[key];
   if (value) vars[key] = value;

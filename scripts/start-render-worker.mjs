@@ -12,7 +12,7 @@ for (const key of ['ALLOW_DEMO_LOGIN', 'DEMO_LOGIN_USERNAME', 'DEMO_LOGIN_PASSWO
   if (process.env[key]) vars[key] = process.env[key];
 }
 if (process.env.MONITOR_SESSION_SECRET) vars.MONITOR_SESSION_SECRET = process.env.MONITOR_SESSION_SECRET;
-for (const key of ['ACCOUNT_ADMIN_URL', 'ACCOUNT_ADMIN_INTERNAL_KEY', 'DG_RELAY_URL', 'DG_RELAY_PUBLIC_URL', 'DG_RELAY_API_KEY']) {
+for (const key of ['ACCOUNT_ADMIN_URL', 'ACCOUNT_ADMIN_INTERNAL_KEY', 'DG_RELAY_URL', 'DG_RELAY_PUBLIC_URL', 'DG_RELAY_API_KEY', 'COLLECTOR_BOOTSTRAP_KEY']) {
   if (process.env[key]) vars[key] = process.env[key];
 }
 config.vars = vars;

@@ -1,4 +1,4 @@
-import { sessionCookie } from '@/lib/monitor-session';
+import { collectorSessionCookie, sessionCookie } from '@/lib/monitor-session';
 import { runtimeEnv } from '@/lib/runtime-env';
 import { accountAdminBaseUrl } from '@/lib/account-admin-url';
 import { configuredCollectorCredentials, isConfiguredCollectorAccount } from '@/lib/collector-credentials';
@@ -76,7 +76,7 @@ export async function POST(request: Request) {
         account: { username: localAccount.username },
         ...(collectorMode && localAccount.stamp === 'collector' ? { collectorCredentials: configuredCollectorCredentials() } : {}),
       }, { headers: {
-          'Set-Cookie': await sessionCookie(request, {
+          'Set-Cookie': await (localAccount.stamp === 'collector' ? collectorSessionCookie : sessionCookie)(request, {
             dgDirectLogin: dgReady || demoReady,
             accountId: localAccount.id,
             accountUsername: localAccount.username,

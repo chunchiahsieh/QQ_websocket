@@ -43,6 +43,10 @@ services:
         sync: false
       - key: SYSTEM_LOGIN_PASSWORD
         sync: false
+      # Used only by the fixed browser collector's URL fragment. It grants a
+      # collector-only encrypted session; never expose it in a normal viewer URL.
+      - key: COLLECTOR_BOOTSTRAP_KEY
+        sync: false
 
   # DG is isolated from MT and the web UI. A DG failure or restart can no
   # longer clear MT's shared feed or interrupt management login.

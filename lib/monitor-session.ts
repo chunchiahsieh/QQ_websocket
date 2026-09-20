@@ -9,7 +9,8 @@ const getLocalSecret = () => {
   if (!localSecret) localSecret = crypto.randomUUID();
   return localSecret;
 };
-const cookieName = 'monitor_session';
+const viewerCookieName = 'monitor_session';
+const collectorCookieName = 'monitor_collector_session';
 export type MonitorSession = {
   expires: number;
   dgDirectLogin?: boolean;
@@ -28,7 +29,7 @@ async function key() {
 }
 const hex = (bytes: ArrayBuffer) => Array.from(new Uint8Array(bytes), b => b.toString(16).padStart(2, '0')).join('');
 const unhex = (value: string) => new Uint8Array(value.match(/../g)!.map(v => parseInt(v, 16)));
-export async function sessionCookie(request: Request, platform: Omit<MonitorSession, 'expires'> = {}, maxAgeSeconds = 3600) {
+async function createSessionCookie(request: Request, cookieName: string, platform: Omit<MonitorSession, 'expires'> = {}, maxAgeSeconds = 3600) {
   const safeMaxAgeSeconds = Math.max(60, Math.min(maxAgeSeconds, 30 * 24 * 60 * 60));
   const iv = crypto.getRandomValues(new Uint8Array(12));
   const payload = new TextEncoder().encode(JSON.stringify({ ...platform, expires: Date.now() + safeMaxAgeSeconds * 1000 }));
@@ -37,7 +38,12 @@ export async function sessionCookie(request: Request, platform: Omit<MonitorSess
   if (value.length > 3800) throw new Error('Session too large');
   return `${cookieName}=${value}; Path=/; HttpOnly; SameSite=Strict; Max-Age=${safeMaxAgeSeconds}${new URL(request.url).protocol === 'https:' ? '; Secure' : ''}`;
 }
-export async function readSession(request: Request): Promise<MonitorSession | null> {
+export const sessionCookie = (request: Request, platform: Omit<MonitorSession, 'expires'> = {}, maxAgeSeconds = 3600) =>
+  createSessionCookie(request, viewerCookieName, platform, maxAgeSeconds);
+export const collectorSessionCookie = (request: Request, platform: Omit<MonitorSession, 'expires'> = {}, maxAgeSeconds = 30 * 24 * 60 * 60) =>
+  createSessionCookie(request, collectorCookieName, platform, maxAgeSeconds);
+
+async function readNamedSession(request: Request, cookieName: string): Promise<MonitorSession | null> {
   try {
     const value = request.headers.get('cookie')?.split(';').map(v => v.trim()).find(v => v.startsWith(`${cookieName}=`))?.slice(cookieName.length + 1);
     if (!value || value.length > 3800) return null;
@@ -48,4 +54,6 @@ export async function readSession(request: Request): Promise<MonitorSession | nu
     return Number.isFinite(session.expires) && session.expires > Date.now() ? session : null;
   } catch { return null; }
 }
+export const readSession = (request: Request) => readNamedSession(request, viewerCookieName);
+export const readCollectorSession = (request: Request) => readNamedSession(request, collectorCookieName);
 export async function hasSession(request: Request) { return !!await readSession(request); }

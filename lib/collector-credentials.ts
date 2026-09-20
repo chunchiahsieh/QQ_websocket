@@ -19,3 +19,11 @@ export const isConfiguredCollectorAccount = (username: string, password: string)
   const configured = configuredCollectorCredentials();
   return Boolean(configured && username === configured.username && password === configured.password);
 };
+
+export const hasCollectorBootstrapKey = (candidate: string | null) => {
+  const configured = runtimeEnv('COLLECTOR_BOOTSTRAP_KEY');
+  if (!configured || !candidate || configured.length < 32 || candidate.length !== configured.length) return false;
+  let difference = 0;
+  for (let index = 0; index < configured.length; index += 1) difference |= configured.charCodeAt(index) ^ candidate.charCodeAt(index);
+  return difference === 0;
+};

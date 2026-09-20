@@ -269,7 +269,7 @@ const publishSharedMt = (message: { type: 'snapshot' | 'status'; tables?: TableI
     // The hub rejects out-of-order snapshots. A monotonic collector sequence
     // prevents a delayed POST from replacing fresh tables or rewinding a
     // countdown after reconnect.
-    body: JSON.stringify({ ...message, collectorId: mtCollectorEpoch, sequence: ++mtPublishSequence, receivedAt: Date.now() }),
+    body: JSON.stringify({ ...message, collector: true, collectorId: mtCollectorEpoch, sequence: ++mtPublishSequence, receivedAt: Date.now() }),
   }).catch(() => { /* a missing relay must not interrupt the collector */ });
 };
 
@@ -632,9 +632,13 @@ export default function Home() {
     const abort = new AbortController();
     const resume = async () => {
       try {
+        // Keep the bootstrap key in the fragment, never in the request URL.
+        // A fixed collector installation can therefore recover after the
+        // browser itself restarts without exposing the key to Render logs.
+        const collectorKey = new URLSearchParams(window.location.hash.slice(1)).get('collectorKey');
         const response = await fetch('/api/collector/bootstrap', {
           method: 'POST', cache: 'no-store', signal: abort.signal,
-          headers: { 'Content-Type': 'application/json' }, body: '{}',
+          headers: { 'Content-Type': 'application/json', ...(collectorKey ? { 'X-Collector-Bootstrap': collectorKey } : {}) }, body: '{}',
         });
         if (!response.ok) return;
         const result = await response.json() as { account?: { username?: string }; collectorCredentials?: CollectorCredentials };
@@ -690,7 +694,7 @@ export default function Home() {
   const logout = async () => {
     setLoggingOut(true); setLogoutError('');
     try {
-      const response = await fetch('/api/logout', { method: 'POST', signal: AbortSignal.timeout(10000) });
+      const response = await fetch(`/api/logout${mtCollectorMode ? '?collector=1' : ''}`, { method: 'POST', signal: AbortSignal.timeout(10000) });
       if (!response.ok) throw new Error('Logout failed');
       disconnect();
       localStorage.removeItem('table-monitor-token');
