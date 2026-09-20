@@ -1,5 +1,4 @@
 import type { TableInfo } from '@/components/baccarat-table-card';
-import { runtimeEnv } from '@/lib/runtime-env';
 
 export type SharedMtMessage = {
   type: 'snapshot' | 'status';
@@ -7,6 +6,8 @@ export type SharedMtMessage = {
   status?: 'connecting' | 'connected' | 'offline';
   message?: string;
   receivedAt: number;
+  collectorId?: string;
+  sequence?: number;
 };
 
 export const MT_IDLE_GRACE_MS = 15 * 60 * 1000;
@@ -17,7 +18,10 @@ type Subscriber = {
 };
 
 type Feed = {
+  // `latest` is intentionally snapshots only. A reconnect status must never
+  // overwrite the last valid table data and make every viewer go blank.
   latest?: SharedMtMessage;
+  status?: SharedMtMessage;
   subscribers: Set<Subscriber>;
   collectorAt: number;
   viewers: Map<string, { connections: number; lastSeen: number }>;
@@ -33,11 +37,11 @@ type SharedFeedGlobal = typeof globalThis & {
 const sharedGlobal = globalThis as SharedFeedGlobal;
 const feeds = sharedGlobal.__jshenMtSharedFeeds ??= new Map<string, Feed>();
 
-export function mtRoomForSession(_session: { accountId?: string; accountUsername?: string }) {
+export function mtRoomForSession(_session: { accountId?: string; accountUsername?: string }, configuredRoom?: string) {
   // This deployment intentionally has one shared MT feed: A is the collector
   // account and every authenticated B/C viewer receives the same snapshot.
   // A future multi-tenant deployment can set a separate room name.
-  return runtimeEnv('MT_SHARED_FEED_ROOM')?.trim() || 'global';
+  return configuredRoom?.trim() || 'global';
 }
 
 export function getMtFeed(room: string): Feed {
@@ -51,11 +55,40 @@ export function getMtFeed(room: string): Feed {
 
 export function publishMtFeed(room: string, message: SharedMtMessage) {
   const feed = getMtFeed(room);
-  feed.latest = message;
-  feed.collectorAt = message.receivedAt;
-  for (const subscriber of [...feed.subscribers]) {
+  const previous = message.type === 'snapshot' ? feed.latest : feed.status;
+  // Network requests can arrive out of order. Never let an old collector
+  // snapshot replace a newer snapshot, otherwise cards and countdowns appear
+  // to run backward after reconnect. Status updates are allowed through so a
+  // genuine disconnect remains visible.
+  if (message.type === 'snapshot' && previous?.type === 'snapshot') {
+    const previousSequence = previous.sequence ?? -1;
+    const nextSequence = message.sequence ?? -1;
+    const sameCollector = Boolean(message.collectorId) && message.collectorId === previous.collectorId;
+    if ((sameCollector && nextSequence >= 0 && previousSequence >= 0 && nextSequence < previousSequence)
+      || (!sameCollector && message.receivedAt < previous.receivedAt)) return false;
+  }
+  if (message.type === 'snapshot') {
+    feed.latest = message;
+    feed.collectorAt = message.receivedAt;
+  } else {
+    // Do not replace a newer reconnect/connected status with an old network
+    // callback from the previous socket generation.
+    if (feed.status && message.receivedAt < feed.status.receivedAt) return false;
+    feed.status = message;
+  }
+  for (const subscriber of feed.subscribers) {
     try { subscriber.send(message); } catch { subscriber.close(); feed.subscribers.delete(subscriber); }
   }
+  return true;
+}
+
+export function currentMtFeedMessage(room: string): SharedMtMessage {
+  const feed = getMtFeed(room);
+  const latest = feed.latest;
+  if (latest?.type === 'snapshot' && Date.now() - latest.receivedAt <= 30_000) return latest;
+  return feed.status || {
+    type: 'status', status: 'connecting', message: '等待 MT 即時資料…', receivedAt: Date.now(),
+  };
 }
 
 function pruneViewers(feed: Feed) {
@@ -89,12 +122,7 @@ export function addMtSubscriber(room: string, subscriber: Subscriber, viewerId: 
   const previous = feed.viewers.get(viewerId);
   feed.viewers.set(viewerId, { connections: (previous?.connections ?? 0) + 1, lastSeen: Date.now() });
   feed.lastViewerAt = Date.now();
-  if (feed.latest) {
-    const fresh = feed.latest.type !== 'snapshot' || Date.now() - feed.latest.receivedAt <= 30_000;
-    subscriber.send(fresh ? feed.latest : {
-      type: 'status', status: 'offline', message: 'MT 即時資料暫停，等待恢復…', receivedAt: Date.now(),
-    });
-  }
+  subscriber.send(currentMtFeedMessage(room));
   return () => {
     if (!feed.subscribers.delete(subscriber)) return;
     const presence = feed.viewers.get(viewerId);

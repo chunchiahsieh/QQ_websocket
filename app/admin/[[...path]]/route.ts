@@ -1,4 +1,7 @@
-// Same-site MVC gateway. The C# service remains private on loopback.
+import { accountAdminBaseUrl } from '@/lib/account-admin-url';
+
+// Same-site MVC gateway. The C# service remains private on Render's private
+// network in production and on loopback during local development.
 async function proxy(request: Request) {
   const url = new URL(request.url);
   const suffix = url.pathname.replace(/^\/admin/i, '').replace(/\/$/, '');
@@ -18,7 +21,7 @@ async function proxy(request: Request) {
   try {
     const body = request.method === 'POST' ? await request.text() : undefined;
     if (body && body.length > 16384) return new Response('Request too large', { status: 413 });
-    const upstream = await fetch(new URL(`/Admin/${canonical}`, process.env.ACCOUNT_ADMIN_URL || 'http://127.0.0.1:5092'), {
+    const upstream = await fetch(new URL(`/Admin/${canonical}`, accountAdminBaseUrl()), {
       method: request.method, headers, body, redirect: 'manual', signal: AbortSignal.timeout(10000),
     });
     const output = new Headers({ 'Cache-Control': 'no-store', 'X-Frame-Options': 'DENY', 'X-Content-Type-Options': 'nosniff' });

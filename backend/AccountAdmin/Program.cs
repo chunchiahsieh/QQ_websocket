@@ -7,7 +7,15 @@ using System.Security.AccessControl;
 using System.Security.Principal;
 
 var builder = WebApplication.CreateBuilder(args);
-builder.WebHost.UseUrls(builder.Configuration["ADMIN_URLS"] ?? "http://127.0.0.1:5092");
+// Render injects PORT and requires a public bind.  Local development keeps
+// the original loopback endpoint unless ADMIN_URLS is explicitly configured.
+var configuredUrls = builder.Configuration["ADMIN_URLS"];
+var renderPort = Environment.GetEnvironmentVariable("PORT");
+builder.WebHost.UseUrls(!string.IsNullOrWhiteSpace(configuredUrls)
+    ? configuredUrls
+    : !string.IsNullOrWhiteSpace(renderPort)
+        ? $"http://0.0.0.0:{renderPort}"
+        : "http://127.0.0.1:5092");
 var dataPath = Path.GetFullPath(builder.Configuration["ADMIN_DATA_DIR"] ??
     Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "TableAccountAdmin"));
 var root = Path.GetFullPath(builder.Environment.ContentRootPath);

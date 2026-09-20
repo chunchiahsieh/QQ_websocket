@@ -10,7 +10,10 @@ const vars = { ...(config.vars ?? {}) };
 for (const key of [
   'DEMO_LOGIN_USERNAME',
   'DEMO_LOGIN_PASSWORD',
+  'ALLOW_DEMO_LOGIN',
   'MONITOR_SESSION_SECRET',
+  'ACCOUNT_ADMIN_URL',
+  'ACCOUNT_ADMIN_INTERNAL_KEY',
   'DG_RELAY_URL',
   'DG_RELAY_PUBLIC_URL',
   'DG_RELAY_API_KEY',

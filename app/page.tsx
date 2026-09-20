@@ -257,12 +257,18 @@ const now = () => new Intl.DateTimeFormat('zh-TW', {
 // The MT token never leaves the collector browser.  Only normalized table
 // snapshots and connection state are sent to the authenticated shared feed so
 // other users can watch the same data without opening a second MT socket.
+let mtPublishSequence = 0;
+const mtCollectorEpoch = createBrowserUuid();
+
 const publishSharedMt = (message: { type: 'snapshot' | 'status'; tables?: TableInfo[]; status?: 'connecting' | 'connected' | 'offline'; message?: string }) => {
   void fetch('/api/mt/shared-feed', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     cache: 'no-store',
-    body: JSON.stringify({ ...message, receivedAt: Date.now() }),
+    // The hub rejects out-of-order snapshots. A monotonic collector sequence
+    // prevents a delayed POST from replacing fresh tables or rewinding a
+    // countdown after reconnect.
+    body: JSON.stringify({ ...message, collectorId: mtCollectorEpoch, sequence: ++mtPublishSequence, receivedAt: Date.now() }),
   }).catch(() => { /* a missing relay must not interrupt the collector */ });
 };
 
@@ -558,7 +564,7 @@ export default function Home() {
       clearInterval(timer);
       sendMtPresence(false, viewerId);
     };
-  }, [isAuthenticated]);
+  }, [isAuthenticated, mtCollectorMode]);
 
   const handlePlatformStatus = useCallback((source: 'DG' | 'AB', next: 'connecting' | 'connected' | 'error') => {
     setConnectedByPlatform(previous => {
@@ -708,7 +714,10 @@ export default function Home() {
   const hasFocusedAb = focusedTables.some(key => key.startsWith('AB::'));
 
   useEffect(() => {
-    const shouldCheckDemand = isAuthenticated && platform === 'MT' && mtConnection !== null;
+    // A collector is a background producer, not an MT-tab viewer. It must
+    // remain active while any authenticated viewer is online, even if the
+    // collector itself is currently showing DG, a menu, or a hidden page.
+    const shouldCheckDemand = isAuthenticated && mtCollectorMode && mtConnection !== null;
     if (!shouldCheckDemand) {
       setMtDemand(false);
       return;
@@ -733,10 +742,10 @@ export default function Home() {
     void checkDemand();
     const timer = setInterval(() => { void checkDemand(); }, 10000);
     return () => { abort.abort(); clearInterval(timer); };
-  }, [isAuthenticated, mtConnection, platform]);
+  }, [isAuthenticated, mtCollectorMode, mtConnection]);
 
   useEffect(() => {
-    const shouldStreamMt = isAuthenticated && platform === 'MT' && mtConnection !== null && mtDemand;
+    const shouldStreamMt = isAuthenticated && mtCollectorMode && mtConnection !== null && mtDemand;
     if (!shouldStreamMt) return;
     const abort = new AbortController();
     const sharedKey = mtSharedChannelKey(mtConnection);
@@ -923,7 +932,7 @@ export default function Home() {
       channel?.close();
       setConnectedByPlatform(previous => ({ ...previous, MT: false }));
     };
-  }, [platform, isAuthenticated, activeMenu, hasFocusedMt, mtConnection, mtDemand, handleMtStatus]);
+  }, [isAuthenticated, mtCollectorMode, mtConnection, mtDemand, handleMtStatus]);
 
   // Viewer mode: when this browser has no MT launch URL, it polls the
   // authenticated shared feed published by collector A.  A short-lived JSON
@@ -960,9 +969,9 @@ export default function Home() {
         }
         if (message.type === 'status') {
           if (message.status === 'offline') {
-            setTables([]);
-            setTablesByPlatform(previous => ({ ...previous, MT: [] }));
-            setTableUpdatedAt('');
+            // Keep the last verified snapshot visible during a short
+            // collector outage. Clearing it here was the source of the
+            // full-card flicker whenever MT reconnected.
             handleMtStatus('error');
             setMtMessage(message.message || 'MT 即時資料暫停，等待恢復…');
           } else {

@@ -6,13 +6,13 @@ import { spawn } from 'node:child_process';
 const configPath = 'dist/server/wrangler.json';
 const config = JSON.parse(await readFile(configPath, 'utf8'));
 const vars = { ...(config.vars ?? {}) };
-// Render's service variables are normally forwarded here. Keep the demo
-// credentials as a service-local fallback as well: Wrangler can run the
-// Worker behind an internal host where the public Render hostname is absent.
-vars.DEMO_LOGIN_USERNAME = process.env.DEMO_LOGIN_USERNAME || vars.DEMO_LOGIN_USERNAME || 'jason';
-vars.DEMO_LOGIN_PASSWORD = process.env.DEMO_LOGIN_PASSWORD || vars.DEMO_LOGIN_PASSWORD || '123456';
+// Demo credentials are opt-in. Never manufacture a fallback account in a
+// deployed Worker: AccountAdmin is the production authority for system users.
+for (const key of ['ALLOW_DEMO_LOGIN', 'DEMO_LOGIN_USERNAME', 'DEMO_LOGIN_PASSWORD']) {
+  if (process.env[key]) vars[key] = process.env[key];
+}
 if (process.env.MONITOR_SESSION_SECRET) vars.MONITOR_SESSION_SECRET = process.env.MONITOR_SESSION_SECRET;
-for (const key of ['DG_RELAY_URL', 'DG_RELAY_PUBLIC_URL', 'DG_RELAY_API_KEY']) {
+for (const key of ['ACCOUNT_ADMIN_URL', 'ACCOUNT_ADMIN_INTERNAL_KEY', 'DG_RELAY_URL', 'DG_RELAY_PUBLIC_URL', 'DG_RELAY_API_KEY']) {
   if (process.env[key]) vars[key] = process.env[key];
 }
 config.vars = vars;

@@ -1,12 +1,14 @@
 import { readSession } from '@/lib/monitor-session';
+import { runtimeEnv } from '@/lib/runtime-env';
+import { accountAdminBaseUrl } from '@/lib/account-admin-url';
 
-const adminUrl = () => new URL('/internal/accounts/payouts', process.env.ACCOUNT_ADMIN_URL || 'http://127.0.0.1:5092');
+const adminUrl = () => new URL('/internal/accounts/payouts', accountAdminBaseUrl());
 
 export async function GET(request: Request) {
   const session = await readSession(request);
   try {
     const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-    const internalKey = process.env.ACCOUNT_ADMIN_INTERNAL_KEY || process.env.ADMIN_INTERNAL_KEY;
+    const internalKey = runtimeEnv('ACCOUNT_ADMIN_INTERNAL_KEY') || runtimeEnv('ADMIN_INTERNAL_KEY');
     if (internalKey) headers['X-Internal-Key'] = internalKey;
     const response = await fetch(adminUrl(), {
       method: 'POST', headers,

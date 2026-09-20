@@ -1,5 +1,6 @@
 import { readSession } from '@/lib/monitor-session';
-import { addMtSubscriber, getMtFeed, mtFeedInfo, mtRoomForSession, publishMtFeed, touchMtViewer, type SharedMtMessage } from '@/lib/mt-shared-feed';
+import { runtimeEnv } from '@/lib/runtime-env';
+import { addMtSubscriber, currentMtFeedMessage, mtFeedInfo, mtRoomForSession, publishMtFeed, touchMtViewer, type SharedMtMessage } from '@/lib/mt-shared-feed';
 
 const encoder = new TextEncoder();
 const isRecord = (value: unknown): value is Record<string, unknown> => Boolean(value) && typeof value === 'object';
@@ -14,7 +15,7 @@ export async function POST(request: Request) {
     return Response.json({ message: '共享桌況資料格式不正確。' }, { status: 400 });
   }
 
-  const room = mtRoomForSession(session);
+  const room = mtRoomForSession(session, runtimeEnv('MT_SHARED_FEED_ROOM'));
   const viewerId = typeof body.viewerId === 'string' && body.viewerId.trim()
     ? body.viewerId.trim().slice(0, 120)
     : session.accountId || session.accountUsername || request.headers.get('x-viewer-id') || 'viewer';
@@ -24,16 +25,23 @@ export async function POST(request: Request) {
   }
 
   const receivedAt = typeof body.receivedAt === 'number' && Number.isFinite(body.receivedAt) ? body.receivedAt : Date.now();
+  const sequence = typeof body.sequence === 'number' && Number.isSafeInteger(body.sequence) && body.sequence >= 0
+    ? body.sequence
+    : undefined;
+  const collectorId = typeof body.collectorId === 'string' && body.collectorId.length > 0 && body.collectorId.length <= 120
+    ? body.collectorId
+    : undefined;
   if (body.type === 'snapshot') {
     if (!Array.isArray(body.tables) || body.tables.length > 300) {
       return Response.json({ message: '共享桌況快照格式不正確。' }, { status: 400 });
     }
     const encoded = JSON.stringify(body.tables);
     if (encoded.length > 1_500_000) return Response.json({ message: '共享桌況快照過大。' }, { status: 413 });
-    publishMtFeed(room, { type: 'snapshot', tables: body.tables as SharedMtMessage['tables'], receivedAt });
+    const accepted = publishMtFeed(room, { type: 'snapshot', tables: body.tables as SharedMtMessage['tables'], receivedAt, collectorId, sequence });
+    return Response.json({ ok: true, accepted, ...mtFeedInfo(room) }, { headers: { 'Cache-Control': 'no-store' } });
   } else {
     const status = body.status === 'connected' || body.status === 'connecting' || body.status === 'offline' ? body.status : 'connecting';
-    publishMtFeed(room, { type: 'status', status, message: typeof body.message === 'string' ? body.message.slice(0, 180) : undefined, receivedAt });
+    publishMtFeed(room, { type: 'status', status, message: typeof body.message === 'string' ? body.message.slice(0, 180) : undefined, receivedAt, collectorId, sequence });
   }
   return Response.json({ ok: true, ...mtFeedInfo(room) }, { headers: { 'Cache-Control': 'no-store' } });
 }
@@ -41,7 +49,7 @@ export async function POST(request: Request) {
 export async function GET(request: Request) {
   const session = await readSession(request);
   if (!session) return Response.json({ message: '請先登入系統。' }, { status: 401 });
-  const room = mtRoomForSession(session);
+  const room = mtRoomForSession(session, runtimeEnv('MT_SHARED_FEED_ROOM'));
   const searchParams = new URL(request.url).searchParams;
   const role = searchParams.get('role') || 'viewer';
   if (role === 'collector') {
@@ -57,13 +65,7 @@ export async function GET(request: Request) {
   // runtime behavior identical while avoiding a persistent connection.
   if (searchParams.get('poll') === '1') {
     touchMtViewer(room, viewerId, true);
-    const feed = getMtFeed(room);
-    const message: SharedMtMessage = feed.latest || {
-      type: 'status',
-      status: 'connecting',
-      message: '等待 MT 即時資料…',
-      receivedAt: Date.now(),
-    };
+    const message: SharedMtMessage = currentMtFeedMessage(room);
     return Response.json(message, {
       headers: {
         'Cache-Control': 'no-store, no-cache, must-revalidate',
@@ -82,8 +84,7 @@ export async function GET(request: Request) {
       }, 15000);
       const subscriber = { send, close: () => stop() };
       const remove = addMtSubscriber(room, subscriber, viewerId);
-      const feed = getMtFeed(room);
-      if (!feed.latest) send({ type: 'status', status: 'connecting', message: '等待 MT 即時資料…', receivedAt: Date.now() });
+      send(currentMtFeedMessage(room));
       stop = () => {
         if (closed) return;
         closed = true;

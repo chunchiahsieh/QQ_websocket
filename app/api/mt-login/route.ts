@@ -1,7 +1,6 @@
 import { sessionCookie } from '@/lib/monitor-session';
 import { runtimeEnv } from '@/lib/runtime-env';
-
-const TZ_BASE_URL = 'https://www.tz6868.cc';
+import { accountAdminBaseUrl } from '@/lib/account-admin-url';
 
 type LoginBody = {
   username?: unknown;
@@ -12,22 +11,17 @@ type LoginBody = {
 
 type LocalAccount = { id?: string; username?: string; stamp?: string };
 
-// A deployment that only contains the frontend has no local AccountAdmin
-// process to validate the demo account. Keep the fallback opt-in and entirely
-// environment-based so it cannot silently create a production backdoor.
+// Demo access is disabled unless an operator explicitly enables it. Production
+// system users always come from AccountAdmin; they are never MT/DG accounts.
 const loginDemoAccount = (username: string, password: string): LocalAccount | null => {
-  // The public Render deployment is a demo service, so it must remain usable
-  // even when Wrangler does not expose Render's process variables as Worker
-  // bindings. Environment values still take precedence when available.
+  if (runtimeEnv('ALLOW_DEMO_LOGIN') !== 'true') return null;
   const configuredUsername = runtimeEnv('DEMO_LOGIN_USERNAME')?.trim();
   const configuredPassword = runtimeEnv('DEMO_LOGIN_PASSWORD');
   const configuredMatch = Boolean(configuredUsername && configuredPassword)
     && username === configuredUsername
     && password === configuredPassword;
-  const demoMatch = username === 'jason' && password === '123456';
-  if (!configuredMatch && !demoMatch) return null;
-  const accountUsername = configuredMatch ? configuredUsername! : 'jason';
-  return { id: `demo-${accountUsername}`, username: accountUsername, stamp: 'demo' };
+  if (!configuredMatch) return null;
+  return { id: `demo-${configuredUsername}`, username: configuredUsername!, stamp: 'demo' };
 };
 
 // The collector browser must be able to authenticate the shared system
@@ -52,47 +46,15 @@ const loginConfiguredCollectorAccount = (username: string, password: string, col
   return { id: `collector-${configured.username}`, username: configured.username, stamp: 'collector' };
 };
 
-const extractMessage = (payload: unknown, fallback: string) => {
-  if (!payload || typeof payload !== 'object') return fallback;
-  const data = payload as Record<string, unknown>;
-  for (const key of ['message', 'msg', 'error']) {
-    if (typeof data[key] === 'string' && data[key]) return data[key];
-  }
-  return fallback;
-};
-
-const extractMemberToken = (payload: unknown) => {
-  if (!payload || typeof payload !== 'object') return '';
-  const data = payload as Record<string, unknown>;
-  const nested = data.data && typeof data.data === 'object'
-    ? data.data as Record<string, unknown>
-    : {};
-  return [nested.token, data.token, nested.access_token, data.access_token]
-    .find((value): value is string => typeof value === 'string' && Boolean(value.trim()))
-    ?.trim() ?? '';
-};
-
-const extractGameUrl = (payload: unknown) => {
-  if (!payload || typeof payload !== 'object') return '';
-  const data = payload as Record<string, unknown>;
-  const nested = data.data && typeof data.data === 'object'
-    ? data.data as Record<string, unknown>
-    : {};
-  const raw = data.raw && typeof data.raw === 'object'
-    ? data.raw as Record<string, unknown>
-    : {};
-  return [nested.game_url, nested.url, raw.game_url, raw.url, typeof data.raw === 'string' ? data.raw : '']
-    .find((value): value is string => typeof value === 'string' && Boolean(value.trim()))
-    ?.trim()
-    .replace(/\\\//g, '/') ?? '';
-};
-
 const loginLocalAccount = async (username: string, password: string): Promise<LocalAccount | null> => {
   try {
     const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-    const internalKey = process.env.ACCOUNT_ADMIN_INTERNAL_KEY || process.env.ADMIN_INTERNAL_KEY;
+    // In the Render Worker these values are bindings, not process.env.
+    // Using runtimeEnv keeps local Node and deployed Worker authentication on
+    // the same path, instead of silently falling back to 127.0.0.1 in Render.
+    const internalKey = runtimeEnv('ACCOUNT_ADMIN_INTERNAL_KEY') || runtimeEnv('ADMIN_INTERNAL_KEY');
     if (internalKey) headers['X-Internal-Key'] = internalKey;
-    const response = await fetch(new URL('/internal/accounts/login', process.env.ACCOUNT_ADMIN_URL || 'http://127.0.0.1:5092'), {
+    const response = await fetch(new URL('/internal/accounts/login', accountAdminBaseUrl()), {
       method: 'POST', headers, body: JSON.stringify({ username, password }), signal: AbortSignal.timeout(2500), cache: 'no-store',
     });
     if (!response.ok) return null;
@@ -138,34 +100,10 @@ export async function POST(request: Request) {
       } });
     }
 
-    const loginResponse = await fetch(`${TZ_BASE_URL}/api/v1/login`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', Accept: 'application/json, text/plain, */*' },
-      body: JSON.stringify({ username, password, device_id: deviceId }),
-      signal: AbortSignal.timeout(15000),
-    });
-    const loginPayload: unknown = await loginResponse.json().catch(() => null);
-    const memberToken = extractMemberToken(loginPayload);
-    if (!loginResponse.ok || !memberToken) {
-      return Response.json(
-        { message: '帳號或密碼不正確。' },
-        { status: loginResponse.ok ? 401 : loginResponse.status },
-      );
-    }
-
-    const dgReady = !!(runtimeEnv('DG_RELAY_URL') && runtimeEnv('DG_RELAY_API_KEY'));
-    return Response.json({
-      // MT now uses the user-supplied launch URL in the browser. It no
-      // longer depends on the server-side Edge relay being configured.
-      platforms: { MT: { ready: true }, DG: { ready: dgReady, error: dgReady ? undefined : '平台後台尚未設定。' } },
-    }, { headers: {
-      'Set-Cookie': await sessionCookie(request, {
-        dgDirectLogin: dgReady,
-        accountUsername: username,
-        accountStamp: 'tz',
-      }),
-      'Cache-Control': 'no-store',
-    } });
+    // Do not fall back to MT/DG official authentication here. The account
+    // management system is the sole authority for viewer access, while each
+    // collector uses its own platform credentials and lifecycle.
+    return Response.json({ message: '帳號或密碼不正確。' }, { status: 401 });
   } catch (error) {
     const message = error instanceof Error && error.name === 'TimeoutError'
       ? '登入驗證逾時，請稍後再試。'

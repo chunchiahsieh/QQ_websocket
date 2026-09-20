@@ -3,12 +3,40 @@ services:
     name: jshen-card-prediction-demo
     runtime: node
     plan: free
+    buildFilter:
+      paths:
+        - app/**
+        - components/**
+        - hooks/**
+        - lib/**
+        - public/**
+        - scripts/**
+        - package.json
+        - package-lock.json
+        - tsconfig.json
+        - vite.config.*
+        - render.yaml
     buildCommand: npm ci && npm run build
     startCommand: node scripts/start-render-worker.mjs
     healthCheckPath: /
     envVars:
       - key: NODE_VERSION
         value: 22.13.0
+      # The UI only talks to AccountAdmin through this private Render URL.
+      # Do not set it to 127.0.0.1 in Render: that address is the UI container,
+      # not the AccountAdmin service.
+      - key: ACCOUNT_ADMIN_URL
+        fromService:
+          type: pserv
+          name: jshen-account-admin
+          property: hostport
+      # Must have exactly the same secret as jshen-account-admin's
+      # ADMIN_INTERNAL_KEY. This is server-side Worker configuration, never a
+      # NEXT_PUBLIC_ value.
+      - key: ACCOUNT_ADMIN_INTERNAL_KEY
+        sync: false
+      - key: MONITOR_SESSION_SECRET
+        sync: false
       # Shared system account used by collector mode. Keep these as Render
       # secrets; they are checked only by /api/mt-login in collector mode.
       - key: SYSTEM_LOGIN_USERNAME
@@ -16,15 +44,19 @@ services:
       - key: SYSTEM_LOGIN_PASSWORD
         sync: false
 
-  # MT/DG/歐博 browser relay. This is intentionally a separate service from
-  # the frontend because it owns the Edge session and the upstream credentials.
+  # DG is isolated from MT and the web UI. A DG failure or restart can no
+  # longer clear MT's shared feed or interrupt management login.
   - type: web
-    name: jshen-mt-relay
+    name: jshen-dg-collector
     runtime: docker
     plan: free
+    buildFilter:
+      paths:
+        - backend/DgRelay/**
+        - render.yaml
     dockerfilePath: ./backend/DgRelay/Dockerfile
     dockerContext: .
-    healthCheckPath: /health/mt
+    healthCheckPath: /health
     envVars:
       - key: DG_BROWSER_CHANNEL
         value: msedge
@@ -48,3 +80,32 @@ services:
         sync: false
       - key: AB_PROXY_PASSWORD
         sync: false
+
+  # Persistent account administration. This service owns system users only;
+  # it never stores MT/DG platform credentials. The disk is required because
+  # AccountAdmin deliberately uses encrypted local data and Data Protection
+  # keys instead of an ephemeral container filesystem.
+  - type: pserv
+    name: jshen-account-admin
+    runtime: docker
+    plan: starter
+    buildFilter:
+      paths:
+        - backend/AccountAdmin/**
+        - render.yaml
+    dockerfilePath: ./backend/AccountAdmin/Dockerfile
+    dockerContext: .
+    healthCheckPath: /Admin/Login
+    envVars:
+      - key: ADMIN_INTERNAL_KEY
+        sync: false
+      - key: ADMIN_BOOTSTRAP_USER
+        sync: false
+      - key: ADMIN_BOOTSTRAP_PASSWORD
+        sync: false
+      - key: ADMIN_DATA_DIR
+        value: /var/lib/account-admin
+    disk:
+      name: account-admin-data
+      mountPath: /var/lib/account-admin
+      sizeGB: 1
