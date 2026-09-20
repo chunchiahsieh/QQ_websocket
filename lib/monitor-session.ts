@@ -28,13 +28,14 @@ async function key() {
 }
 const hex = (bytes: ArrayBuffer) => Array.from(new Uint8Array(bytes), b => b.toString(16).padStart(2, '0')).join('');
 const unhex = (value: string) => new Uint8Array(value.match(/../g)!.map(v => parseInt(v, 16)));
-export async function sessionCookie(request: Request, platform: Omit<MonitorSession, 'expires'> = {}) {
+export async function sessionCookie(request: Request, platform: Omit<MonitorSession, 'expires'> = {}, maxAgeSeconds = 3600) {
+  const safeMaxAgeSeconds = Math.max(60, Math.min(maxAgeSeconds, 30 * 24 * 60 * 60));
   const iv = crypto.getRandomValues(new Uint8Array(12));
-  const payload = new TextEncoder().encode(JSON.stringify({ ...platform, expires: Date.now() + 3600000 }));
+  const payload = new TextEncoder().encode(JSON.stringify({ ...platform, expires: Date.now() + safeMaxAgeSeconds * 1000 }));
   const encrypted = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, await key(), payload);
   const value = `${hex(iv.buffer)}.${hex(encrypted)}`;
   if (value.length > 3800) throw new Error('Session too large');
-  return `${cookieName}=${value}; Path=/; HttpOnly; SameSite=Strict; Max-Age=3600${new URL(request.url).protocol === 'https:' ? '; Secure' : ''}`;
+  return `${cookieName}=${value}; Path=/; HttpOnly; SameSite=Strict; Max-Age=${safeMaxAgeSeconds}${new URL(request.url).protocol === 'https:' ? '; Secure' : ''}`;
 }
 export async function readSession(request: Request): Promise<MonitorSession | null> {
   try {

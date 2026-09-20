@@ -1,6 +1,7 @@
 import { sessionCookie } from '@/lib/monitor-session';
 import { runtimeEnv } from '@/lib/runtime-env';
 import { accountAdminBaseUrl } from '@/lib/account-admin-url';
+import { configuredCollectorCredentials, isConfiguredCollectorAccount } from '@/lib/collector-credentials';
 
 type LoginBody = {
   username?: unknown;
@@ -24,25 +25,10 @@ const loginDemoAccount = (username: string, password: string): LocalAccount | nu
   return { id: `demo-${configuredUsername}`, username: configuredUsername!, stamp: 'demo' };
 };
 
-// The collector browser must be able to authenticate the shared system
-// account without asking Render to log in to MT. Render's egress can be
-// rejected by the official site, so this local comparison is deliberately
-// limited to collector mode and uses secrets configured on the frontend
-// service (never values committed to the repository).
-const configuredCollectorCredentials = () => {
-  const configuredUsername = (runtimeEnv('SYSTEM_LOGIN_USERNAME')
-    || runtimeEnv('DEMO_LOGIN_USERNAME')
-    || runtimeEnv('NEXT_PUBLIC_TZ_USERNAME'))?.trim();
-  const configuredPassword = runtimeEnv('SYSTEM_LOGIN_PASSWORD')
-    || runtimeEnv('DEMO_LOGIN_PASSWORD')
-    || runtimeEnv('NEXT_PUBLIC_TZ_PASSWORD');
-  return configuredUsername && configuredPassword ? { username: configuredUsername, password: configuredPassword } : null;
-};
-
 const loginConfiguredCollectorAccount = (username: string, password: string, collectorMode: boolean): LocalAccount | null => {
   if (!collectorMode) return null;
   const configured = configuredCollectorCredentials();
-  if (!configured || username !== configured.username || password !== configured.password) return null;
+  if (!configured || !isConfiguredCollectorAccount(username, password)) return null;
   return { id: `collector-${configured.username}`, username: configured.username, stamp: 'collector' };
 };
 
@@ -90,12 +76,12 @@ export async function POST(request: Request) {
         account: { username: localAccount.username },
         ...(collectorMode && localAccount.stamp === 'collector' ? { collectorCredentials: configuredCollectorCredentials() } : {}),
       }, { headers: {
-        'Set-Cookie': await sessionCookie(request, {
-          dgDirectLogin: dgReady || demoReady,
-          accountId: localAccount.id,
-          accountUsername: localAccount.username,
-          accountStamp: localAccount.stamp,
-        }),
+          'Set-Cookie': await sessionCookie(request, {
+            dgDirectLogin: dgReady || demoReady,
+            accountId: localAccount.id,
+            accountUsername: localAccount.username,
+            accountStamp: localAccount.stamp,
+          }, localAccount.stamp === 'collector' ? 30 * 24 * 60 * 60 : 3600),
         'Cache-Control': 'no-store',
       } });
     }

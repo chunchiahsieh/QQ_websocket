@@ -46,6 +46,14 @@ test('direct DG permission is authenticated without carrying platform credential
   assert.equal(await readSession(new Request('https://localhost')), null);
 });
 
+test('collector sessions can persist for the configured standby period', async () => {
+  const cookie = await sessionCookie(new Request('https://localhost'), { accountStamp: 'collector' }, 30 * 24 * 60 * 60);
+  assert.match(cookie, /Max-Age=2592000/);
+  const session = await readSession(new Request('https://localhost', { headers: { cookie: cookie.split(';')[0] } }));
+  assert.equal(session.accountStamp, 'collector');
+  assert.ok(session.expires > Date.now() + 29 * 24 * 60 * 60 * 1000);
+});
+
 test('DG credentials are encrypted and session tampering is rejected', async () => {
   const cookie = await sessionCookie(new Request('https://localhost'), { dgToken: 'private-dg-token' });
   assert.ok(!cookie.includes('private-dg-token')); assert.match(cookie, /HttpOnly/); assert.match(cookie, /Secure/);

@@ -13,6 +13,7 @@ import { RegressionTest } from '@/components/regression-test';
 import { mtAuthenticateMessage, mtMemberMessage, mtMultipleJoinMessage, mtPingMessage, mtSharedChannelKey, mtTablesMessage, parseMtLaunchUrl, readMtWebSocketMessage, type MtFrontendConnection } from '@/lib/mt-frontend';
 
 type ConnectionStatus = 'idle' | 'connecting' | 'authenticating' | 'connected' | 'error';
+type CollectorCredentials = { username: string; password: string };
 
 // 歐博目前沒有可用的 Render 出口，先停用整條流程，避免登入時啟動
 // 不可用的授權與 Edge Relay；MT／DG 的資料流程不受影響。
@@ -582,6 +583,82 @@ export default function Home() {
     });
     if (activeMenu === 'tables' && platform === 'MT') setStatus(next);
   }, [activeMenu, platform]);
+
+  const connectOfficialCollector = useCallback(async (credentials: CollectorCredentials) => {
+    const deviceKey = 'mt-tz-device-id';
+    let deviceId = localStorage.getItem(deviceKey);
+    if (!deviceId) {
+      deviceId = createBrowserUuid();
+      localStorage.setItem(deviceKey, deviceId);
+    }
+    const officialBaseUrl = 'https://www.tz6868.com';
+    const officialResponse = await fetch(`${officialBaseUrl}/api/v1/login`, {
+      method: 'POST',
+      mode: 'cors',
+      headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+      body: JSON.stringify({ username: credentials.username, password: credentials.password, device_id: deviceId }),
+    });
+    const officialPayload = await officialResponse.json().catch(() => null) as unknown;
+    const officialData = officialPayload && typeof officialPayload === 'object' && 'data' in officialPayload
+      && officialPayload.data && typeof officialPayload.data === 'object'
+      ? officialPayload.data as Record<string, unknown>
+      : {};
+    const officialToken = typeof officialData.token === 'string' ? officialData.token.trim() : '';
+    const officialMessage = officialPayload && typeof officialPayload === 'object' && 'message' in officialPayload
+      && typeof officialPayload.message === 'string' ? officialPayload.message : '';
+    if (!officialResponse.ok || !officialToken) {
+      if (officialResponse.status === 401 || officialResponse.status === 403) throw new Error('MT 專用帳號或密碼不正確。');
+      throw new Error(officialMessage || `MT 官網登入失敗（HTTP ${officialResponse.status}）。`);
+    }
+    const [mtLaunchUrl, dgLaunchUrl] = await Promise.all([
+      requestOfficialGameUrl(officialBaseUrl, officialToken, 'MTLI'),
+      requestOfficialGameUrl(officialBaseUrl, officialToken, 'DGLI'),
+    ]);
+    setAbGameUrl(null);
+    setDgGameUrl(dgLaunchUrl);
+    setMtConnection(parseMtLaunchUrl(mtLaunchUrl));
+    setTables([]);
+    setTablesByPlatform(previous => ({ ...previous, MT: [] }));
+    setTableUpdatedAt('');
+    setMtMessage('採集端待命中，等待觀看需求…');
+    setStatus('connecting');
+  }, []);
+
+  // A fixed collector tab can resume after a deployment or page reload. Only
+  // a collector-specific encrypted session may obtain these credentials; a
+  // regular viewer session receives 401 from this endpoint.
+  useEffect(() => {
+    if (!mtCollectorMode || isAuthenticated) return;
+    const abort = new AbortController();
+    const resume = async () => {
+      try {
+        const response = await fetch('/api/collector/bootstrap', {
+          method: 'POST', cache: 'no-store', signal: abort.signal,
+          headers: { 'Content-Type': 'application/json' }, body: '{}',
+        });
+        if (!response.ok) return;
+        const result = await response.json() as { account?: { username?: string }; collectorCredentials?: CollectorCredentials };
+        if (!result.collectorCredentials?.username || !result.collectorCredentials.password) return;
+        if (result.account?.username) setUsername(result.account.username);
+        setLoginStatus('loading');
+        setLoginMessage('採集端正在恢復連線…');
+        await connectOfficialCollector(result.collectorCredentials);
+        if (abort.signal.aborted) return;
+        setPassword('');
+        setLoginStatus('success');
+        setLoginMessage('採集端待命中。');
+        setIsAuthenticated(true);
+      } catch (error) {
+        if (!abort.signal.aborted) {
+          setLoginStatus('error');
+          setLoginMessage(error instanceof Error ? error.message : '採集端恢復失敗。');
+        }
+      }
+    };
+    void resume();
+    return () => abort.abort();
+  }, [connectOfficialCollector, isAuthenticated, mtCollectorMode]);
+
   const focusTable = useCallback((table: TableInfo) => {
     const source = table.id.startsWith('DG:') ? 'DG' : table.id.startsWith('AB:') ? 'AB' : 'MT';
     setFocusedTables(current => [...current, `${source}::${table.id}`]);
@@ -661,41 +738,7 @@ export default function Home() {
       if (mtCollectorMode) {
         const officialUsername = result.collectorCredentials?.username?.trim() || username.trim();
         const officialPassword = result.collectorCredentials?.password || password;
-        const officialBaseUrl = 'https://www.tz6868.com';
-        const officialResponse = await fetch(`${officialBaseUrl}/api/v1/login`, {
-          method: 'POST',
-          mode: 'cors',
-          headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
-          body: JSON.stringify({ username: officialUsername, password: officialPassword, device_id: deviceId }),
-        });
-        const officialPayload = await officialResponse.json().catch(() => null) as unknown;
-        const officialData = officialPayload && typeof officialPayload === 'object' && 'data' in officialPayload
-          && officialPayload.data && typeof officialPayload.data === 'object'
-          ? officialPayload.data as Record<string, unknown>
-          : {};
-        const officialToken = typeof officialData.token === 'string' ? officialData.token.trim() : '';
-        const officialMessage = officialPayload && typeof officialPayload === 'object' && 'message' in officialPayload
-          && typeof officialPayload.message === 'string' ? officialPayload.message : '';
-        if (!officialResponse.ok || !officialToken) {
-          if (officialResponse.status === 401 || officialResponse.status === 403) {
-            throw new Error('MT 專用帳號或密碼不正確。');
-          }
-          throw new Error(officialMessage || `MT 官網登入失敗（HTTP ${officialResponse.status}）。`);
-        }
-        // Each enabled official game has its own short-lived launch URL.
-        const [mtLaunchUrl, dgLaunchUrl] = await Promise.all([
-          requestOfficialGameUrl(officialBaseUrl, officialToken, 'MTLI'),
-          requestOfficialGameUrl(officialBaseUrl, officialToken, 'DGLI'),
-        ]);
-        const connection = parseMtLaunchUrl(mtLaunchUrl);
-        setAbGameUrl(null);
-        setDgGameUrl(dgLaunchUrl);
-        setMtConnection(connection);
-        setTables([]);
-        setTablesByPlatform(previous => ({ ...previous, MT: [] }));
-        setTableUpdatedAt('');
-        setMtMessage('正在由瀏覽器連線 MT…');
-        setStatus('connecting');
+        await connectOfficialCollector({ username: officialUsername, password: officialPassword });
       }
       localStorage.removeItem('table-monitor-token');
       setPassword('');
@@ -1113,7 +1156,7 @@ export default function Home() {
         </div>}
         {/* Collector A opens the official DG game URL in the relay worker.
             Viewer tabs subscribe to that shared feed without opening DG. */}
-        {isAuthenticated && mtCollectorMode && dgGameUrl && <div className="hidden" aria-hidden="true">
+        {isAuthenticated && mtCollectorMode && mtDemand && dgGameUrl && <div className="hidden" aria-hidden="true">
           <DgMonitor gameUrl={dgGameUrl} collector onStatus={handleDgStatus} onTables={handleDgTables} cardColumns={cardsPerRow} onCardColumnsChange={setCardsPerRow} />
         </div>}
         {/* Collector A keeps one shared AB subscription alive just like MT.
