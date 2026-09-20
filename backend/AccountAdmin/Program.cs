@@ -33,6 +33,7 @@ if (OperatingSystem.IsWindows()) {
 }
 if (!OperatingSystem.IsWindows()) File.SetUnixFileMode(dataPath, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
 builder.Services.AddSingleton(new AccountStore(dataPath));
+builder.Services.AddSingleton(new SharedFeedStore(dataPath));
 var protection = builder.Services.AddDataProtection().PersistKeysToFileSystem(new DirectoryInfo(Path.Combine(dataPath, "keys"))).SetApplicationName("TableAccountAdmin");
 if (OperatingSystem.IsWindows()) protection.ProtectKeysWithDpapi();
 builder.Services.AddControllersWithViews();

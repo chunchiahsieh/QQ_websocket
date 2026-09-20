@@ -29,6 +29,12 @@ async function form(route,values,token) {
 async function api(route,body,key=apiKey) {
   return request('/internal/accounts/'+route,{method:'POST',headers:{'Content-Type':'application/json','X-Internal-Key':key},body:JSON.stringify(body)});
 }
+async function feed(route, init = {}) {
+  return request('/internal/feeds/' + route, {
+    ...init,
+    headers: { 'Content-Type':'application/json', 'X-Internal-Key':apiKey, ...init.headers },
+  });
+}
 try {
   for(let i=0;i<80;i++) {
     if(child.exitCode!==null) throw new Error('MVC exited during startup');
@@ -49,6 +55,17 @@ try {
   const member=await (await api('login',{username:'member01',password})).json(); assert.ok(member.id); assert.ok(member.stamp);
   assert.equal(member.expiresAt,'2099-01-01T04:00:00+00:00','Taiwan time is stored in UTC');
   assert.equal((await (await api('validate',{id:member.id,stamp:member.stamp})).json()).valid,true);
+  const firstSnapshot = { type:'snapshot', collector:true, collectorId:'test-collector', sequence:2, receivedAt:Date.now(), tables:[{id:'B01'}] };
+  assert.equal((await feed('MT',{method:'POST',body:JSON.stringify(firstSnapshot)})).status,200);
+  const shared = await (await feed('MT')).json();
+  assert.equal(shared.type,'snapshot'); assert.equal(shared.tables[0].id,'B01');
+  // A late packet from the same collector must not make a viewer go backward.
+  const stale = { ...firstSnapshot, sequence:1, receivedAt:firstSnapshot.receivedAt + 1, tables:[{id:'OLD'}] };
+  assert.equal((await (await feed('MT',{method:'POST',body:JSON.stringify(stale)})).json()).accepted,false);
+  assert.equal((await (await feed('MT')).json()).tables[0].id,'B01');
+  assert.equal((await feed('MT/presence',{method:'POST',body:JSON.stringify({viewerId:'viewer-a',online:true})})).status,200);
+  assert.equal((await (await feed('MT/demand')).json()).shouldCollect,true);
+  assert.equal((await feed('MT/presence',{method:'POST',body:JSON.stringify({viewerId:'viewer-a',online:false})})).status,200);
   await form('/Admin/Update',{id:member.id,expires:'2099-01-01T12:00'},dashboard.token);
   assert.equal((await api('login',{username:'member01',password})).status,401,'Disabled accounts cannot login');
   assert.equal((await (await api('validate',{id:member.id,stamp:member.stamp})).json()).valid,false,'Disable revokes stamp');
@@ -65,5 +82,5 @@ try {
   for(const location of ['/accounts.json','/accounts.json.bak','/App_Data/accounts.json']) assert.equal((await request(location)).status,404);
   assert.equal((await form('/Admin/Logout',{},dashboard.token)).status,302);
   assert.equal((await request('/')).status,302);
-  console.log('PASS: MVC login, CSRF, account CRUD, duplicate detection, UTC expiry, disable/revoke, password reset, private JSON, atomic backup and logout');
+  console.log('PASS: MVC login, CSRF, account CRUD, shared SQLite feed, demand heartbeat, duplicate detection, UTC expiry, disable/revoke, password reset, private JSON, atomic backup and logout');
 } finally { child.kill(); }

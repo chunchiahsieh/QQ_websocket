@@ -11,7 +11,7 @@ Next route 將允許的 MVC 管理動作轉交同機 C# 5092；不公開 `/inter
 
 以下的獨立埠操作仍可用於維護，不是使用者需要另開的管理入口。
 
-與牌桌前端及 DgRelay 分別編譯、啟動、部署。無外部資料庫服務。
+與牌桌前端及 DgRelay 分別編譯、啟動、部署。無外部資料庫服務；共享桌況使用同一持久磁碟上的 SQLite。
 
 ## 本機啟動
 
@@ -23,7 +23,7 @@ Next route 將允許的 MVC 管理動作轉交同機 C# 5092；不公開 `/inter
 ## 資料與安全
 
 `ADMIN_DATA_DIR` 必須在此應用程式目录之外；預設為目前服務使用者的 LocalApplicationData/TableAccountAdmin。
-內含 accounts.json、payout-settings.json、payout-records.json、各檔案上一次原子替換的 .bak、Data Protection keys 及 writer.lock。
+內含 accounts.json、payout-settings.json、payout-records.json、shared-feed.db、各檔案上一次原子替換的 .bak、Data Protection keys 及 writer.lock。
 密碼使用 ASP.NET Core Identity PBKDF2（210,000 次），含隨機 salt，不存明文。
 檔案不對外提供，不啟用 static files；JSON、備份及金鑰都不可複製到公開網站目錄。
 單程序鎖防止多個實例覆寫；檔案毀損時啟動失敗，絕不默默建立空資料。
@@ -47,6 +47,17 @@ POST `/internal/accounts/login`，Header `X-Internal-Key`，JSON `{ "username": 
 成功回傳 id、username、expiresAt、stamp；失敗統一 401，不洩漏帳號是否存在。
 POST `/internal/accounts/validate`，同 Header，JSON `{ "id": "...", "stamp": "..." }`，回傳 `{ "valid": true/false }`。
 stamp 只應放在伺服器或加密 HttpOnly session，不當作公開身分資訊。
+
+### 即時共享桌況
+
+`QQ_websocket` 公開服務已接入此 API；瀏覽器採集端只對公開服務送出 MT／DG 快照，由公開服務使用內部網路與 `X-Internal-Key` 轉存到這個 SQLite 資料庫。觀看端也只向公開服務讀取。採集瀏覽器不會取得或直接呼叫私有服務網址。
+
+- `POST /internal/feeds/MT`、`POST /internal/feeds/DG`：寫入一份最新快照或連線狀態。
+- `GET /internal/feeds/MT`、`GET /internal/feeds/DG`：讀取最新未過期快照；30 秒未更新時回傳最後連線狀態。
+- `POST /internal/feeds/MT/presence`：寫入觀看端心跳。
+- `GET /internal/feeds/MT/demand`：回傳觀看者數與是否應啟動採集。45 秒未收到心跳視為離線，最後心跳後保留 15 分鐘需求。
+
+這些端點一律需要 `X-Internal-Key`，只允許 Render 私有網路中的公開服務使用。它們解決公開服務多個 Worker／程序各自持有記憶體，導致採集端有資料但觀看端讀到空資料的問題。
 
 **重要：現有牌桌登入仍是平台登入，本專案不會自動使牌桌端帳號到期限制生效。**
 後續整合須先驗證系統帳號，再使用伺服器端獨立 MT/DG/歐博授權；每次 API 與長連線定期驗證 stamp／期限，失敗立即停止轉送。
