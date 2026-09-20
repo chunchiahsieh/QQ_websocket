@@ -6,6 +6,7 @@ import { BaccaratRoad } from '@/components/baccarat-road';
 import { TableCountdown } from '@/components/table-countdown';
 import { BaccaratTableCard, type TableInfo } from '@/components/baccarat-table-card';
 import { DgMonitor } from '@/components/dg-monitor';
+import { DgSharedMonitor } from '@/components/dg-shared-monitor';
 import { AbMonitor } from '@/components/ab-monitor';
 import { ContactLinks } from '@/components/contact-links';
 import { CardLayoutSelect, cardGridColumns, type CardColumns } from '@/components/card-layout';
@@ -260,6 +261,8 @@ const now = () => new Intl.DateTimeFormat('zh-TW', {
 // other users can watch the same data without opening a second MT socket.
 let mtPublishSequence = 0;
 const mtCollectorEpoch = createBrowserUuid();
+let dgPublishSequence = 0;
+const dgCollectorEpoch = createBrowserUuid();
 
 const publishSharedMt = (message: { type: 'snapshot' | 'status'; tables?: TableInfo[]; status?: 'connecting' | 'connected' | 'offline'; message?: string }) => {
   void fetch('/api/mt/shared-feed', {
@@ -270,6 +273,13 @@ const publishSharedMt = (message: { type: 'snapshot' | 'status'; tables?: TableI
     // prevents a delayed POST from replacing fresh tables or rewinding a
     // countdown after reconnect.
     body: JSON.stringify({ ...message, collector: true, collectorId: mtCollectorEpoch, sequence: ++mtPublishSequence, receivedAt: Date.now() }),
+  }).catch(() => { /* a missing relay must not interrupt the collector */ });
+};
+
+const publishSharedDg = (message: { type: 'snapshot' | 'status'; tables?: TableInfo[]; status?: 'connecting' | 'connected' | 'offline'; message?: string }) => {
+  void fetch('/api/dg/shared-feed', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, cache: 'no-store',
+    body: JSON.stringify({ ...message, collector: true, collectorId: dgCollectorEpoch, sequence: ++dgPublishSequence, receivedAt: Date.now() }),
   }).catch(() => { /* a missing relay must not interrupt the collector */ });
 };
 
@@ -515,6 +525,7 @@ export default function Home() {
   const pollTimer = useRef<ReturnType<typeof setInterval> | null>(null);
   const mtPingTimer = useRef<ReturnType<typeof setInterval> | null>(null);
   const mtTablesTimer = useRef<ReturnType<typeof setInterval> | null>(null);
+  const collectorAuthorizeInFlight = useRef(false);
   const mtClientId = useRef(createBrowserUuid());
   const mtViewerId = useRef(createBrowserUuid());
   const [status, setStatus] = useState<ConnectionStatus>('idle');
@@ -529,6 +540,9 @@ export default function Home() {
   const [abGameUrl, setAbGameUrl] = useState<string | null>(null);
   const [dgGameUrl, setDgGameUrl] = useState<string | null>(null);
   const [mtDemand, setMtDemand] = useState(false);
+  const [collectorCredentials, setCollectorCredentials] = useState<CollectorCredentials | null>(null);
+  const [dgMessage, setDgMessage] = useState('等待 DG 即時資料…');
+  const [dgUpdatedAt, setDgUpdatedAt] = useState('');
   const [username, setUsername] = useState(defaultUsername);
   const [password, setPassword] = useState(defaultPassword);
   const [loginStatus, setLoginStatus] = useState<'idle' | 'loading' | 'success' | 'error'>('idle');
@@ -541,6 +555,10 @@ export default function Home() {
   const [loggingOut, setLoggingOut] = useState(false);
   const [logoutError, setLogoutError] = useState('');
   const handleDgTables = useCallback((next: TableInfo[]) => setTablesByPlatform(previous => ({ ...previous, DG: next })), []);
+  const handleCollectorDgTables = useCallback((next: TableInfo[]) => {
+    handleDgTables(next);
+    publishSharedDg({ type: 'snapshot', tables: next });
+  }, [handleDgTables]);
   const handleAbTables = useCallback((next: TableInfo[]) => setTablesByPlatform(previous => ({ ...previous, AB: next })), []);
 
   useEffect(() => {
@@ -575,6 +593,10 @@ export default function Home() {
     if (activeMenu === 'tables' && platform === source) setStatus(next);
   }, [activeMenu, platform]);
   const handleDgStatus = useCallback((next: 'connecting' | 'connected' | 'error') => handlePlatformStatus('DG', next), [handlePlatformStatus]);
+  const handleCollectorDgStatus = useCallback((next: 'connecting' | 'connected' | 'error') => {
+    handleDgStatus(next);
+    publishSharedDg({ type: 'status', status: next === 'error' ? 'offline' : next, message: next === 'connected' ? 'DG 即時連線中' : next === 'error' ? 'DG 即時資料暫停，等待恢復…' : '等待 DG 即時資料…' });
+  }, [handleDgStatus]);
   const handleAbStatus = useCallback((next: 'connecting' | 'connected' | 'error') => handlePlatformStatus('AB', next), [handlePlatformStatus]);
   const handleMtStatus = useCallback((next: ConnectionStatus) => {
     setConnectedByPlatform(previous => {
@@ -646,11 +668,11 @@ export default function Home() {
         if (result.account?.username) setUsername(result.account.username);
         setLoginStatus('loading');
         setLoginMessage('採集端正在恢復連線…');
-        await connectOfficialCollector(result.collectorCredentials);
         if (abort.signal.aborted) return;
         setPassword('');
         setLoginStatus('success');
         setLoginMessage('採集端待命中。');
+        setCollectorCredentials(result.collectorCredentials);
         setIsAuthenticated(true);
       } catch (error) {
         if (!abort.signal.aborted) {
@@ -736,13 +758,13 @@ export default function Home() {
       try { result = raw ? JSON.parse(raw) : {}; } catch { result = { message: raw.trim() || `登入服務回應錯誤（HTTP ${response.status}）。` }; }
       if (!response.ok || !result.platforms?.MT.ready) throw new Error(result.message || '平台後台尚未設定。');
 
-      // Collector mode performs the official MT login in this browser. The
-      // same credentials entered for the shared system account are sent only
-      // to the official MT API, never to our Render relay.
+      // A manual collector recovery saves the official credentials locally.
+      // The official platform is contacted only after an actual viewer asks
+      // for data, so an idle collector does not burn a short-lived game URL.
       if (mtCollectorMode) {
         const officialUsername = result.collectorCredentials?.username?.trim() || username.trim();
         const officialPassword = result.collectorCredentials?.password || password;
-        await connectOfficialCollector({ username: officialUsername, password: officialPassword });
+        setCollectorCredentials({ username: officialUsername, password: officialPassword });
       }
       localStorage.removeItem('table-monitor-token');
       setPassword('');
@@ -764,7 +786,7 @@ export default function Home() {
     // A collector is a background producer, not an MT-tab viewer. It must
     // remain active while any authenticated viewer is online, even if the
     // collector itself is currently showing DG, a menu, or a hidden page.
-    const shouldCheckDemand = isAuthenticated && mtCollectorMode && mtConnection !== null;
+    const shouldCheckDemand = isAuthenticated && mtCollectorMode && collectorCredentials !== null;
     if (!shouldCheckDemand) {
       setMtDemand(false);
       return;
@@ -789,7 +811,40 @@ export default function Home() {
     void checkDemand();
     const timer = setInterval(() => { void checkDemand(); }, 10000);
     return () => { abort.abort(); clearInterval(timer); };
-  }, [isAuthenticated, mtCollectorMode, mtConnection]);
+  }, [collectorCredentials, isAuthenticated, mtCollectorMode]);
+
+  // Bootstrap itself is intentionally lightweight. Once a real viewer is
+  // present, collector A logs into TZ and obtains fresh MTLI/DGLI URLs. The
+  // in-flight guard prevents the 10-second demand poll from opening a second
+  // official session while the first authorization is still running.
+  useEffect(() => {
+    if (!isAuthenticated || !mtCollectorMode || !collectorCredentials || !mtDemand || mtConnection || collectorAuthorizeInFlight.current) return;
+    let cancelled = false;
+    collectorAuthorizeInFlight.current = true;
+    setLoginStatus('loading');
+    setLoginMessage('偵測到觀看需求，正在啟動 MT／DG 採集…');
+    void connectOfficialCollector(collectorCredentials)
+      .then(() => {
+        if (!cancelled) { setLoginStatus('success'); setLoginMessage('採集端即時連線中。'); }
+      })
+      .catch(error => {
+        if (!cancelled) { setLoginStatus('error'); setLoginMessage(error instanceof Error ? error.message : '採集端啟動失敗。'); }
+      })
+      .finally(() => { collectorAuthorizeInFlight.current = false; });
+    return () => { cancelled = true; };
+  }, [collectorCredentials, connectOfficialCollector, isAuthenticated, mtCollectorMode, mtConnection, mtDemand]);
+
+  // When the last viewer has been gone for the grace period, release the
+  // short-lived official URLs. A future viewer causes a clean authorization
+  // instead of attempting to reuse an expired MTLI/DGLI token.
+  useEffect(() => {
+    if (!isAuthenticated || !mtCollectorMode || mtDemand) return;
+    socket.current?.close();
+    socket.current = null;
+    setMtConnection(null);
+    setDgGameUrl(null);
+    setConnectedByPlatform(previous => ({ ...previous, MT: false, DG: false }));
+  }, [isAuthenticated, mtCollectorMode, mtDemand]);
 
   useEffect(() => {
     const shouldStreamMt = isAuthenticated && mtCollectorMode && mtConnection !== null && mtDemand;
@@ -1044,6 +1099,37 @@ export default function Home() {
     };
   }, [activeMenu, handleMtStatus, isAuthenticated, mtConnection, platform]);
 
+  // Viewer mode never opens a DG relay/WebSocket. It polls only the snapshot
+  // published by collector A, matching the MT ownership model exactly.
+  useEffect(() => {
+    const shouldSubscribe = isAuthenticated && !mtCollectorMode && activeMenu === 'tables' && platform === 'DG';
+    if (!shouldSubscribe) return;
+    const abort = new AbortController();
+    let inFlight = false;
+    setDgMessage('等待 DG 即時資料…');
+    const poll = async () => {
+      if (inFlight || abort.signal.aborted) return;
+      inFlight = true;
+      try {
+        const response = await fetch('/api/dg/shared-feed', { cache: 'no-store', signal: abort.signal });
+        if (!response.ok) throw new Error(`shared feed ${response.status}`);
+        const message = await response.json() as { type?: string; tables?: TableInfo[]; status?: string; message?: string };
+        if (message.type === 'snapshot' && Array.isArray(message.tables)) {
+          handleDgTables(message.tables); setDgUpdatedAt(now()); setDgMessage('DG 即時資料同步中'); handleDgStatus('connected'); return;
+        }
+        if (message.type === 'status') {
+          setDgMessage(message.message || '等待 DG 即時資料…');
+          handleDgStatus(message.status === 'offline' ? 'error' : 'connecting');
+        }
+      } catch {
+        if (!abort.signal.aborted) { setDgMessage('DG 即時資料重新連線中…'); handleDgStatus('connecting'); }
+      } finally { inFlight = false; }
+    };
+    void poll();
+    const timer = setInterval(() => { void poll(); }, 3000);
+    return () => { abort.abort(); clearInterval(timer); setConnectedByPlatform(previous => ({ ...previous, DG: false })); };
+  }, [activeMenu, handleDgStatus, handleDgTables, isAuthenticated, mtCollectorMode, platform]);
+
   const statusInfo = statusView[status];
 
   if (!isAuthenticated) {
@@ -1156,12 +1242,12 @@ export default function Home() {
             viewer subscription here: doing so creates a second DG socket from
             the same browser and can make the shared feed reset/reconnect. */}
         {isAuthenticated && !mtCollectorMode && <div className={activeMenu === 'tables' && platform === 'DG' ? '' : 'hidden'} aria-hidden={activeMenu !== 'tables' || platform !== 'DG'}>
-          <DgMonitor gameUrl={dgGameUrl} onStatus={handleDgStatus} onTables={handleDgTables} onFocusTable={focusTable} cardColumns={cardsPerRow} onCardColumnsChange={setCardsPerRow} />
+          <DgSharedMonitor tables={tablesByPlatform.DG} connected={connectedByPlatform.DG} message={dgMessage} updatedAt={dgUpdatedAt} onFocusTable={focusTable} cardColumns={cardsPerRow} onCardColumnsChange={setCardsPerRow} />
         </div>}
         {/* Collector A opens the official DG game URL in the relay worker.
             Viewer tabs subscribe to that shared feed without opening DG. */}
         {isAuthenticated && mtCollectorMode && mtDemand && dgGameUrl && <div className="hidden" aria-hidden="true">
-          <DgMonitor gameUrl={dgGameUrl} collector onStatus={handleDgStatus} onTables={handleDgTables} cardColumns={cardsPerRow} onCardColumnsChange={setCardsPerRow} />
+          <DgMonitor gameUrl={dgGameUrl} collector onStatus={handleCollectorDgStatus} onTables={handleCollectorDgTables} cardColumns={cardsPerRow} onCardColumnsChange={setCardsPerRow} />
         </div>}
         {/* Collector A keeps one shared AB subscription alive just like MT.
             Viewer tabs do not open another official session; they subscribe
