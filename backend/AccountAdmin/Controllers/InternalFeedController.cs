@@ -9,7 +9,7 @@ namespace AccountAdmin.Controllers;
 [ApiController, Route("internal/feeds")]
 public sealed class InternalFeedController(SharedFeedStore store, IConfiguration config) : ControllerBase
 {
-    static readonly HashSet<string> Platforms = new(StringComparer.Ordinal) { "MT", "DG" };
+    static readonly HashSet<string> Platforms = new(StringComparer.Ordinal) { "MT", "DG", "AB" };
 
     bool Authorized()
     {

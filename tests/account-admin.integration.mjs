@@ -77,6 +77,17 @@ try {
   const competing = { ...firstSnapshot, collectorId:'old-browser-collector', sequence:999, receivedAt:Date.now() + 86_400_000, tables:[{id:'OLD-BROWSER'}] };
   assert.equal((await (await feed('MT',{method:'POST',body:JSON.stringify(competing)})).json()).accepted,false);
   assert.equal((await (await feed('MT')).json()).tables[0].id,'B01');
+  // AB has its own persisted slot and the same sequence/collector lease
+  // rules; uploading it cannot replace the active MT or DG snapshots.
+  const abSnapshot = { type:'snapshot', collector:true, collectorId:'test-collector', sequence:3,
+    tables:[{id:'AB:10', name:'百家樂10', results:['10010000000']}] };
+  const abWrite = await feed('AB',{method:'POST',body:JSON.stringify(abSnapshot)});
+  assert.equal(abWrite.status,200,'AB snapshot is accepted by the private feed');
+  assert.equal((await abWrite.json()).accepted,true);
+  assert.equal((await (await feed('AB')).json()).tables[0].id,'AB:10');
+  assert.equal((await (await feed('MT')).json()).tables[0].id,'B01','AB cannot replace MT');
+  assert.equal((await (await feed('AB',{method:'POST',body:JSON.stringify({ ...abSnapshot, sequence:2, tables:[{id:'AB:old'}] })})).json()).accepted,false);
+  assert.equal((await (await feed('AB')).json()).tables[0].id,'AB:10','AB rejects a stale packet');
   assert.equal((await feed('MT/presence',{method:'POST',body:JSON.stringify({viewerId:'viewer-a',online:true})})).status,200);
   assert.equal((await (await feed('MT/demand')).json()).shouldCollect,true);
   assert.equal((await feed('MT/presence',{method:'POST',body:JSON.stringify({viewerId:'viewer-a',online:false})})).status,200);

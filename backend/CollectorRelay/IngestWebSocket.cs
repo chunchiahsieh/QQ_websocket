@@ -107,7 +107,7 @@ public static class IngestWebSocket
 
         var platform = ReadString(message, "platform")?.ToUpperInvariant();
         var sequence = ReadLong(message, "sequence");
-        if (platform is not ("MT" or "DG") || sequence is null || sequence < 0 || !ValidPayload(message, type)) {
+        if (platform is not ("MT" or "DG" or "AB") || sequence is null || sequence < 0 || !ValidPayload(message, type)) {
             await SendAsync(socket, sendGate, new { type = "ack", platform, sequence, accepted = false, retryable = false, message = "採集資料格式不正確。" }, cancellationToken);
             return;
         }

@@ -1,7 +1,7 @@
 import { isCollectorIngestAuthorized } from '@/lib/collector-ingest';
 import { writeSharedFeed } from '@/lib/shared-feed-store';
 
-const platforms = new Set(['MT', 'DG']);
+const platforms = new Set(['MT', 'DG', 'AB']);
 const isRecord = (value: unknown): value is Record<string, unknown> => Boolean(value) && typeof value === 'object';
 
 export async function POST(request: Request, context: { params: Promise<{ platform: string }> }) {
@@ -15,7 +15,7 @@ export async function POST(request: Request, context: { params: Promise<{ platfo
   if (body.type === 'status' && !['connected', 'connecting', 'offline'].includes(String(body.status)))
     return Response.json({ message: '共享桌況狀態不正確。' }, { status: 400 });
   try {
-    return Response.json(await writeSharedFeed(platform as 'MT' | 'DG', {
+    return Response.json(await writeSharedFeed(platform as 'MT' | 'DG' | 'AB', {
       ...body,
       collector: true,
       collectorId: typeof body.collectorId === 'string' && body.collectorId.trim() ? body.collectorId.trim().slice(0, 120) : 'desktop-collector',

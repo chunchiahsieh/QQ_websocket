@@ -1,7 +1,7 @@
 import { accountAdminBaseUrl } from '@/lib/account-admin-url';
 import { runtimeEnv } from '@/lib/runtime-env';
 
-export type SharedPlatform = 'MT' | 'DG';
+export type SharedPlatform = 'MT' | 'DG' | 'AB';
 
 const internalHeaders = () => {
   const key = runtimeEnv('ACCOUNT_ADMIN_INTERNAL_KEY') || runtimeEnv('ADMIN_INTERNAL_KEY');

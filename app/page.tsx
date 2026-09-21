@@ -16,9 +16,9 @@ import { mtAuthenticateMessage, mtMemberMessage, mtMultipleJoinMessage, mtPingMe
 type ConnectionStatus = 'idle' | 'connecting' | 'authenticating' | 'connected' | 'error';
 type CollectorCredentials = { username: string; password: string };
 
-// 歐博目前沒有可用的 Render 出口，先停用整條流程，避免登入時啟動
-// 不可用的授權與 Edge Relay；MT／DG 的資料流程不受影響。
-const ENABLE_AB = false;
+// The legacy browser AB relay has no usable Render egress. Keep that worker
+// disabled; AB viewers use snapshots uploaded by the Windows collector.
+const ENABLE_BROWSER_AB = false;
 
 // crypto.randomUUID() is restricted to secure contexts. The LAN demo runs on
 // plain HTTP, so keep the same UUID-v4 format with getRandomValues() fallback.
@@ -552,6 +552,8 @@ export default function Home() {
   const [collectorCredentials, setCollectorCredentials] = useState<CollectorCredentials | null>(null);
   const [dgMessage, setDgMessage] = useState('等待 DG 即時資料…');
   const [dgUpdatedAt, setDgUpdatedAt] = useState('');
+  const [abMessage, setAbMessage] = useState('等待 歐博 即時資料…');
+  const [abUpdatedAt, setAbUpdatedAt] = useState('');
   const [username, setUsername] = useState(defaultUsername);
   const [password, setPassword] = useState(defaultPassword);
   const [loginStatus, setLoginStatus] = useState<'idle' | 'loading' | 'success' | 'error'>('idle');
@@ -1135,6 +1137,37 @@ export default function Home() {
     return () => { abort.abort(); clearInterval(timer); setConnectedByPlatform(previous => ({ ...previous, DG: false })); };
   }, [activeMenu, handleDgStatus, handleDgTables, isAuthenticated, mtCollectorMode, platform]);
 
+  // AB follows the same read-only viewer model as DG. It must never open a
+  // second official session from a viewer tab.
+  useEffect(() => {
+    const shouldSubscribe = isAuthenticated && !mtCollectorMode && activeMenu === 'tables' && platform === 'AB';
+    if (!shouldSubscribe) return;
+    const abort = new AbortController();
+    let inFlight = false;
+    setAbMessage('等待 歐博 即時資料…');
+    const poll = async () => {
+      if (inFlight || abort.signal.aborted) return;
+      inFlight = true;
+      try {
+        const response = await fetch('/api/ab/shared-feed', { cache: 'no-store', signal: abort.signal });
+        if (!response.ok) throw new Error(`shared feed ${response.status}`);
+        const message = await response.json() as { type?: string; tables?: TableInfo[]; status?: string; message?: string; receivedAt?: number; stale?: boolean };
+        if (message.type === 'snapshot' && Array.isArray(message.tables)) {
+          handleAbTables(message.tables); setAbUpdatedAt(receivedAtTime(message.receivedAt)); setAbMessage('歐博 即時資料同步中'); handleAbStatus('connected'); return;
+        }
+        if (message.type === 'status') {
+          setAbMessage(message.message || (message.stale ? '歐博 資料已逾時，等待採集端恢復…' : '等待 歐博 即時資料…'));
+          handleAbStatus(message.stale === true || message.status === 'offline' ? 'error' : 'connecting');
+        }
+      } catch {
+        if (!abort.signal.aborted) { setAbMessage('歐博 即時資料重新連線中…'); handleAbStatus('connecting'); }
+      } finally { inFlight = false; }
+    };
+    void poll();
+    const timer = setInterval(() => { void poll(); }, 1000);
+    return () => { abort.abort(); clearInterval(timer); setConnectedByPlatform(previous => ({ ...previous, AB: false })); };
+  }, [activeMenu, handleAbStatus, handleAbTables, isAuthenticated, mtCollectorMode, platform]);
+
   const statusInfo = statusView[status];
 
   if (!isAuthenticated) {
@@ -1230,7 +1263,7 @@ export default function Home() {
         <div className="min-w-0">
         <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
         {activeMenu === 'tables' && <div role="tablist" aria-label="平台" className="flex gap-2">
-          {(['MT', 'DG', 'AB'] as const).filter(value => ENABLE_AB || value !== 'AB').map(value => <button key={value} role="tab" type="button" aria-selected={platform === value}
+          {(['MT', 'DG', 'AB'] as const).map(value => <button key={value} role="tab" type="button" aria-selected={platform === value}
             aria-controls="platform-content" id={`platform-${value}`} onClick={() => { if (platform !== value) { setStatus('connecting'); setPlatform(value); } }}
             className={`rounded-lg border px-6 py-2 font-bold ${platform === value ? 'border-cyan-400 bg-cyan-700 text-white' : 'border-slate-600 text-slate-400'}`}>{value === 'AB' ? '歐博' : value}</button>)}
         </div>}
@@ -1249,6 +1282,9 @@ export default function Home() {
         {isAuthenticated && !mtCollectorMode && <div className={activeMenu === 'tables' && platform === 'DG' ? '' : 'hidden'} aria-hidden={activeMenu !== 'tables' || platform !== 'DG'}>
           <DgSharedMonitor tables={tablesByPlatform.DG} connected={connectedByPlatform.DG} message={dgMessage} updatedAt={dgUpdatedAt} onFocusTable={focusTable} cardColumns={cardsPerRow} onCardColumnsChange={setCardsPerRow} />
         </div>}
+        {isAuthenticated && !mtCollectorMode && <div className={activeMenu === 'tables' && platform === 'AB' ? '' : 'hidden'} aria-hidden={activeMenu !== 'tables' || platform !== 'AB'}>
+          <DgSharedMonitor tables={tablesByPlatform.AB} connected={connectedByPlatform.AB} message={abMessage} updatedAt={abUpdatedAt} onFocusTable={focusTable} cardColumns={cardsPerRow} onCardColumnsChange={setCardsPerRow} platformLabel="歐博" />
+        </div>}
         {/* Collector A opens the official DG game URL in the relay worker.
             Viewer tabs subscribe to that shared feed without opening DG. */}
         {isAuthenticated && mtCollectorMode && mtDemand && dgGameUrl && <div className="hidden" aria-hidden="true">
@@ -1257,20 +1293,20 @@ export default function Home() {
         {/* Collector A keeps one shared AB subscription alive just like MT.
             Viewer tabs do not open another official session; they subscribe
             to the relay's cached feed. */}
-        {ENABLE_AB && isAuthenticated && mtCollectorMode && abGameUrl && <div className="hidden" aria-hidden="true">
+        {ENABLE_BROWSER_AB && isAuthenticated && mtCollectorMode && abGameUrl && <div className="hidden" aria-hidden="true">
           <AbMonitor gameUrl={abGameUrl} collector onStatus={handleAbStatus} onTables={handleAbTables} cardColumns={cardsPerRow} onCardColumnsChange={setCardsPerRow} />
         </div>}
         {activeMenu === 'regression' ? <RegressionTest /> : activeMenu === 'payout' ? <PayoutFeature /> : activeMenu === 'compare' ? <>
            <FocusedTableCompare tablesByPlatform={tablesByPlatform} connectedByPlatform={connectedByPlatform} selected={focusedTables} onSelectedChange={setFocusedTables} cardsPerRow={cardsPerRow} onCardsPerRowChange={setCardsPerRow} onFocusTable={focusTable} />
            <div className="hidden" aria-hidden="true">
-              {ENABLE_AB && hasFocusedAb && <AbMonitor gameUrl={abGameUrl} onStatus={handleAbStatus} onTables={handleAbTables} cardColumns={cardsPerRow} onCardColumnsChange={setCardsPerRow} />}
+              {ENABLE_BROWSER_AB && hasFocusedAb && <AbMonitor gameUrl={abGameUrl} onStatus={handleAbStatus} onTables={handleAbTables} cardColumns={cardsPerRow} onCardColumnsChange={setCardsPerRow} />}
            </div>
         </> : <div id="platform-content" role="tabpanel" aria-labelledby={`platform-${platform}`}>
         <h1 className="sr-only">{platform === 'AB' ? '歐博' : platform} · 即時桌況</h1>
 
 
 
-         {ENABLE_AB && platform === 'AB' && <AbMonitor gameUrl={abGameUrl} onStatus={handleAbStatus} onTables={handleAbTables} onFocusTable={focusTable} cardColumns={cardsPerRow} onCardColumnsChange={setCardsPerRow} />}
+         {ENABLE_BROWSER_AB && platform === 'AB' && <AbMonitor gameUrl={abGameUrl} onStatus={handleAbStatus} onTables={handleAbTables} onFocusTable={focusTable} cardColumns={cardsPerRow} onCardColumnsChange={setCardsPerRow} />}
         {platform === 'MT' && <>
           <section className="overflow-hidden rounded-2xl border border-[#86632f]/35 bg-[#0d0b08]/92">
             <header className="flex flex-wrap items-center justify-between gap-3 border-b border-[#5d451f]/60 px-6 py-4">
