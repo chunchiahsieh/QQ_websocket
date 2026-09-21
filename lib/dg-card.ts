@@ -64,7 +64,9 @@ export function dgCard(table: LiveDgTable): TableInfo {
     shoe: table.shoeId || '—', round: table.playId || '—', players: String(table.onlineCount ?? '—'),
     countdownReceivedAt: table.receivedAt, countdownDeadline: table.countdownDeadline,
     countdownValue: table.countDown,
-    // DG states 2 (opening), 3 (revoke), and 4 (insurance) retain dealing.
-    tablePhase: table.state === 2 || table.state === 3 || table.state === 4 ? 'dealing' : undefined,
+    // DG V3.3.3 uses state 8 for shuffle, not MT's state 2. States 2–4
+    // remain in the opening/dealing phase.
+    tablePhase: table.state === 8 ? 'shuffling'
+      : table.state === 2 || table.state === 3 || table.state === 4 ? 'dealing' : undefined,
     ...dgRoads(table.roads) };
 }

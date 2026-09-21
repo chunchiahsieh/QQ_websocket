@@ -1,7 +1,8 @@
 import type { TableInfo } from '../components/baccarat-table-card';
 import { baccaratRoads, type Winner, type LiveDgTable } from './dg-card';
+import { abTablePhase } from './ab-phase';
 
-export type LiveAbTable = Omit<LiveDgTable, 'roads'> & { results?: string[]; videoUrl?: string };
+export type LiveAbTable = Omit<LiveDgTable, 'roads'> & { results?: string[]; videoUrl?: string; openingStarted?: boolean };
 export function abCard(table: LiveAbTable): TableInfo {
   // Official BacRoadmap: result[0] winner, [1] banker points, [2] player points.
   const results = (table.results ?? []).filter(r => /^[0-6][0-9]{2}[0-6][A-Za-z0-9]{8}$/.test(r));
@@ -11,7 +12,10 @@ export function abCard(table: LiveAbTable): TableInfo {
     dealer: table.dealer?.name || '', dealerPhoto: table.dealerPhoto, videoUrl: table.videoUrl || undefined, room: table.tableName || '',
     shoe: '—', round: table.playId || '—', players: '—',
     tableState: table.state === 102 ? '2' : undefined,
-    tablePhase: table.state === 101 ? 'dealing' : undefined,
+    // The official zero-countdown event can precede status 101. The decoder
+    // only sets openingStarted after a positive countdown in this round, and
+    // clears it at the result even if an older state=101 remains cached.
+    tablePhase: abTablePhase(table.state, table.openingStarted),
     countdownReceivedAt: table.receivedAt, countdownDeadline: table.countdownDeadline,
     ...baccaratRoads(winners, details) };
 }

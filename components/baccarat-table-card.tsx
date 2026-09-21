@@ -97,7 +97,7 @@ export const BaccaratTableCard = memo(function BaccaratTableCard({table, connect
                          </div>}
                        </>}
                       {overlayLabel && connected && (
-                        <div role="status" aria-label={overlayLabel} className={`pointer-events-none absolute inset-y-0 left-[20%] right-0 z-10 grid place-items-center ${dealingOverlay ? 'bg-amber-600/55' : 'bg-sky-500/40'}`}>
+                        <div role="status" aria-label={overlayLabel} className={`pointer-events-none absolute inset-y-0 left-[20%] right-0 z-10 grid place-items-center ${dealingOverlay ? 'bg-amber-600/35' : 'bg-sky-500/40'}`}>
                           <span className="text-4xl font-black text-white" style={{ textShadow: dealingOverlay ? '0 2px 0 #78350f, 2px 0 0 #78350f, -2px 0 0 #78350f, 0 -2px 0 #78350f' : '0 2px 0 #087eb9, 2px 0 0 #087eb9, -2px 0 0 #087eb9, 0 -2px 0 #087eb9' }}>{overlayLabel}</span>
                         </div>
                       )}
