@@ -8,6 +8,7 @@ namespace AccountAdmin.Controllers;
 public sealed class InternalController(AccountStore store,IConfiguration config) : ControllerBase
 {
     public record LoginInput(string Username,string Password);
+    public record ResetPasswordInput(string Username,string Password);
     public record ValidateInput(Guid Id,string Stamp);
     public record PayoutsInput(string? Username);
     bool Authorized() {
@@ -33,6 +34,16 @@ public sealed class InternalController(AccountStore store,IConfiguration config)
     [HttpPost("validate"),RequestSizeLimit(4096)] public IActionResult Validate(ValidateInput input) {
         if(!Authorized()) return StatusCode(StatusCodes.Status403Forbidden);
         return Ok(new {valid=input.Stamp?.Length==64 && store.Validate(input.Id,input.Stamp)});
+    }
+    [HttpPost("reset-password"), RequestSizeLimit(4096)]
+    public IActionResult ResetPassword(ResetPasswordInput input) {
+        if (!Authorized()) return StatusCode(StatusCodes.Status403Forbidden);
+        try {
+            store.ResetPassword(input.Username ?? "", input.Password ?? "");
+            return Ok(new { ok = true });
+        } catch (ArgumentException exception) {
+            return BadRequest(new { message = exception.Message });
+        }
     }
     [HttpPost("payouts"),RequestSizeLimit(4096)] public IActionResult Payouts(PayoutsInput? input) {
         if(!Authorized()) return StatusCode(StatusCodes.Status403Forbidden);

@@ -83,6 +83,15 @@ public sealed class AccountStore : IDisposable
             Save(data with { Accounts = data.Accounts.Select(a=>a.Id==id?updated:a).ToList() });
         }
     }
+    public void ResetPassword(string username, string password) {
+        username = username.Trim(); ValidateName(username); ValidatePassword(password);
+        lock (gate) {
+            var current = data.Accounts.FirstOrDefault(a => a.Username.Equals(username, StringComparison.OrdinalIgnoreCase))
+                ?? throw new ArgumentException("找不到帳號。");
+            var updated = current with { PasswordHash = hasher.HashPassword(current.Username, password), Stamp = NewStamp() };
+            Save(data with { Accounts = data.Accounts.Select(a => a.Id == current.Id ? updated : a).ToList() });
+        }
+    }
     public void Delete(Guid id) {
         lock (gate) {
             if (!data.Accounts.Any(a => a.Id == id)) throw new ArgumentException("找不到帳號。");
