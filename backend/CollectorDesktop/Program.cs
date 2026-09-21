@@ -23,6 +23,18 @@ internal static class Program
             else CollectorSettingsStore.Save(CollectorSettingsStore.Load() with { IngestKey = key });
             return;
         }
+        if (args.Length == 1 && args[0].Equals("--verify-setup", StringComparison.OrdinalIgnoreCase))
+        {
+            // Intentionally expose only readiness through the exit code. This
+            // command never writes the account, password, or ingestion key.
+            var settings = CollectorSettingsStore.Load();
+            Environment.ExitCode = !string.IsNullOrWhiteSpace(settings.Username)
+                && !string.IsNullOrWhiteSpace(settings.Password)
+                && settings.IngestKey.Length >= 32
+                ? 0
+                : 3;
+            return;
+        }
         ApplicationConfiguration.Initialize();
         Application.Run(new CollectorForm());
     }
