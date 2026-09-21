@@ -2,8 +2,16 @@ namespace CollectorDesktop;
 
 internal static class Program
 {
+    static bool TryLoadExisting(out CollectorSettings settings)
+    {
+        settings = CollectorSettingsStore.Load(out var warning);
+        if (string.IsNullOrWhiteSpace(warning)) return true;
+        Environment.ExitCode = 3;
+        return false;
+    }
+
     [STAThread]
-    static void Main(string[] args)
+    static async Task Main(string[] args)
     {
         // Setup automation only reads process-scoped variables and persists
         // them through CollectorSettingsStore (Windows DPAPI). It never
@@ -13,14 +21,14 @@ internal static class Program
             var username = Environment.GetEnvironmentVariable("JSHEN_COLLECTOR_USERNAME");
             var password = Environment.GetEnvironmentVariable("JSHEN_COLLECTOR_PASSWORD");
             if (string.IsNullOrWhiteSpace(username) || string.IsNullOrWhiteSpace(password)) Environment.ExitCode = 2;
-            else CollectorSettingsStore.Save(CollectorSettingsStore.Load() with { Username = username, Password = password });
+            else if (TryLoadExisting(out var settings)) CollectorSettingsStore.Save(settings with { Username = username, Password = password });
             return;
         }
         if (args.Length == 1 && args[0].Equals("--configure-ingest-key", StringComparison.OrdinalIgnoreCase))
         {
             var key = Environment.GetEnvironmentVariable("JSHEN_COLLECTOR_INGEST_KEY");
             if (string.IsNullOrWhiteSpace(key) || key.Length < 32) Environment.ExitCode = 2;
-            else CollectorSettingsStore.Save(CollectorSettingsStore.Load() with { IngestKey = key });
+            else if (TryLoadExisting(out var settings)) CollectorSettingsStore.Save(settings with { IngestKey = key });
             return;
         }
         if (args.Length == 1 && args[0].Equals("--configure-render-url", StringComparison.OrdinalIgnoreCase))
@@ -31,9 +39,9 @@ internal static class Program
             {
                 Environment.ExitCode = 2;
             }
-            else
+            else if (TryLoadExisting(out var settings))
             {
-                CollectorSettingsStore.Save(CollectorSettingsStore.Load() with
+                CollectorSettingsStore.Save(settings with
                 {
                     RenderUrl = renderUri.GetLeftPart(UriPartial.Authority) + "/"
                 });
@@ -50,6 +58,23 @@ internal static class Program
                 && settings.IngestKey.Length >= 32
                 ? 0
                 : 3;
+            return;
+        }
+        if (args.Length == 1 && args[0].Equals("--verify-render", StringComparison.OrdinalIgnoreCase))
+        {
+            // Performs the same authenticated demand request used by the UI.
+            // Only the exit code is exposed so that no key or credential can
+            // be accidentally copied into a terminal log.
+            try
+            {
+                using var client = new RenderCollectorClient(CollectorSettingsStore.Load());
+                await client.ShouldCollectAsync(CancellationToken.None);
+                Environment.ExitCode = 0;
+            }
+            catch
+            {
+                Environment.ExitCode = 4;
+            }
             return;
         }
         ApplicationConfiguration.Initialize();

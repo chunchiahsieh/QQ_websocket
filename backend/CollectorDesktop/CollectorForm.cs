@@ -20,7 +20,7 @@ public sealed class CollectorForm : Form
     {
         Text = "J神 Windows 採集端 A"; MinimumSize = new Size(820, 700); StartPosition = FormStartPosition.CenterScreen;
         BackColor = Color.FromArgb(19, 29, 45); ForeColor = Color.White;
-        var saved = CollectorSettingsStore.Load();
+        var saved = CollectorSettingsStore.Load(out var settingsWarning);
         renderUrl.Text = saved.RenderUrl; officialUrl.Text = saved.OfficialUrl; deviceId.Text = saved.DeviceId; ingestKey.Text = saved.IngestKey; username.Text = saved.Username; password.Text = saved.Password;
         var root = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 2, RowCount = 2, Padding = new Padding(18), BackColor = BackColor };
         root.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 58)); root.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 42)); root.RowStyles.Add(new RowStyle(SizeType.AutoSize)); root.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
@@ -33,6 +33,7 @@ public sealed class CollectorForm : Form
         health.Controls.Add(Title("即時執行狀況"));
         foreach (var key in new[] { "Render", "需求", "官方", "MT", "DG" }) { var label = new Label { AutoSize = true, Font = new Font(Font, FontStyle.Bold), ForeColor = Color.LightSteelBlue, Text = key + "：尚未啟動", Margin = new Padding(3, 8, 3, 8) }; states[key] = label; health.Controls.Add(label); }
         root.Controls.Add(config, 0, 0); root.Controls.Add(health, 1, 0); root.SetColumnSpan(output, 2); root.Controls.Add(output, 0, 1); Controls.Add(root);
+        if (!string.IsNullOrWhiteSpace(settingsWarning)) Log(settingsWarning);
         start.Click += StartClick; stop.Click += StopClick; FormClosing += OnCollectorFormClosing;
     }
 
