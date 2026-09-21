@@ -1,7 +1,8 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { BaccaratRoad, type RoadConnection, type RoadHighlight } from '@/components/baccarat-road';
+import { walkForwardAccuracy } from '@/lib/walk-forward-accuracy';
 
 type GraphicalMode = 'v3' | 'v5' | 'cross';
 type ShapeOrientation = 'down' | 'up' | 'right' | 'left' | 'cross' | 'x';
@@ -10,6 +11,7 @@ type Side = '1' | '2';
 type Point = { column: number; row: number };
 type Cell = Outcome | undefined;
 type Pattern = { score: number; points: Point[]; lines: Point[][]; side?: Side; orientation?: ShapeOrientation; candidates?: Pattern[] };
+type CandidateEntry = { candidate: Pattern; targetPoints: Point[] };
 
 const outcomeView = {
   '1': { label: '閒', color: '#2864e8', fill: '#eef4ff' },
@@ -149,6 +151,24 @@ function findPattern(columns: Cell[][], mode: GraphicalMode, targetPoints: Point
   return { ...valid[0], candidates: valid };
 }
 
+function nextPatternCandidates(columns: Cell[][], mode: GraphicalMode): CandidateEntry[] {
+  const futurePoints = futureBeadPoints(columns, 1);
+  const pattern = findPattern([...columns, [], [], []], mode, futurePoints);
+  const candidates = pattern.candidates?.length ? pattern.candidates : [pattern];
+  // Match the live card's cross-over-X priority before any historical score.
+  const selected = mode === 'cross' && candidates.some(candidate => candidate.orientation === 'cross')
+    ? candidates.filter(candidate => candidate.orientation === 'cross') : candidates;
+  return selected.map(candidate => ({ candidate,
+    targetPoints: candidate.points.filter(point =>
+      !columns[point.column]?.[point.row] && futurePoints.some(next => next.column === point.column && next.row === point.row)) }));
+}
+
+function unambiguousPatternSide(entries: CandidateEntry[]): Side | undefined {
+  const sides = new Set(entries.filter(entry => entry.targetPoints.length > 0)
+    .map(entry => entry.candidate.side).filter((side): side is Side => side === '1' || side === '2'));
+  return sides.size === 1 ? [...sides][0] : undefined;
+}
+
 export function GraphicalCard({ beadRaw, fallbackRaw, mode }: { beadRaw: string; fallbackRaw: string; mode: GraphicalMode }) {
   const modeLabel = mode === 'v3' ? 'V型-3' : mode === 'v5' ? 'V型-5' : '十字';
   const host = useRef<HTMLDivElement>(null);
@@ -179,23 +199,24 @@ export function GraphicalCard({ beadRaw, fallbackRaw, mode }: { beadRaw: string;
   const displayRaw = useBeadSource ? beadRaw : encodeBead(columns);
   const outcomes = columns.flat().filter((value): value is Outcome => value !== undefined);
   const actual = outcomes.at(-1);
-  const futurePoints = futureBeadPoints(columns, 1);
-  // Include the next empty bead position in the search so a pattern can finish
-  // at the next cell after the current six-row bead stack.
-  const analysisColumns: Cell[][] = [...columns, [], [], []];
-  const livePattern = findPattern(analysisColumns, mode, futurePoints);
-  const pattern: Pattern = livePattern;
-  const rawPatternCandidates = pattern.candidates?.length ? pattern.candidates : [pattern];
-  // 當十字與 X 同時命中時，十字優先；只有沒有十字候選時才繪製 X。
-  const patternCandidates = mode === 'cross' && rawPatternCandidates.some((candidate) => candidate.orientation === 'cross')
-    ? rawPatternCandidates.filter((candidate) => candidate.orientation === 'cross')
-    : rawPatternCandidates;
-  const prediction = patternCandidates[0]?.side ?? predictNext(outcomes);
-  const candidateEntries = patternCandidates.map(candidate => {
-    const targetPoints = candidate.points.filter(point =>
-      !columns[point.column]?.[point.row] && futurePoints.some(next => next.column === point.column && next.row === point.row));
-    return { candidate, targetPoints };
-  });
+  const candidateEntries = nextPatternCandidates(columns, mode);
+  const prediction = candidateEntries[0]?.candidate.side ?? predictNext(outcomes);
+  const accuracy = useMemo(() => {
+    if (!beadRaw.trim()) return null;
+    const recent = parseColumns(beadRaw).flatMap((column, columnIndex) => column.flatMap((outcome, row) =>
+      outcome ? [{ column: columnIndex, row, outcome }] : [])).slice(-36);
+    const firstColumn = recent[0]?.column ?? 0;
+    const events = recent.map(event => ({ ...event, column: event.column - firstColumn }));
+    return { ...walkForwardAccuracy(events, known => {
+      const prefix: Cell[][] = [];
+      for (const event of known) {
+        prefix[event.column] ??= [];
+        prefix[event.column][event.row] = event.outcome;
+      }
+      return unambiguousPatternSide(nextPatternCandidates(prefix.slice(-columnCount), mode));
+    }), rounds: events.length };
+  }, [beadRaw, columnCount, mode]);
+  const coverage = `近 ${accuracy?.rounds ?? 36} 局`;
   // 若同一個下一局位置同時出現莊、閒兩種圖形命中，保留所有連線，
   // 但將預測格標成黑色表示「建議不打」，避免誤導使用者下注。
   const conflictingPrediction = new Set(candidateEntries.map(({ candidate, targetPoints }) =>
@@ -241,6 +262,10 @@ export function GraphicalCard({ beadRaw, fallbackRaw, mode }: { beadRaw: string;
           <span className="flex items-center gap-2">
             <span>下一局預測：{conflictingPrediction ? <strong style={{ color: '#f8fafc' }}>不打</strong> : <strong style={{ color: outcomeView[prediction].color }}>{outcomeView[prediction].label}</strong>} · 實際：{actual ? outcomeView[actual].label : '等待'}</span>
           </span>
+        </div>
+        <div className="flex flex-wrap items-center justify-between gap-2" title="僅回放最近 36 局；每局只用此前已開出的珠盤路尋找圖形。無圖形訊號與和局不列入莊閒符合率。">
+          <span>{coverage}圖形訊號符合率：{accuracy === null ? '珠盤路不足' : accuracy.percent === null ? '樣本不足' : `${accuracy.percent}%（${accuracy.hits}/${accuracy.evaluated}）`}</span>
+          {accuracy && <span>無明確圖形 {accuracy.noSignal} 局 · 和局 {accuracy.ties} 局</span>}
         </div>
       </footer>
     </section>
