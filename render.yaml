@@ -17,7 +17,9 @@ services:
         - vite.config.*
         - render.yaml
     buildCommand: npm ci && npm run build
-    startCommand: node scripts/start-render-worker.mjs
+    # Render is a Node host. Use Vinext's production Node server rather than
+    # running the Cloudflare development runtime (Wrangler) inside Render.
+    startCommand: npx vinext start --port $PORT
     healthCheckPath: /
     envVars:
       - key: NODE_VERSION

@@ -29,7 +29,14 @@ config.vars = vars;
 await writeFile(configPath, `${JSON.stringify(config)}\n`, 'utf8');
 
 const port = process.env.PORT || '8787';
-const child = spawn('npx', ['wrangler', 'dev', '--config', configPath, '--ip', '0.0.0.0', '--port', port], {
+// Render is a regular Node host, not the Cloudflare edge.  Keep Wrangler
+// entirely local and disable its interactive dev-session transport; otherwise
+// the transport can repeatedly crash Workerd on Render with NOSENTRY RPC
+// errors even though the HTTP listener is open.
+const child = spawn('npx', [
+  'wrangler', 'dev', '--local', '--show-interactive-dev-session=false',
+  '--config', configPath, '--ip', '0.0.0.0', '--port', port,
+], {
   stdio: 'inherit',
   shell: process.platform === 'win32',
 });

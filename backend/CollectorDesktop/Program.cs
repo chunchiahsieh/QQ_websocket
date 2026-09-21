@@ -23,6 +23,23 @@ internal static class Program
             else CollectorSettingsStore.Save(CollectorSettingsStore.Load() with { IngestKey = key });
             return;
         }
+        if (args.Length == 1 && args[0].Equals("--configure-render-url", StringComparison.OrdinalIgnoreCase))
+        {
+            var rawUrl = Environment.GetEnvironmentVariable("JSHEN_COLLECTOR_RENDER_URL");
+            if (!Uri.TryCreate(rawUrl, UriKind.Absolute, out var renderUri)
+                || (renderUri.Scheme != Uri.UriSchemeHttps && renderUri.Scheme != Uri.UriSchemeHttp))
+            {
+                Environment.ExitCode = 2;
+            }
+            else
+            {
+                CollectorSettingsStore.Save(CollectorSettingsStore.Load() with
+                {
+                    RenderUrl = renderUri.GetLeftPart(UriPartial.Authority) + "/"
+                });
+            }
+            return;
+        }
         if (args.Length == 1 && args[0].Equals("--verify-setup", StringComparison.OrdinalIgnoreCase))
         {
             // Intentionally expose only readiness through the exit code. This
