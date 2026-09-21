@@ -51,6 +51,7 @@ export const BaccaratTableCard = memo(function BaccaratTableCard({table, connect
  const roadRaw = cardMode === 'eye' ? table.bigEyeRoad : cardMode === 'small' ? table.smallRoad : cardMode === 'cockroach' ? table.cockroachRoad : table.bigRoad;
  const resolvedPlatformLabel = platformLabel ?? (table.id.startsWith('DG:') ? 'DG' : table.id.startsWith('AB:') ? '歐博' : 'MT');
  const overlayLabel = tableOverlayLabel(table.id, table.tableState, resolvedPlatformLabel, table.tablePhase);
+ const dealingOverlay = overlayLabel === '開牌中';
  return (<article key={table.id} className="ofa-table-card group overflow-hidden border bg-[#12100c] transition hover:border-cyan-300/65">
                     <div className="table-card-heading">
                       <div className="table-card-heading-left">
@@ -59,6 +60,8 @@ export const BaccaratTableCard = memo(function BaccaratTableCard({table, connect
                           <svg viewBox="0 0 24 24" aria-hidden="true" fill="currentColor"><circle cx="12" cy="7" r="4.5" /><path d="M3 22v-3a9 9 0 0 1 18 0v3Z" /></svg>{table.players}
                         </span>}
                         <TableCountdown deadline={table.countdownDeadline} receivedAt={table.countdownReceivedAt}
+                          initialValue={resolvedPlatformLabel === 'DG' ? table.countdownValue : undefined}
+                          tickMilliseconds={resolvedPlatformLabel === 'DG' ? 950 : 1000}
                           connected={connected} paused={overlayLabel !== null} />
                       </div>
                       <div className="table-card-controls flex items-center gap-1.5"><span className="hidden text-[10px] text-slate-400 sm:inline">牌卡</span><select value={cardMode} onChange={event => setCardMode(event.target.value as CardMode)} aria-label={`${table.name}牌卡樣式`} className="table-card-mode h-8 rounded-md border border-cyan-300/65 bg-cyan-950/70 px-2.5 text-xs font-semibold text-cyan-100 outline-none focus:ring-2 focus:ring-cyan-300/40">
@@ -94,8 +97,8 @@ export const BaccaratTableCard = memo(function BaccaratTableCard({table, connect
                          </div>}
                        </>}
                       {overlayLabel && connected && (
-                        <div role="status" aria-label={overlayLabel} className="pointer-events-none absolute inset-y-0 left-[20%] right-0 z-10 grid place-items-center bg-sky-500/40">
-                          <span className="text-4xl font-black text-white" style={{ textShadow: '0 2px 0 #087eb9, 2px 0 0 #087eb9, -2px 0 0 #087eb9, 0 -2px 0 #087eb9' }}>{overlayLabel}</span>
+                        <div role="status" aria-label={overlayLabel} className={`pointer-events-none absolute inset-y-0 left-[20%] right-0 z-10 grid place-items-center ${dealingOverlay ? 'bg-amber-600/55' : 'bg-sky-500/40'}`}>
+                          <span className="text-4xl font-black text-white" style={{ textShadow: dealingOverlay ? '0 2px 0 #78350f, 2px 0 0 #78350f, -2px 0 0 #78350f, 0 -2px 0 #78350f' : '0 2px 0 #087eb9, 2px 0 0 #087eb9, -2px 0 0 #087eb9, 0 -2px 0 #087eb9' }}>{overlayLabel}</span>
                         </div>
                       )}
                     </div>

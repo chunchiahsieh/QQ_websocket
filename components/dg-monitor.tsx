@@ -65,7 +65,7 @@ export function DgMonitor({ gameUrl, collector = false, onStatus, onTables, onFo
                     const next = new Map((data.snapshot ? [] : current).map((table: LiveDgTable) => [table.tableId, table]));
                     for (const table of data.tables as LiveDgTable[]) {
                       if (table.tableId) next.set(table.tableId, { ...next.get(table.tableId), ...table,
-                        ...(table.countDown != null && table.receivedAt != null ? { countdownDeadline: table.receivedAt + Math.max(0, table.countDown) * 1000 } : {}) });
+                        ...(table.countDown != null && table.receivedAt != null ? { countdownDeadline: table.receivedAt + Math.max(0, table.countDown) * 950 } : {}) });
                     }
                     const updated = [...next.values()].sort((a, b) => (a.tableName || '').localeCompare(b.tableName || '', undefined, { numeric: true }));
                     onTables?.(updated.map(dgCard));

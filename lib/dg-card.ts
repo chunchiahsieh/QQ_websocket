@@ -63,6 +63,7 @@ export function dgCard(table: LiveDgTable): TableInfo {
     dealer: table.dealer?.name || '', dealerPhoto: table.dealerPhoto, room: table.tableName || '',
     shoe: table.shoeId || '—', round: table.playId || '—', players: String(table.onlineCount ?? '—'),
     countdownReceivedAt: table.receivedAt, countdownDeadline: table.countdownDeadline,
+    countdownValue: table.countDown,
     // DG states 2 (opening), 3 (revoke), and 4 (insurance) retain dealing.
     tablePhase: table.state === 2 || table.state === 3 || table.state === 4 ? 'dealing' : undefined,
     ...dgRoads(table.roads) };
