@@ -6,6 +6,8 @@ export type DgTable = {
   playId?: string;
   state?: number;
   countDown?: number;
+  // Timestamp of the official countdown field, not of later table/lobby updates.
+  receivedAt?: number;
   result?: string;
   poker?: string;
   roads?: string[];
@@ -115,7 +117,7 @@ export class DgTableAccumulator {
   private readonly lobbyCountTables = new Set<string>();
   private readonly pendingLobbyCounts = new Map<string, number>();
 
-  accept(packet: DgPublicBean): DgTable[] {
+  accept(packet: DgPublicBean, receivedAt = Date.now()): DgTable[] {
     const changed = new Set<string>();
     for (const update of packet.table ?? []) {
       const id = update.tableId;
@@ -124,6 +126,7 @@ export class DgTableAccumulator {
       if (update.shoeId !== undefined && current.shoeId !== undefined && update.shoeId !== current.shoeId) current.roads = [];
       const { onlineCount, ...fields } = update;
       Object.assign(current, fields);
+      if (update.countDown !== undefined) current.receivedAt = receivedAt;
       if (!this.lobbyCountTables.has(id) && onlineCount !== undefined) current.onlineCount = onlineCount;
       const pendingCount = this.pendingLobbyCounts.get(id);
       if (pendingCount !== undefined) {

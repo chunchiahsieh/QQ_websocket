@@ -49,3 +49,19 @@ test('merges lobby count into complete known table without count regressions', (
   assert.deepEqual(zero[0].roads, ['1#5']);
   assert.equal(state.accept(decodeDgPublicBean(packet(nested(17, [...scalar(1, 100), ...scalar(16, 739)]))))[0].onlineCount, 0);
 });
+
+test('DG countdown timestamp changes only when the official countdown field changes', () => {
+  const state = new DgTableAccumulator();
+  const initial = state.accept(decodeDgPublicBean(packet(nested(17, [...scalar(1, 100), ...scalar(5, 19)]))), 1_000);
+  assert.equal(initial[0].countDown, 19);
+  assert.equal(initial[0].receivedAt, 1_000);
+
+  const occupancy = state.accept(decodeDgPublicBean(packet(scalar(1, 207), nested(16, [...scalar(1, 100), ...scalar(2, 413)]))), 15_000);
+  assert.equal(occupancy[0].countDown, 19);
+  assert.equal(occupancy[0].receivedAt, 1_000);
+  assert.equal(occupancy[0].receivedAt + occupancy[0].countDown * 1000 - 15_000, 5_000);
+
+  const fresh = state.accept(decodeDgPublicBean(packet(nested(17, [...scalar(1, 100), ...scalar(5, 4)]))), 16_000);
+  assert.equal(fresh[0].countDown, 4);
+  assert.equal(fresh[0].receivedAt, 16_000);
+});
