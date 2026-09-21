@@ -8,7 +8,7 @@ test('AB opening begins at a verified official zero-countdown event', () => {
   assert.equal(tableOverlayLabel('AB:B201', undefined, '歐博', abTablePhase(100, true)), '開牌中');
   assert.equal(abTablePhase(101, undefined), undefined);
   assert.equal(abTablePhase(101, false), undefined);
-  assert.equal(abTablePhase(101, true), undefined);
+  assert.equal(abTablePhase(101, true), 'dealing');
   assert.equal(abTablePhase(102, true), undefined);
   assert.equal(tableOverlayLabel('AB:B201', '2', '歐博', abTablePhase(102, false)), '洗牌中');
 });

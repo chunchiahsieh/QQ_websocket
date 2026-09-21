@@ -32,13 +32,13 @@ test('AB does not present enterCount as live online players', () => {
   const card = abCard({ tableId:'10', onlineCount:739, results:[] });
   assert.equal(card.players, '—');
 });
-test('AB countdown opening shows dealing while status 101 ends it', () => {
+test('AB countdown opening stays visible through status 101 until next countdown', () => {
   const dealing = abCard({ tableId:'10', state:100, openingStarted:true });
   assert.equal(dealing.tablePhase,'dealing');
   assert.equal(dealing.tableState,undefined);
   assert.equal(tableOverlayLabel(dealing.id, dealing.tableState, '歐博', dealing.tablePhase), '開牌中');
   const ended = abCard({ tableId:'10', state:101, openingStarted:true });
-  assert.equal(ended.tablePhase,undefined);
+  assert.equal(ended.tablePhase,'dealing');
   const ready = abCard({ tableId:'10', state:100 });
   assert.equal(ready.tablePhase,undefined);
   assert.equal(ready.tableState,undefined);

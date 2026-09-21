@@ -13,7 +13,7 @@ export function abCard(table: LiveAbTable): TableInfo {
     shoe: '—', round: table.playId || '—', players: '—',
     tableState: table.state === 102 ? '2' : undefined,
     // The official zero-countdown or its witnessed deadline starts opening;
-    // status 101 confirms its end, and 102 is shuffling.
+    // the next round's countdown ends it. State 102 is shuffling.
     tablePhase: abTablePhase(table.state, table.openingStarted),
     countdownReceivedAt: table.receivedAt, countdownDeadline: table.countdownDeadline,
     ...baccaratRoads(winners, details) };
