@@ -6,6 +6,7 @@ import { TableCountdown } from '@/components/table-countdown';
 import { DealerVideo } from '@/components/dealer-video';
 import { AiPredictionCard, type AiProvider } from '@/components/ai-prediction-card';
 import { GraphicalCard } from '@/components/graphical-card';
+import { isTableShuffling } from '@/lib/table-state';
 export type TableInfo = {
   videoUrl?: string;
   tableState?: string; countdownDeadline?: number; countdownReceivedAt?: number;
@@ -48,6 +49,7 @@ export const BaccaratTableCard = memo(function BaccaratTableCard({table, connect
  const roadKind = cardMode === 'eye' ? 'eye' : cardMode === 'small' ? 'small' : cardMode === 'cockroach' ? 'cockroach' : 'big';
  const roadRaw = cardMode === 'eye' ? table.bigEyeRoad : cardMode === 'small' ? table.smallRoad : cardMode === 'cockroach' ? table.cockroachRoad : table.bigRoad;
  const resolvedPlatformLabel = platformLabel ?? (table.id.startsWith('DG:') ? 'DG' : table.id.startsWith('AB:') ? '歐博' : 'MT');
+ const shuffling = isTableShuffling(table.id, table.tableState, resolvedPlatformLabel);
  return (<article key={table.id} className="ofa-table-card group overflow-hidden border bg-[#12100c] transition hover:border-cyan-300/65">
                     <div className="table-card-heading">
                       <div className="table-card-heading-left">
@@ -56,7 +58,7 @@ export const BaccaratTableCard = memo(function BaccaratTableCard({table, connect
                           <svg viewBox="0 0 24 24" aria-hidden="true" fill="currentColor"><circle cx="12" cy="7" r="4.5" /><path d="M3 22v-3a9 9 0 0 1 18 0v3Z" /></svg>{table.players}
                         </span>
                         <TableCountdown deadline={table.countdownDeadline} receivedAt={table.countdownReceivedAt}
-                          connected={connected} shuffling={table.tableState === '2'} />
+                          connected={connected} shuffling={shuffling} />
                       </div>
                       <div className="table-card-controls flex items-center gap-1.5"><span className="hidden text-[10px] text-slate-400 sm:inline">牌卡</span><select value={cardMode} onChange={event => setCardMode(event.target.value as CardMode)} aria-label={`${table.name}牌卡樣式`} className="table-card-mode h-8 rounded-md border border-cyan-300/65 bg-cyan-950/70 px-2.5 text-xs font-semibold text-cyan-100 outline-none focus:ring-2 focus:ring-cyan-300/40">
                         <optgroup label="一般牌卡"><option value="full">MT牌卡</option><option value="bead">珠盤牌卡</option><option value="big">大路牌卡</option><option value="eye">大眼牌卡</option><option value="small">小路牌卡</option><option value="cockroach">蟑螂牌卡</option></optgroup>
@@ -79,7 +81,7 @@ export const BaccaratTableCard = memo(function BaccaratTableCard({table, connect
                         </div>
                         </DealerVideo>
                       </div>
-                       {isAiCard ? <AiPredictionCard raw={table.bigRoad} provider={cardMode as AiProvider} tableState={table.tableState} countdownDeadline={table.countdownDeadline} /> : isGraphicalCard ? <GraphicalCard beadRaw={table.beadPlate} fallbackRaw={table.bigRoad} mode={cardMode} /> : <>
+                       {isAiCard ? <AiPredictionCard raw={table.bigRoad} provider={cardMode as AiProvider} tableState={resolvedPlatformLabel === 'DG' ? undefined : table.tableState} countdownDeadline={table.countdownDeadline} /> : isGraphicalCard ? <GraphicalCard beadRaw={table.beadPlate} fallbackRaw={table.bigRoad} mode={cardMode} /> : <>
                          {!roadOnly && <div className="min-h-0 min-w-0 overflow-auto"><BaccaratRoad raw={table.beadPlate} kind="bead" /></div>}
                          {!beadOnly && <div className={`grid min-h-0 min-w-0 overflow-auto ${roadOnly ? 'grid-cols-1' : 'grid-rows-[2fr_1fr]'}`}>
                            {roadOnly ? <BaccaratRoad raw={roadRaw} kind={roadKind} /> : <BaccaratRoad raw={table.bigRoad} kind="big" />}
@@ -90,7 +92,7 @@ export const BaccaratTableCard = memo(function BaccaratTableCard({table, connect
                            </div>}
                          </div>}
                        </>}
-                      {table.tableState === '2' && connected && (
+                      {shuffling && connected && (
                         <div role="status" aria-label="洗牌中" className="pointer-events-none absolute inset-y-0 left-[20%] right-0 z-10 grid place-items-center bg-sky-500/40">
                           <span className="text-4xl font-black text-white" style={{ textShadow: '0 2px 0 #087eb9, 2px 0 0 #087eb9, -2px 0 0 #087eb9, 0 -2px 0 #087eb9' }}>洗牌中</span>
                         </div>
