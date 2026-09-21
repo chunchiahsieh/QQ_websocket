@@ -9,8 +9,9 @@ export function abCard(table: LiveAbTable): TableInfo {
   const details = results.map((r, i) => ({ point: r[winners[i] === 1 ? 2 : 1], pair: '0' }));
   return { id: `AB:${table.tableId}`, name: table.tableName || table.tableId || '—', gameType: 'BAC',
     dealer: table.dealer?.name || '', dealerPhoto: table.dealerPhoto, videoUrl: table.videoUrl || undefined, room: table.tableName || '',
-    shoe: '—', round: table.playId || '—', players: String(table.onlineCount ?? '—'),
+    shoe: '—', round: table.playId || '—', players: '—',
     tableState: table.state === 102 ? '2' : undefined,
+    tablePhase: table.state === 101 ? 'dealing' : undefined,
     countdownReceivedAt: table.receivedAt, countdownDeadline: table.countdownDeadline,
     ...baccaratRoads(winners, details) };
 }

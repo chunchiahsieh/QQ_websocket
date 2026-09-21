@@ -6,9 +6,10 @@ import { TableCountdown } from '@/components/table-countdown';
 import { DealerVideo } from '@/components/dealer-video';
 import { AiPredictionCard, type AiProvider } from '@/components/ai-prediction-card';
 import { GraphicalCard } from '@/components/graphical-card';
-import { isTableShuffling } from '@/lib/table-state';
+import { tableOverlayLabel, type TablePhase } from '@/lib/table-state';
 export type TableInfo = {
   videoUrl?: string;
+  tablePhase?: TablePhase | null;
   tableState?: string; countdownDeadline?: number; countdownReceivedAt?: number;
   countdownValue?: number; countdownRound?: string;
   countdownSource?: 'wait' | 'snapshot' | 'explicit' | 'end';
@@ -49,16 +50,16 @@ export const BaccaratTableCard = memo(function BaccaratTableCard({table, connect
  const roadKind = cardMode === 'eye' ? 'eye' : cardMode === 'small' ? 'small' : cardMode === 'cockroach' ? 'cockroach' : 'big';
  const roadRaw = cardMode === 'eye' ? table.bigEyeRoad : cardMode === 'small' ? table.smallRoad : cardMode === 'cockroach' ? table.cockroachRoad : table.bigRoad;
  const resolvedPlatformLabel = platformLabel ?? (table.id.startsWith('DG:') ? 'DG' : table.id.startsWith('AB:') ? '歐博' : 'MT');
- const shuffling = isTableShuffling(table.id, table.tableState, resolvedPlatformLabel);
+ const overlayLabel = tableOverlayLabel(table.id, table.tableState, resolvedPlatformLabel, table.tablePhase);
  return (<article key={table.id} className="ofa-table-card group overflow-hidden border bg-[#12100c] transition hover:border-cyan-300/65">
                     <div className="table-card-heading">
                       <div className="table-card-heading-left">
                         <span className="table-card-label"><span>{resolvedPlatformLabel} · 百家樂</span><span>{table.name}</span></span>
-                        <span className="table-card-players" aria-label={`在線人數 ${table.players}`}>
+                        {!table.id.startsWith('AB:') && <span className="table-card-players" aria-label={`在線人數 ${table.players}`}>
                           <svg viewBox="0 0 24 24" aria-hidden="true" fill="currentColor"><circle cx="12" cy="7" r="4.5" /><path d="M3 22v-3a9 9 0 0 1 18 0v3Z" /></svg>{table.players}
-                        </span>
+                        </span>}
                         <TableCountdown deadline={table.countdownDeadline} receivedAt={table.countdownReceivedAt}
-                          connected={connected} shuffling={shuffling} />
+                          connected={connected} paused={overlayLabel !== null} />
                       </div>
                       <div className="table-card-controls flex items-center gap-1.5"><span className="hidden text-[10px] text-slate-400 sm:inline">牌卡</span><select value={cardMode} onChange={event => setCardMode(event.target.value as CardMode)} aria-label={`${table.name}牌卡樣式`} className="table-card-mode h-8 rounded-md border border-cyan-300/65 bg-cyan-950/70 px-2.5 text-xs font-semibold text-cyan-100 outline-none focus:ring-2 focus:ring-cyan-300/40">
                         <optgroup label="一般牌卡"><option value="full">MT牌卡</option><option value="bead">珠盤牌卡</option><option value="big">大路牌卡</option><option value="eye">大眼牌卡</option><option value="small">小路牌卡</option><option value="cockroach">蟑螂牌卡</option></optgroup>
@@ -92,9 +93,9 @@ export const BaccaratTableCard = memo(function BaccaratTableCard({table, connect
                            </div>}
                          </div>}
                        </>}
-                      {shuffling && connected && (
-                        <div role="status" aria-label="洗牌中" className="pointer-events-none absolute inset-y-0 left-[20%] right-0 z-10 grid place-items-center bg-sky-500/40">
-                          <span className="text-4xl font-black text-white" style={{ textShadow: '0 2px 0 #087eb9, 2px 0 0 #087eb9, -2px 0 0 #087eb9, 0 -2px 0 #087eb9' }}>洗牌中</span>
+                      {overlayLabel && connected && (
+                        <div role="status" aria-label={overlayLabel} className="pointer-events-none absolute inset-y-0 left-[20%] right-0 z-10 grid place-items-center bg-sky-500/40">
+                          <span className="text-4xl font-black text-white" style={{ textShadow: '0 2px 0 #087eb9, 2px 0 0 #087eb9, -2px 0 0 #087eb9, 0 -2px 0 #087eb9' }}>{overlayLabel}</span>
                         </div>
                       )}
                     </div>

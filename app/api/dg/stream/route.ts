@@ -1,6 +1,6 @@
 import { readSession } from '@/lib/monitor-session';
 import { dgLoginPacket, dgSocketUrl } from '@/lib/dg-client';
-import { decodeDgPublicBean } from '@/lib/dg-protobuf';
+import { decodeDgPublicBean, DgTableAccumulator } from '@/lib/dg-protobuf';
 import { connectDgLines } from '@/lib/dg-connection';
 
 export async function GET(request: Request) {
@@ -27,6 +27,7 @@ export async function GET(request: Request) {
     return Response.json({ message: request.signal.aborted ? 'DG 連線已取消。' : error instanceof Error ? error.message : 'DG 連線失敗。' }, { status: 502 });
   }
   let stop = () => {};
+  const tableState = new DgTableAccumulator();
   const body = new ReadableStream<Uint8Array>({
     start(controller) {
       let closed = false;
@@ -47,8 +48,8 @@ export async function GET(request: Request) {
         try {
           if (!(event.data instanceof ArrayBuffer)) return;
           const packet = decodeDgPublicBean(event.data);
-          const tables = packet.table?.filter(table => table.tableId);
-          if (tables?.length) {
+          const tables = tableState.accept(packet);
+          if (tables.length) {
             authenticated = true; clearTimeout(timeout);
             send({ type: 'tables', tables });
           }

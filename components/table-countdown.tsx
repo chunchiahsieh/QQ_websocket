@@ -4,8 +4,8 @@ import { memo, useEffect, useRef } from 'react';
 import { Clock } from 'lucide-react';
 
 // Only this small badge ticks; the road grids do not need a timer-driven render.
-export const TableCountdown = memo(function TableCountdown({ deadline, receivedAt, connected, shuffling }: {
-  deadline?: number; receivedAt?: number; connected: boolean; shuffling: boolean;
+export const TableCountdown = memo(function TableCountdown({ deadline, receivedAt, connected, paused }: {
+  deadline?: number; receivedAt?: number; connected: boolean; paused: boolean;
 }) {
   const badge = useRef<HTMLSpanElement>(null);
   useEffect(() => {
@@ -13,7 +13,7 @@ export const TableCountdown = memo(function TableCountdown({ deadline, receivedA
       const element = badge.current;
       if (!element) return;
       const stale = !connected || (deadline === undefined && !receivedAt);
-      const seconds = shuffling && connected ? 0 : stale || deadline === undefined
+      const seconds = paused && connected ? 0 : stale || deadline === undefined
         ? null : Math.max(0, Math.ceil((deadline - Date.now()) / 1000));
       const value = element.querySelector<HTMLElement>('[data-countdown-value]');
       if (value) value.textContent = seconds === null ? '—' : String(seconds);
@@ -24,7 +24,7 @@ export const TableCountdown = memo(function TableCountdown({ deadline, receivedA
     refresh();
     const timer = window.setInterval(refresh, 1000);
     return () => window.clearInterval(timer);
-  }, [connected, deadline, receivedAt, shuffling]);
+  }, [connected, deadline, receivedAt, paused]);
   return <span ref={badge} aria-label="倒數尚未同步" title="等待平台倒數資料"
     className="table-card-countdown inline-flex items-center justify-center rounded border border-slate-500 px-1 font-mono tabular-nums text-slate-400">
     <Clock aria-hidden="true" className="shrink-0" style={{ width: '1em', height: '1em' }} strokeWidth={1.8} />

@@ -5,6 +5,7 @@ registerHooks({ resolve(specifier, context, next) {
   return next(specifier === './dg-card' ? new URL('../lib/dg-card.ts', import.meta.url).href : specifier, context);
 } });
 const { abCard } = await import('../lib/ab-card.ts');
+const { tableOverlayLabel } = await import('../lib/table-state.ts');
 
 test('AB uses its own chronological results, points and shuffling code', () => {
   const card = abCard({ tableId:'10', tableName:'B201', state:102,
@@ -12,12 +13,29 @@ test('AB uses its own chronological results, points and shuffling code', () => {
   assert.equal(card.id,'AB:10');
   assert.equal(card.banker,'2'); assert.equal(card.player,'2'); assert.equal(card.tie,'1');
   assert.equal(card.tableState,'2');
+  assert.equal(card.tablePhase,undefined);
   assert.match(card.bigRoad,/0802/); assert.match(card.bigRoad,/1801/);
   assert.equal(card.players,'—');
 });
 test('AB discards incomplete results without inventing winners', () => {
   const card = abCard({ tableId:'10', results:['-1','garbage'], state:100 });
   assert.equal(card.banker,'0'); assert.equal(card.bigRoad,''); assert.equal(card.tableState,undefined);
+  assert.equal(card.tablePhase,undefined);
+});
+
+test('AB does not present enterCount as live online players', () => {
+  const card = abCard({ tableId:'10', onlineCount:739, results:[] });
+  assert.equal(card.players, '—');
+});
+test('AB state 101 shows dealing while 100 clears it', () => {
+  const dealing = abCard({ tableId:'10', state:101 });
+  assert.equal(dealing.tablePhase,'dealing');
+  assert.equal(dealing.tableState,undefined);
+  assert.equal(tableOverlayLabel(dealing.id, dealing.tableState, '歐博', dealing.tablePhase), '開牌中');
+  const ready = abCard({ tableId:'10', state:100 });
+  assert.equal(ready.tablePhase,undefined);
+  assert.equal(ready.tableState,undefined);
+  assert.equal(tableOverlayLabel(ready.id, ready.tableState, '歐博', ready.tablePhase), null);
 });
 test('AB forwards dealer media into the shared card and leaves unavailable video disabled', () => {
   const card = abCard({ tableId:'10', dealerPhoto:'https://www.axgglm.net/dealer/Dealer_123.jpg',

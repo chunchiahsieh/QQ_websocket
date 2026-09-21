@@ -381,7 +381,11 @@ const extractTableUpdates = (payload: unknown): Array<Partial<TableInfo> & { id:
         : countDown !== undefined ? (waitEvent ? 'wait' : 'snapshot') : undefined;
       const roundValue = optionalText(table.round ?? table.round_id ?? trend.current_round);
       const countdownRound = optionalText(table.game_sn ?? table.gameSn ?? table.round ?? table.round_id ?? trend.current_round);
-      const endEvent = ['/show_poker', '/summary', '/result', '/end'].some(suffix => eventName.toLowerCase().endsWith(suffix));
+      const showPokerEvent = eventName.toLowerCase().endsWith('/show_poker');
+      const completedEvent = ['/summary', '/result', '/end'].some(suffix => eventName.toLowerCase().endsWith(suffix));
+      const endEvent = showPokerEvent || completedEvent;
+      const tablePhase = optionalText(table.state) === '2' || completedEvent || (waitEvent && countDown !== undefined && countDown > 0)
+        ? null : showPokerEvent || (waitEvent && countDown === 0) ? 'dealing' : undefined;
       unique.set(tableId, {
         ...current,
         id: tableId,
@@ -394,6 +398,7 @@ const extractTableUpdates = (payload: unknown): Array<Partial<TableInfo> & { id:
         ...(countdownSource !== undefined && { countdownSource }),
         ...(Array.isArray(table.video) && { videoUrl: videoUrl ?? '' }),
         ...(optionalText(table.state) !== undefined && { tableState: optionalText(table.state) }),
+        ...(tablePhase !== undefined && { tablePhase: tablePhase as TableInfo['tablePhase'] }),
         ...(explicitDeadline === undefined && countDown !== undefined && {
           countdownDeadline: receivedAt + Math.max(0, countDown) * 1000,
           countdownReceivedAt: receivedAt,
@@ -456,6 +461,7 @@ const mergeTableUpdates = (
       id: update.id,
       videoUrl: update.videoUrl ?? previous?.videoUrl,
       tableState: update.tableState ?? previous?.tableState,
+      tablePhase: update.tablePhase !== undefined ? update.tablePhase : previous?.tablePhase,
       countdownDeadline: acceptCountdown ? (update.countdownDeadline ?? previous?.countdownDeadline) : previous?.countdownDeadline,
       countdownReceivedAt: acceptCountdown ? (update.countdownReceivedAt ?? previous?.countdownReceivedAt) : previous?.countdownReceivedAt,
       countdownValue: acceptCountdown ? (update.countdownValue ?? previous?.countdownValue) : previous?.countdownValue,

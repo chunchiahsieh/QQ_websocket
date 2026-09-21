@@ -19,8 +19,17 @@ test('bead window has at most six columns and ignores invalid results', () => {
   assert.equal(r.beadPlate.split('#').length, 6);
   assert.equal(r.player, '50');
 });
-test('empty table does not invent scores or shuffling state', () => {
+test('DG state 2 exposes dealing without inventing scores or shuffling state', () => {
   const card = dgCard({tableId:'1', state:2, onlineCount:0, roads:[]});
   assert.equal(card.id, 'DG:1'); assert.equal(card.players, '0');
   assert.equal(card.bigRoad, ''); assert.equal(card.tableState, undefined);
+  assert.equal(card.tablePhase, 'dealing');
+});
+
+test('DG revoke and insurance remain dealing until settlement', () => {
+  assert.equal(dgCard({tableId:'1', state:1}).tablePhase, undefined);
+  assert.equal(dgCard({tableId:'1', state:3}).tablePhase, 'dealing');
+  assert.equal(dgCard({tableId:'1', state:4}).tablePhase, 'dealing');
+  assert.equal(dgCard({tableId:'1', state:5}).tablePhase, undefined);
+  assert.equal(dgCard({tableId:'1'}).tablePhase, undefined);
 });
