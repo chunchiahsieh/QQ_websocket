@@ -256,6 +256,15 @@ const now = () => new Intl.DateTimeFormat('zh-TW', {
   hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false,
 }).format(new Date());
 
+// Viewer timestamps describe when Render accepted a snapshot, not when the
+// browser last polled an unchanged copy of it.
+const receivedAtTime = (value: unknown) =>
+  typeof value === 'number' && Number.isFinite(value) && value > 0
+    ? new Intl.DateTimeFormat('zh-TW', {
+      hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false,
+    }).format(new Date(value))
+    : '';
+
 // The MT token never leaves the collector browser.  Only normalized table
 // snapshots and connection state are sent to the authenticated shared feed so
 // other users can watch the same data without opening a second MT socket.
@@ -1036,17 +1045,13 @@ export default function Home() {
     };
   }, [isAuthenticated, mtCollectorMode, mtConnection, mtDemand, handleMtStatus]);
 
-  // Viewer mode: when this browser has no MT launch URL, it polls the
-  // authenticated shared feed published by collector A.  A short-lived JSON
-  // request is deliberate: Render's edge runtime can retain long-lived SSE
-  // connections after a tab closes, which then delays collector POSTs and
-  // makes every MT countdown appear as the initial placeholder 0. No token or
-  // MT WebSocket is opened in this branch.
+  // Viewer mode uses short-lived JSON requests: Render's edge runtime can
+  // retain long-lived SSE connections after a tab closes. The separate 15s
+  // presence heartbeat above owns viewer liveness; polling is read-only.
   useEffect(() => {
     const shouldSubscribe = isAuthenticated && activeMenu === 'tables' && platform === 'MT' && mtConnection === null;
     if (!shouldSubscribe) return;
     const abort = new AbortController();
-    const viewerId = mtViewerId.current;
     let inFlight = false;
     setTables([]); setTableUpdatedAt('');
     handleMtStatus('connecting');
@@ -1055,27 +1060,27 @@ export default function Home() {
       if (inFlight || abort.signal.aborted) return;
       inFlight = true;
       try {
-        const response = await fetch(`/api/mt/shared-feed?poll=1&viewerId=${encodeURIComponent(viewerId)}`, {
+        const response = await fetch('/api/mt/shared-feed', {
           cache: 'no-store',
           signal: abort.signal,
         });
         if (!response.ok) throw new Error(`shared feed ${response.status}`);
-        const message = await response.json() as { type?: string; tables?: TableInfo[]; status?: string; message?: string };
+        const message = await response.json() as { type?: string; tables?: TableInfo[]; status?: string; message?: string; receivedAt?: number; stale?: boolean };
         if (message.type === 'snapshot' && Array.isArray(message.tables)) {
           setTables(message.tables);
           setTablesByPlatform(previous => ({ ...previous, MT: message.tables! }));
-          setTableUpdatedAt(now());
+          setTableUpdatedAt(receivedAtTime(message.receivedAt));
           handleMtStatus('connected');
           setMtMessage('MT 即時資料同步中');
           return;
         }
         if (message.type === 'status') {
-          if (message.status === 'offline') {
+          if (message.stale === true || message.status === 'offline') {
             // Keep the last verified snapshot visible during a short
             // collector outage. Clearing it here was the source of the
             // full-card flicker whenever MT reconnected.
             handleMtStatus('error');
-            setMtMessage(message.message || 'MT 即時資料暫停，等待恢復…');
+            setMtMessage(message.message || (message.stale ? 'MT 資料已逾時，等待採集端恢復…' : 'MT 即時資料暫停，等待恢復…'));
           } else {
             handleMtStatus('connecting');
             setMtMessage(message.message || '等待 MT 即時資料…');
@@ -1091,7 +1096,7 @@ export default function Home() {
       }
     };
     void poll();
-    const timer = setInterval(() => { void poll(); }, 3000);
+    const timer = setInterval(() => { void poll(); }, 1000);
     return () => {
       abort.abort();
       clearInterval(timer);
@@ -1113,20 +1118,20 @@ export default function Home() {
       try {
         const response = await fetch('/api/dg/shared-feed', { cache: 'no-store', signal: abort.signal });
         if (!response.ok) throw new Error(`shared feed ${response.status}`);
-        const message = await response.json() as { type?: string; tables?: TableInfo[]; status?: string; message?: string };
+        const message = await response.json() as { type?: string; tables?: TableInfo[]; status?: string; message?: string; receivedAt?: number; stale?: boolean };
         if (message.type === 'snapshot' && Array.isArray(message.tables)) {
-          handleDgTables(message.tables); setDgUpdatedAt(now()); setDgMessage('DG 即時資料同步中'); handleDgStatus('connected'); return;
+          handleDgTables(message.tables); setDgUpdatedAt(receivedAtTime(message.receivedAt)); setDgMessage('DG 即時資料同步中'); handleDgStatus('connected'); return;
         }
         if (message.type === 'status') {
-          setDgMessage(message.message || '等待 DG 即時資料…');
-          handleDgStatus(message.status === 'offline' ? 'error' : 'connecting');
+          setDgMessage(message.message || (message.stale ? 'DG 資料已逾時，等待採集端恢復…' : '等待 DG 即時資料…'));
+          handleDgStatus(message.stale === true || message.status === 'offline' ? 'error' : 'connecting');
         }
       } catch {
         if (!abort.signal.aborted) { setDgMessage('DG 即時資料重新連線中…'); handleDgStatus('connecting'); }
       } finally { inFlight = false; }
     };
     void poll();
-    const timer = setInterval(() => { void poll(); }, 3000);
+    const timer = setInterval(() => { void poll(); }, 1000);
     return () => { abort.abort(); clearInterval(timer); setConnectedByPlatform(previous => ({ ...previous, DG: false })); };
   }, [activeMenu, handleDgStatus, handleDgTables, isAuthenticated, mtCollectorMode, platform]);
 
