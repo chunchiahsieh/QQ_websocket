@@ -1,6 +1,7 @@
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using Microsoft.AspNetCore.Mvc;
 
 namespace AccountAdmin.Controllers;
@@ -26,6 +27,17 @@ public sealed class InternalFeedController(SharedFeedStore store, IConfiguration
     static bool IsRecord(JsonElement value) => value.ValueKind == JsonValueKind.Object;
     static string? String(JsonElement value, string name) => value.TryGetProperty(name, out var item) && item.ValueKind == JsonValueKind.String ? item.GetString() : null;
     static long? Number(JsonElement value, string name) => value.TryGetProperty(name, out var item) && item.TryGetInt64(out var number) ? number : null;
+    static string WithServerReceiptTimestamp(JsonElement body, long receiptAt)
+    {
+        // Client clocks can be wrong (or deliberately supplied), so the only
+        // timestamp that controls feed freshness is the time this private
+        // service accepted the packet.  Rewrite the outward-facing envelope
+        // as well so viewers never display a client-provided receipt time.
+        var node = JsonNode.Parse(body.GetRawText())?.AsObject()
+            ?? throw new InvalidOperationException("共享桌況資料格式不正確。");
+        node["receivedAt"] = receiptAt;
+        return node.ToJsonString();
+    }
 
     [HttpPost("{platform}"), RequestSizeLimit(1_600_000)]
     public IActionResult Write(string platform, [FromBody] JsonElement body)
@@ -35,20 +47,22 @@ public sealed class InternalFeedController(SharedFeedStore store, IConfiguration
         if (!ValidPlatform(platform) || !IsRecord(body)) return BadRequest(new { message = "共享桌況資料格式不正確。" });
         var type = String(body, "type");
         if (type is not ("snapshot" or "status")) return BadRequest(new { message = "共享桌況資料格式不正確。" });
-        var receivedAt = Number(body, "receivedAt") is { } timestamp && timestamp > 0 ? timestamp : Now();
-        var raw = body.GetRawText();
+        var receivedAt = Now();
+        var raw = WithServerReceiptTimestamp(body, receivedAt);
         if (raw.Length > 1_500_000) return BadRequest(new { message = "共享桌況快照過大。" });
+        var collector = String(body, "collectorId")?.Trim();
+        if (string.IsNullOrEmpty(collector) || collector.Length > 120)
+            return BadRequest(new { message = "採集器識別碼不正確。" });
         if (type == "snapshot") {
             if (!body.TryGetProperty("tables", out var tables) || tables.ValueKind != JsonValueKind.Array || tables.GetArrayLength() > 300)
                 return BadRequest(new { message = "共享桌況資料格式不正確。" });
             var sequence = Number(body, "sequence");
             if (sequence is < 0) sequence = null;
-            var collector = String(body, "collectorId");
-            return Ok(new { ok = true, accepted = store.SaveSnapshot(platform, raw, receivedAt, sequence, collector) });
+            return Ok(new { ok = true, accepted = store.SaveSnapshot(platform, raw, receivedAt, sequence, collector), receivedAt });
         }
         var status = String(body, "status");
         if (status is not ("connected" or "connecting" or "offline")) return BadRequest(new { message = "共享桌況狀態不正確。" });
-        return Ok(new { ok = true, accepted = store.SaveStatus(platform, raw, receivedAt) });
+        return Ok(new { ok = true, accepted = store.SaveStatus(platform, raw, receivedAt, collector), receivedAt });
     }
 
     [HttpGet("{platform}")]

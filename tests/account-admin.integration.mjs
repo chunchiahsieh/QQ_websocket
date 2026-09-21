@@ -51,17 +51,31 @@ try {
   assert.equal((await form('/Admin/Create',{username:'member01',password,expires:'2099-01-01T12:00'},dashboard.token)).status,302);
   const duplicate=await form('/Admin/Create',{username:'MEMBER01',password,expires:'2099-01-01T12:00'},dashboard.token);
   assert.equal(duplicate.status,302); assert.ok((await page('/')).html.includes('role="alert"'),'Duplicate shows validation error');
-  assert.equal((await api('login',{username:'member01',password},'bad')).status,401);
+  assert.equal((await api('login',{username:'member01',password},'bad')).status,403);
   const member=await (await api('login',{username:'member01',password})).json(); assert.ok(member.id); assert.ok(member.stamp);
   assert.equal(member.expiresAt,'2099-01-01T04:00:00+00:00','Taiwan time is stored in UTC');
   assert.equal((await (await api('validate',{id:member.id,stamp:member.stamp})).json()).valid,true);
-  const firstSnapshot = { type:'snapshot', collector:true, collectorId:'test-collector', sequence:2, receivedAt:Date.now(), tables:[{id:'B01'}] };
-  assert.equal((await feed('MT',{method:'POST',body:JSON.stringify(firstSnapshot)})).status,200);
+  const receiptBefore = Date.now();
+  // The private feed service must use its own receipt timestamp.  A desktop
+  // clock can be wrong, and client-provided timestamps must never make a
+  // snapshot look fresh forever (or stale immediately).
+  const firstSnapshot = { type:'snapshot', collector:true, collectorId:'test-collector', sequence:2, receivedAt:1, tables:[{id:'B01'}] };
+  const firstWrite = await feed('MT',{method:'POST',body:JSON.stringify(firstSnapshot)});
+  assert.equal(firstWrite.status,200);
+  const firstResult = await firstWrite.json();
+  assert.equal(firstResult.accepted,true);
+  assert.ok(firstResult.receivedAt >= receiptBefore && firstResult.receivedAt <= Date.now() + 1000,'Server supplies the receipt timestamp');
   const shared = await (await feed('MT')).json();
   assert.equal(shared.type,'snapshot'); assert.equal(shared.tables[0].id,'B01');
+  assert.equal(shared.receivedAt,firstResult.receivedAt,'Viewer sees server receipt time, not client time');
   // A late packet from the same collector must not make a viewer go backward.
   const stale = { ...firstSnapshot, sequence:1, receivedAt:firstSnapshot.receivedAt + 1, tables:[{id:'OLD'}] };
   assert.equal((await (await feed('MT',{method:'POST',body:JSON.stringify(stale)})).json()).accepted,false);
+  assert.equal((await (await feed('MT')).json()).tables[0].id,'B01');
+  // A competing old ?collector=1 browser cannot alternate snapshots with the
+  // desktop collector while the current collector still owns this platform.
+  const competing = { ...firstSnapshot, collectorId:'old-browser-collector', sequence:999, receivedAt:Date.now() + 86_400_000, tables:[{id:'OLD-BROWSER'}] };
+  assert.equal((await (await feed('MT',{method:'POST',body:JSON.stringify(competing)})).json()).accepted,false);
   assert.equal((await (await feed('MT')).json()).tables[0].id,'B01');
   assert.equal((await feed('MT/presence',{method:'POST',body:JSON.stringify({viewerId:'viewer-a',online:true})})).status,200);
   assert.equal((await (await feed('MT/demand')).json()).shouldCollect,true);

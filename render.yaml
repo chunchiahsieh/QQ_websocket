@@ -54,6 +54,41 @@ services:
       - key: COLLECTOR_INGEST_KEY
         sync: false
 
+  # The desktop collector keeps one authenticated WebSocket open to this
+  # lightweight public relay. The relay forwards validated, in-order full
+  # snapshots to AccountAdmin over Render's private network. Keeping relay
+  # state out of the UI service prevents a UI deploy/restart from dropping the
+  # active collection stream.
+  - type: web
+    name: jshen-collector-relay
+    runtime: docker
+    plan: starter
+    numInstances: 1
+    buildFilter:
+      paths:
+        - backend/CollectorRelay/**
+        - render.yaml
+    dockerfilePath: ./backend/CollectorRelay/Dockerfile
+    dockerContext: .
+    healthCheckPath: /health
+    envVars:
+      # Same value as the public web service's COLLECTOR_INGEST_KEY. This
+      # authorizes only the desktop publisher, never normal viewer sessions.
+      - key: COLLECTOR_INGEST_KEY
+        sync: false
+      # Private Render hostport. No public AccountAdmin endpoint is exposed.
+      - key: ACCOUNT_ADMIN_URL
+        fromService:
+          type: pserv
+          name: jshen-account-admin
+          property: hostport
+      - key: ACCOUNT_ADMIN_INTERNAL_KEY
+        sync: false
+      # The relay permits a different producer only after this idle lease
+      # expires. The persistent AccountAdmin lease remains authoritative.
+      - key: COLLECTOR_RELAY_IDLE_SECONDS
+        value: 45
+
   # DG is isolated from MT and the web UI. A DG failure or restart can no
   # longer clear MT's shared feed or interrupt management login.
   - type: web
