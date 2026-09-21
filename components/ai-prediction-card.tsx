@@ -68,9 +68,9 @@ export function AiPredictionCard({ raw, tableState, initialSource }: { raw: stri
     ? current.length > 1 ? current.filter(item => item !== source) : current
     : aiSources.filter(item => item === source || current.includes(item)));
 
-  return <section className="ai-prediction-card grid h-full min-h-0 grid-rows-[auto_minmax(0,1fr)_auto]" aria-label={initialSource ? `${sourceLabels[initialSource]} 牌卡` : '共識牌卡'}>
+  return <section className="ai-prediction-card grid h-full min-h-0 grid-rows-[auto_minmax(0,1fr)_auto]" aria-label={initialSource ? `${sourceLabels[initialSource]} 牌卡` : 'AI共識牌卡'}>
     <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 border-b border-slate-600 bg-slate-900/90 px-2 py-0.5 text-[10px] text-white">
-      <strong>{initialSource ? `${sourceLabels[initialSource]} 牌卡` : '共識牌卡'}</strong>
+      <strong>{initialSource ? `${sourceLabels[initialSource]} 牌卡` : 'AI共識牌卡'}</strong><span className="text-amber-200">本機規則</span>
       {!initialSource && aiSources.map(source => <label key={source} className="inline-flex cursor-pointer items-center gap-1 whitespace-nowrap">
         <input type="checkbox" checked={selected.includes(source)} onChange={() => toggle(source)} aria-label={`選用 ${sourceLabels[source]}`} />
         {sourceLabels[source]}
@@ -87,11 +87,12 @@ export function AiPredictionCard({ raw, tableState, initialSource }: { raw: stri
         <RoadGrid raw={raw} prediction={prediction} surfaceColor="#fff8e1" />
       </div>
     </div>
-    <footer className="ai-prediction-footer grid gap-0.5 border-t border-slate-600 px-2 py-1 text-[11px] leading-4">
-      <div>{isShuffling ? '洗牌中：暫停訊號' : !raw ? '等待路單資料' : `共識：${outcomeLabel(prediction)}（至少 ${consensus.required} 票）`}
-        {' · '}{consensus.votes.map(vote => `${sourceLabels[vote.source]} ${outcomeLabel(vote.side)}`).join('／')}
-      </div>
-      <div className="text-amber-200">本機示範訊號，未連接上述外部 AI 服務；不代表真實預測。</div>
+    <footer className="ai-prediction-footer border-t border-slate-600 px-2 py-1 text-[11px] leading-4">
+      {consensus.votes.map((vote, index) => <span key={vote.source}>
+        {index > 0 && '／'}{sourceLabels[vote.source]}{' '}
+        <strong className="font-bold" style={{ color: vote.side === '1' ? '#60a5fa' : vote.side === '2' ? '#f87171' : '#94a3b8' }}>{outcomeLabel(vote.side)}</strong>
+      </span>)}
+      {' · '}{isShuffling ? '洗牌中' : !raw ? '等待路單' : <>最終答案：<strong className="font-bold" style={{ color: prediction === '1' ? '#60a5fa' : prediction === '2' ? '#f87171' : '#cbd5e1' }}>{outcomeLabel(prediction)}</strong></>}
     </footer>
   </section>;
 }

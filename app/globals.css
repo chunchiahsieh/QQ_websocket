@@ -310,6 +310,24 @@ body {
   background: #101827 !important;
   color: #f7fbff !important;
 }
+@keyframes focus-table-toast-in {
+  from { opacity: 0; transform: translate(-50%, -12px) scale(.94); }
+  to { opacity: 1; transform: translate(-50%, 0) scale(1); }
+}
+.focus-table-toast { animation: focus-table-toast-in .25s ease-out both; }
+.card-picker-list [cmdk-list-sizer] {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+  padding: 12px;
+}
+.card-picker-list [cmdk-empty] { grid-column: 1 / -1; }
+@media (max-width: 1050px) {
+  .card-picker-list [cmdk-list-sizer] { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 640px) {
+  .card-picker-list [cmdk-list-sizer] { grid-template-columns: minmax(0, 1fr); }
+}
 
 .table-card-heading {
   display: flex;

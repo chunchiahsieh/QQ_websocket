@@ -20,8 +20,9 @@ export function aiConsensus(raw: string, selected: readonly AiSource[]) {
   const votes = selected.map(source => ({ source, side: localSignal(raw, source) }));
   const banker = votes.filter(vote => vote.side === '2').length;
   const player = votes.filter(vote => vote.side === '1').length;
-  const required = votes.length === 2 ? 2 : Math.floor(votes.length / 2) + 1;
+  const active = banker + player;
+  const required = Math.floor(active / 2) + 1;
   const side: ConsensusSide | undefined = !raw || !votes.length ? undefined
     : banker >= required ? '2' : player >= required ? '1' : undefined;
-  return { votes, side, required };
+  return { votes, side, required, active };
 }

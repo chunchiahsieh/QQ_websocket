@@ -74,6 +74,15 @@ public sealed class InternalFeedController(SharedFeedStore store, IConfiguration
         return Content(store.Current(platform), "application/json", Encoding.UTF8);
     }
 
+    [HttpGet("{platform}/history")]
+    public IActionResult History(string platform, [FromQuery] string tableId, [FromQuery] int limit = 300)
+    {
+        platform = platform.ToUpperInvariant();
+        if (!Authorized()) return Unauthorized();
+        if (!ValidPlatform(platform) || string.IsNullOrWhiteSpace(tableId) || tableId.Length > 120) return BadRequest();
+        return Ok(store.RoadHistory(platform, tableId, limit));
+    }
+
     public record PresenceInput(string? ViewerId, bool? Online);
 
     [HttpPost("MT/presence"), RequestSizeLimit(4096)]

@@ -36,6 +36,12 @@ export async function readSharedFeed(platform: SharedPlatform) {
   return response.json() as Promise<unknown>;
 }
 
+export async function readRoadHistory(platform: SharedPlatform, tableId: string) {
+  const response = await request(`/internal/feeds/${platform}/history?tableId=${encodeURIComponent(tableId)}&limit=300`);
+  if (!response.ok) throw new Error(`road history read ${response.status}`);
+  return response.json() as Promise<{ segment: number; shoe: string; outcomes: { position: number; winner: '1' | '2' | '3'; observedAt: number }[] }>;
+}
+
 export async function touchSharedMtViewer(viewerId: string, online: boolean) {
   const response = await request('/internal/feeds/MT/presence', {
     method: 'POST', body: JSON.stringify({ viewerId, online }),

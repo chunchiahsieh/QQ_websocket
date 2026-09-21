@@ -1,6 +1,6 @@
 'use client';
 import { memo, useEffect, useState } from 'react';
-import { Crown } from 'lucide-react';
+import { CheckCircle2, Crown } from 'lucide-react';
 import { BaccaratRoad } from '@/components/baccarat-road';
 import { TableCountdown } from '@/components/table-countdown';
 import { DealerVideo } from '@/components/dealer-video';
@@ -8,6 +8,11 @@ import { AiPredictionCard } from '@/components/ai-prediction-card';
 import type { AiSource } from '@/lib/ai-consensus';
 import { GraphicalCard } from '@/components/graphical-card';
 import { PointAnalysisCard } from '@/components/point-analysis-card';
+import { Dialog, DialogClose, DialogContent, DialogDescription, DialogTitle } from '@/components/ui/dialog';
+import { StatisticalCard } from '@/components/statistical-card';
+import { WeightedConsensusCard } from '@/components/weighted-consensus-card';
+import { CardPicker, type CardMode } from '@/components/card-picker';
+import { RoadStrategyCard } from '@/components/road-strategy-card';
 import { tableOverlayLabel, type TablePhase } from '@/lib/table-state';
 export type TableInfo = {
   videoUrl?: string;
@@ -20,9 +25,9 @@ export type TableInfo = {
   banker: string; player: string; tie: string; players: string;
   beadPlate: string; bigRoad: string; bigEyeRoad: string; smallRoad: string; cockroachRoad: string;
 };
-type CardMode = 'full' | 'bead' | 'big' | 'eye' | 'small' | 'cockroach' | 'points' | 'v3' | 'v5' | 'cross' | AiSource | 'ai-consensus';
-const roadOnlyModes: CardMode[] = ['big', 'eye', 'small', 'cockroach', 'points', 'v3', 'v5', 'cross', 'chartgpt', 'gemini', 'deepseek', 'claude', 'ai-consensus'];
+const roadOnlyModes: CardMode[] = ['big', 'eye', 'small', 'cockroach', 'points', 'value-distribution', 'weighted', 'weighted-consensus', 'v', 'cross', 'chartgpt', 'gemini', 'deepseek', 'claude', 'ai-consensus', 'road-follow', 'road-reverse', 'road-streak', 'road-sequence', 'road-markov'];
 const aiModes: CardMode[] = ['chartgpt', 'gemini', 'deepseek', 'claude', 'ai-consensus'];
+const strategyModes: CardMode[] = ['road-follow', 'road-reverse', 'road-streak', 'road-sequence', 'road-markov'];
 
 const dealerPhotos: Record<string,string> = {'艾希':'https://ds.ofalive99.net/static/imagesx/ad/2FMz3PC89Dsp2ZTfvCbL.png'};
 function DealerPortrait({ name, photo }: { name: string; photo?: string }) {
@@ -48,19 +53,24 @@ export const BaccaratTableCard = memo(function BaccaratTableCard({table, connect
  const [actionNotice, setActionNotice] = useState('');
  useEffect(() => {
   if (!actionNotice) return;
-  const timer = window.setTimeout(() => setActionNotice(''), 5000);
+  const timer = window.setTimeout(() => setActionNotice(''), 3500);
   return () => window.clearTimeout(timer);
  }, [actionNotice]);
  const [showDealer, setShowDealer] = useState(true);
  const beadOnly = cardMode === 'bead';
  const roadOnly = roadOnlyModes.includes(cardMode);
  const isAiCard = aiModes.includes(cardMode);
- const isGraphicalCard = cardMode === 'v3' || cardMode === 'v5' || cardMode === 'cross';
+ const isStrategyCard = strategyModes.includes(cardMode);
+ const isGraphicalCard = cardMode === 'v' || cardMode === 'cross';
  const roadKind = cardMode === 'eye' ? 'eye' : cardMode === 'small' ? 'small' : cardMode === 'cockroach' ? 'cockroach' : 'big';
  const roadRaw = cardMode === 'eye' ? table.bigEyeRoad : cardMode === 'small' ? table.smallRoad : cardMode === 'cockroach' ? table.cockroachRoad : table.bigRoad;
  const resolvedPlatformLabel = platformLabel ?? (table.id.startsWith('DG:') ? 'DG' : table.id.startsWith('AB:') ? '歐博' : 'MT');
  const overlayLabel = tableOverlayLabel(table.id, table.tableState, resolvedPlatformLabel, table.tablePhase);
  const dealingOverlay = overlayLabel === '開牌中';
+ const selectCardMode = (next: CardMode) => {
+  if ((next === 'points' || next === 'value-distribution') && resolvedPlatformLabel === 'DG') { setCardNotice(`DG 沒有逐局勝方點數，無法使用${next === 'points' ? '勝方點數分布牌卡' : '數值分布牌卡'}。`); return; }
+  setCardNotice(''); setCardMode(next);
+ };
  return (<article key={table.id} className="ofa-table-card group overflow-hidden border bg-[#12100c] transition hover:border-cyan-300/65">
                     <div className="table-card-heading">
                       <div className="table-card-heading-left">
@@ -73,14 +83,19 @@ export const BaccaratTableCard = memo(function BaccaratTableCard({table, connect
                           tickMilliseconds={resolvedPlatformLabel === 'DG' ? 950 : 1000}
                           connected={connected} paused={overlayLabel !== null} />
                       </div>
-                      <div className="table-card-controls flex items-center gap-1.5"><span className="hidden text-[10px] text-slate-400 sm:inline">牌卡</span><select value={cardMode} onChange={event => { const next = event.target.value as CardMode; if (next === 'points' && resolvedPlatformLabel === 'DG') { setCardNotice('DG 目前沒有可驗證的歷史點數資料，無法使用點數分析牌卡。'); return; } setCardNotice(''); setCardMode(next); }} aria-label={`${table.name}牌卡樣式`} className="table-card-mode h-8 rounded-md border border-cyan-300/65 bg-cyan-950/70 px-2.5 text-xs font-semibold text-cyan-100 outline-none focus:ring-2 focus:ring-cyan-300/40">
-                        <optgroup label="一般牌卡"><option value="full">MT牌卡</option><option value="bead">珠盤牌卡</option><option value="big">大路牌卡</option><option value="eye">大眼牌卡</option><option value="small">小路牌卡</option><option value="cockroach">蟑螂牌卡</option></optgroup>
-                        <optgroup label="點數分析牌卡"><option value="points">點數分析牌卡</option></optgroup>
-                        <optgroup label="圖形牌卡"><option value="v3">V型牌卡-3</option><option value="v5">V型牌卡-5</option><option value="cross">十字牌卡</option></optgroup>
-                        <optgroup label="AI牌卡"><option value="chartgpt">ChartGPT</option><option value="gemini">Google Gemini</option><option value="deepseek">Deepseek</option><option value="claude">Claude</option><option value="ai-consensus">共識牌卡</option></optgroup>
-                      </select>{cardNotice && <span role="alert" className="max-w-64 text-[10px] text-amber-300">{cardNotice}</span>}</div>
-                      <select defaultValue="" onChange={event => { const action = event.target.value; if (action === 'focus' && onFocusTable) { onFocusTable(table); setActionNotice(`已將 ${table.name} 加入關注牌桌`); } if (action === 'toggle-dealer') setShowDealer(value => !value); event.currentTarget.value = ''; }} aria-label={`${table.name}功能`} className="table-card-function h-8 rounded-md border border-cyan-300/60 bg-cyan-950/70 px-2 text-xs font-semibold text-cyan-100"><option value="">功能</option>{onFocusTable && <option value="focus">關注牌桌</option>}<option value="toggle-dealer">{showDealer ? '隱藏荷官' : '顯示荷官'}</option></select>
-                      {actionNotice && <span role="status" className="max-w-44 text-[10px] font-semibold text-emerald-300">{actionNotice}</span>}
+                      <div className="table-card-controls flex items-center gap-1.5"><span className="hidden text-[10px] text-slate-400 sm:inline">牌卡</span><CardPicker value={cardMode} tableName={table.name} onSelect={selectCardMode} /></div>
+                      <Dialog open={Boolean(cardNotice)} onOpenChange={open => { if (!open) setCardNotice(''); }}>
+                        <DialogContent showCloseButton={false} className="border border-cyan-700 bg-[#111c2d] p-6 text-white shadow-2xl">
+                          <DialogTitle className="text-lg font-bold">此平台無法使用該牌卡</DialogTitle>
+                          <DialogDescription className="text-sm leading-6 text-slate-200">{cardNotice}</DialogDescription>
+                          <DialogClose className="mt-2 rounded-lg bg-cyan-700 px-4 py-2 text-sm font-semibold text-white hover:bg-cyan-600">知道了</DialogClose>
+                        </DialogContent>
+                      </Dialog>
+                      <select defaultValue="" onChange={event => { const action = event.target.value; if (action === 'focus' && onFocusTable) { onFocusTable(table); setActionNotice(table.name); } if (action === 'toggle-dealer') setShowDealer(value => !value); event.currentTarget.value = ''; }} aria-label={`${table.name}功能`} className="table-card-function h-8 rounded-md border border-cyan-300/60 bg-cyan-950/70 px-2 text-xs font-semibold text-cyan-100"><option value="">功能</option>{onFocusTable && <option value="focus">關注牌桌</option>}<option value="toggle-dealer">{showDealer ? '隱藏荷官' : '顯示荷官'}</option></select>
+                      {actionNotice && <div role="status" className="focus-table-toast pointer-events-none fixed left-1/2 top-6 z-[100] flex min-w-72 max-w-[calc(100vw-2rem)] -translate-x-1/2 items-center gap-3 rounded-xl border-2 border-emerald-400 bg-[#112b25] px-5 py-3 text-emerald-50 shadow-[0_16px_42px_rgba(0,0,0,0.55)] ring-4 ring-emerald-400/20">
+                        <CheckCircle2 className="h-7 w-7 shrink-0 text-emerald-300" strokeWidth={2.25} />
+                        <span className="text-sm font-semibold">已將 <strong className="text-base font-extrabold text-white">{actionNotice}</strong> 加入關注牌桌</span>
+                      </div>}
                       <div className="table-card-totals">
                         <span style={{ color: '#e93439' }}>莊 {table.banker}</span>
                         <span style={{ color: '#0099dc' }}>閒 {table.player}</span>
@@ -96,7 +111,7 @@ export const BaccaratTableCard = memo(function BaccaratTableCard({table, connect
                         </div>
                         </DealerVideo>
                       </div>
-                       {isAiCard ? <AiPredictionCard key={cardMode} raw={table.bigRoad} initialSource={cardMode === 'ai-consensus' ? undefined : cardMode as AiSource} tableState={resolvedPlatformLabel === 'DG' ? undefined : table.tableState} /> : cardMode === 'points' ? <PointAnalysisCard bigRoad={table.bigRoad} /> : isGraphicalCard ? <GraphicalCard beadRaw={table.beadPlate} fallbackRaw={table.bigRoad} mode={cardMode} /> : <>
+                       {isStrategyCard ? <RoadStrategyCard mode={cardMode} platform={resolvedPlatformLabel === '歐博' ? 'AB' : resolvedPlatformLabel as 'MT' | 'DG'} tableId={table.id} roads={{ bead: table.beadPlate, big: table.bigRoad, eye: table.bigEyeRoad, small: table.smallRoad, cockroach: table.cockroachRoad }} /> : isAiCard ? <AiPredictionCard key={cardMode} raw={table.bigRoad} initialSource={cardMode === 'ai-consensus' ? undefined : cardMode as AiSource} tableState={resolvedPlatformLabel === 'DG' ? undefined : table.tableState} /> : cardMode === 'points' || cardMode === 'value-distribution' ? <PointAnalysisCard bigRoad={table.bigRoad} distributionOnly={cardMode === 'value-distribution'} /> : cardMode === 'weighted-consensus' ? <WeightedConsensusCard beadPlate={table.beadPlate} /> : cardMode === 'weighted' ? <StatisticalCard beadPlate={table.beadPlate} /> : isGraphicalCard ? <GraphicalCard beadRaw={table.beadPlate} fallbackRaw={table.bigRoad} mode={cardMode} /> : <>
                          {!roadOnly && <div className="min-h-0 min-w-0 overflow-auto"><BaccaratRoad raw={table.beadPlate} kind="bead" /></div>}
                          {!beadOnly && <div className={`grid min-h-0 min-w-0 overflow-auto ${roadOnly ? 'grid-cols-1' : 'grid-rows-[2fr_1fr]'}`}>
                            {roadOnly ? <BaccaratRoad raw={roadRaw} kind={roadKind} /> : <BaccaratRoad raw={table.bigRoad} kind="big" />}

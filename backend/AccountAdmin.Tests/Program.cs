@@ -42,7 +42,28 @@ try {
             "Replacement collector snapshot must be visible");
     }
 
-    Console.WriteLine("PASS: shared feed uses TTL-based stale status and a per-platform single-writer collector lease");
+    var roadOne = "{\"type\":\"snapshot\",\"tables\":[{\"id\":\"B01\",\"shoe\":\"9\",\"beadPlate\":\"0102\"}]}";
+    var roadTwo = "{\"type\":\"snapshot\",\"tables\":[{\"id\":\"B01\",\"shoe\":\"9\",\"beadPlate\":\"010203\"}]}";
+    var newShoe = "{\"type\":\"snapshot\",\"tables\":[{\"id\":\"B01\",\"shoe\":\"10\",\"beadPlate\":\"0201\"}]}";
+    Check(store.SaveSnapshot("DG", roadOne, clock.GetUtcNow().ToUnixTimeMilliseconds(), 1, "collector-a"), "History seed accepted");
+    Check(store.SaveSnapshot("DG", roadTwo, clock.GetUtcNow().ToUnixTimeMilliseconds(), 2, "collector-a"), "History append accepted");
+    Check(store.SaveSnapshot("DG", roadTwo, clock.GetUtcNow().ToUnixTimeMilliseconds(), 3, "collector-a"), "Duplicate snapshot accepted without duplicate rounds");
+    using (var history = JsonDocument.Parse(JsonSerializer.Serialize(store.RoadHistory("DG", "B01")))) {
+        Check(history.RootElement.GetProperty("outcomes").GetArrayLength() == 3, "History must append each round only once");
+        Check(history.RootElement.GetProperty("outcomes")[2].GetProperty("winner").GetString() == "3", "History must preserve chronological outcomes");
+    }
+    Check(store.SaveSnapshot("DG", newShoe, clock.GetUtcNow().ToUnixTimeMilliseconds(), 4, "collector-a"), "New shoe accepted");
+    using (var history = JsonDocument.Parse(JsonSerializer.Serialize(store.RoadHistory("DG", "B01")))) {
+        Check(history.RootElement.GetProperty("segment").GetInt64() == 2, "New shoe must begin a new segment");
+        Check(history.RootElement.GetProperty("outcomes").GetArrayLength() == 2, "New shoe must not combine old observations");
+    }
+    var repeatedOne = "{\"type\":\"snapshot\",\"tables\":[{\"id\":\"B02\",\"shoe\":\"10\",\"banker\":\"2\",\"player\":\"0\",\"tie\":\"0\",\"beadPlate\":\"0202\"}]}";
+    var repeatedTwo = "{\"type\":\"snapshot\",\"tables\":[{\"id\":\"B02\",\"shoe\":\"10\",\"banker\":\"3\",\"player\":\"0\",\"tie\":\"0\",\"beadPlate\":\"0202\"}]}";
+    Check(store.SaveSnapshot("DG", repeatedOne, clock.GetUtcNow().ToUnixTimeMilliseconds(), 5, "collector-a"), "Repeated road seed accepted");
+    Check(store.SaveSnapshot("DG", repeatedTwo, clock.GetUtcNow().ToUnixTimeMilliseconds(), 6, "collector-a"), "Repeated road with changed count accepted");
+    using (var history = JsonDocument.Parse(JsonSerializer.Serialize(store.RoadHistory("DG", "B02"))))
+        Check(history.RootElement.GetProperty("outcomes").GetArrayLength() == 3, "Advancing count must preserve indistinguishable repeated road round");
+    Console.WriteLine("PASS: shared feed lease, freshness, and de-duplicated per-shoe road history");
 }
 finally {
     try { Directory.Delete(directory, recursive: true); } catch { }

@@ -52,6 +52,18 @@ public sealed class SharedFeedStore : IDisposable
               last_seen INTEGER NOT NULL
             );
             CREATE INDEX IF NOT EXISTS idx_feed_viewers_last_seen ON feed_viewers(last_seen);
+            CREATE TABLE IF NOT EXISTS feed_road_state (
+              platform TEXT NOT NULL, table_id TEXT NOT NULL, shoe TEXT NOT NULL,
+              segment INTEGER NOT NULL, observed_road TEXT NOT NULL, last_total INTEGER NULL,
+              PRIMARY KEY(platform, table_id)
+            );
+            CREATE TABLE IF NOT EXISTS feed_rounds (
+              platform TEXT NOT NULL, table_id TEXT NOT NULL, segment INTEGER NOT NULL,
+              position INTEGER NOT NULL, shoe TEXT NOT NULL, winner TEXT NOT NULL,
+              observed_at INTEGER NOT NULL,
+              PRIMARY KEY(platform, table_id, segment, position)
+            );
+            CREATE INDEX IF NOT EXISTS idx_feed_rounds_table ON feed_rounds(platform, table_id, segment, position);
             """;
         command.ExecuteNonQuery();
         // Existing Render disks already have this table.  CREATE TABLE IF NOT
@@ -60,12 +72,19 @@ public sealed class SharedFeedStore : IDisposable
         EnsureColumn(connection, "lease_collector", "TEXT NULL");
         EnsureColumn(connection, "lease_until", "INTEGER NOT NULL DEFAULT 0");
         EnsureColumn(connection, "status_collector", "TEXT NULL");
+        EnsureRoadColumn(connection, "last_total", "INTEGER NULL");
     }
 
     static void EnsureColumn(SqliteConnection connection, string column, string definition)
+        => EnsureTableColumn(connection, "shared_feeds", column, definition);
+
+    static void EnsureRoadColumn(SqliteConnection connection, string column, string definition)
+        => EnsureTableColumn(connection, "feed_road_state", column, definition);
+
+    static void EnsureTableColumn(SqliteConnection connection, string table, string column, string definition)
     {
         using var columns = connection.CreateCommand();
-        columns.CommandText = "PRAGMA table_info(shared_feeds)";
+        columns.CommandText = $"PRAGMA table_info({table})";
         using var reader = columns.ExecuteReader();
         while (reader.Read()) {
             if (string.Equals(reader.GetString(1), column, StringComparison.OrdinalIgnoreCase)) return;
@@ -73,7 +92,7 @@ public sealed class SharedFeedStore : IDisposable
         reader.Close();
         using var alter = connection.CreateCommand();
         // Both inputs are compile-time migration constants, never request data.
-        alter.CommandText = $"ALTER TABLE shared_feeds ADD COLUMN {column} {definition}";
+        alter.CommandText = $"ALTER TABLE {table} ADD COLUMN {column} {definition}";
         alter.ExecuteNonQuery();
     }
 
@@ -125,7 +144,131 @@ public sealed class SharedFeedStore : IDisposable
             command.Parameters.AddWithValue("$collector", (object?)collector ?? DBNull.Value);
             command.Parameters.AddWithValue("$leaseUntil", receivedAt + CollectorLeaseTtlMs);
             command.ExecuteNonQuery();
+            try { SaveRoadHistory(connection, platform, payload, receivedAt); }
+            catch (Exception error) when (error is JsonException or SqliteException) {
+                // History is supplementary; never turn a valid live snapshot
+                // into a failed collector ACK because history storage failed.
+                Console.Error.WriteLine($"Road history write failed for {platform}: {error.GetType().Name}");
+            }
             return true;
+        }
+    }
+
+    static string[] RoadWinners(string road)
+    {
+        var result = new List<string>();
+        foreach (var column in road.Split('#'))
+            for (var i = 0; i + 1 < column.Length; i++)
+                if (column[i] == '0' && column[i + 1] is '1' or '2' or '3') { result.Add(column[i + 1].ToString()); i++; }
+        return result.ToArray();
+    }
+
+    static long? RoundTotal(JsonElement table)
+    {
+        long total = 0;
+        foreach (var field in new[] { "banker", "player", "tie" }) {
+            if (!table.TryGetProperty(field, out var value) || !long.TryParse(value.ToString(), out var count) || count < 0) return null;
+            total += count;
+        }
+        return total;
+    }
+
+    // A snapshot contains a rolling road, not an event stream. Append only the
+    // portion that overlaps the last accepted road. A gap starts a new segment:
+    // transitions must never be inferred across missing rounds or a new shoe.
+    static void SaveRoadHistory(SqliteConnection connection, string platform, string payload, long receivedAt)
+    {
+        using var document = JsonDocument.Parse(payload);
+        if (!document.RootElement.TryGetProperty("tables", out var tables) || tables.ValueKind != JsonValueKind.Array) return;
+        using var transaction = connection.BeginTransaction();
+        foreach (var table in tables.EnumerateArray()) {
+            if (table.ValueKind != JsonValueKind.Object) continue;
+            var id = table.TryGetProperty("id", out var idValue) ? idValue.ToString() : "";
+            var shoe = table.TryGetProperty("shoe", out var shoeValue) ? shoeValue.ToString() : "";
+            var road = table.TryGetProperty("beadPlate", out var roadValue) && roadValue.ValueKind == JsonValueKind.String ? roadValue.GetString() : null;
+            if (string.IsNullOrWhiteSpace(id) || string.IsNullOrWhiteSpace(road)) continue;
+            var current = RoadWinners(road);
+            if (current.Length == 0) continue;
+            var currentTotal = RoundTotal(table);
+            long segment = 1, position = 0;
+            string[] previous = [];
+            string previousShoe = "";
+            long? previousTotal = null;
+            using (var state = connection.CreateCommand()) {
+                state.Transaction = transaction;
+                state.CommandText = "SELECT shoe, segment, observed_road, last_total FROM feed_road_state WHERE platform=$p AND table_id=$t";
+                state.Parameters.AddWithValue("$p", platform); state.Parameters.AddWithValue("$t", id);
+                using var reader = state.ExecuteReader();
+                if (reader.Read()) {
+                    previousShoe = reader.GetString(0);
+                    segment = reader.GetInt64(1);
+                    previous = reader.GetString(2).Split(',', StringSplitOptions.RemoveEmptyEntries);
+                    previousTotal = reader.IsDBNull(3) ? null : reader.GetInt64(3);
+                }
+            }
+            var sameShoe = (shoe == previousShoe || string.IsNullOrWhiteSpace(shoe) || shoe == "—" || string.IsNullOrWhiteSpace(previousShoe) || previousShoe == "—")
+                && !(currentTotal.HasValue && previousTotal.HasValue && currentTotal < previousTotal);
+            var overlap = 0;
+            if (sameShoe) {
+                var max = Math.Min(previous.Length, current.Length);
+                for (var size = max; size > 0; size--) {
+                    if (previous.AsSpan(previous.Length - size, size).SequenceEqual(current.AsSpan(0, size))) { overlap = size; break; }
+                }
+                if (previous.SequenceEqual(current)) {
+                    if (currentTotal.HasValue && previousTotal.HasValue && currentTotal == previousTotal + 1 && current.Length > 0) overlap = current.Length - 1;
+                    else if (currentTotal.HasValue && previousTotal.HasValue && currentTotal > previousTotal + 1) overlap = 0;
+                    else continue;
+                }
+                // A shorter road may be a reset or an out-of-order snapshot.
+                if (previous.Length > 0 && current.Length < previous.Length && overlap == current.Length) continue;
+            }
+            if (previous.Length > 0 && (!sameShoe || overlap == 0)) segment++;
+            using (var maxPosition = connection.CreateCommand()) {
+                maxPosition.Transaction = transaction;
+                maxPosition.CommandText = "SELECT COALESCE(MAX(position),0) FROM feed_rounds WHERE platform=$p AND table_id=$t AND segment=$s";
+                maxPosition.Parameters.AddWithValue("$p", platform); maxPosition.Parameters.AddWithValue("$t", id); maxPosition.Parameters.AddWithValue("$s", segment);
+                position = (long)(maxPosition.ExecuteScalar() ?? 0L);
+            }
+            for (var i = overlap; i < current.Length; i++) {
+                using var insert = connection.CreateCommand();
+                insert.Transaction = transaction;
+                insert.CommandText = "INSERT OR IGNORE INTO feed_rounds(platform,table_id,segment,position,shoe,winner,observed_at) VALUES($p,$t,$s,$n,$shoe,$w,$at)";
+                insert.Parameters.AddWithValue("$p", platform); insert.Parameters.AddWithValue("$t", id);
+                insert.Parameters.AddWithValue("$s", segment); insert.Parameters.AddWithValue("$n", ++position);
+                insert.Parameters.AddWithValue("$shoe", shoe); insert.Parameters.AddWithValue("$w", current[i]); insert.Parameters.AddWithValue("$at", receivedAt);
+                insert.ExecuteNonQuery();
+            }
+            using var update = connection.CreateCommand();
+            update.Transaction = transaction;
+            update.CommandText = "INSERT INTO feed_road_state(platform,table_id,shoe,segment,observed_road,last_total) VALUES($p,$t,$shoe,$s,$road,$total) ON CONFLICT(platform,table_id) DO UPDATE SET shoe=excluded.shoe,segment=excluded.segment,observed_road=excluded.observed_road,last_total=excluded.last_total";
+            update.Parameters.AddWithValue("$p", platform); update.Parameters.AddWithValue("$t", id);
+            update.Parameters.AddWithValue("$shoe", shoe); update.Parameters.AddWithValue("$s", segment); update.Parameters.AddWithValue("$road", string.Join(',', current));
+            update.Parameters.AddWithValue("$total", (object?)currentTotal ?? DBNull.Value);
+            update.ExecuteNonQuery();
+        }
+        transaction.Commit();
+    }
+
+    public object RoadHistory(string platform, string tableId, int limit = 300)
+    {
+        lock (gate) {
+            using var connection = Open();
+            using var state = connection.CreateCommand();
+            state.CommandText = "SELECT shoe,segment FROM feed_road_state WHERE platform=$p AND table_id=$t";
+            state.Parameters.AddWithValue("$p", platform); state.Parameters.AddWithValue("$t", tableId);
+            using var reader = state.ExecuteReader();
+            if (!reader.Read()) return new { platform, tableId, shoe = "", segment = 0L, outcomes = Array.Empty<object>() };
+            var shoe = reader.GetString(0); var segment = reader.GetInt64(1);
+            reader.Close();
+            using var rounds = connection.CreateCommand();
+            rounds.CommandText = "SELECT position,winner,observed_at FROM feed_rounds WHERE platform=$p AND table_id=$t AND segment=$s ORDER BY position DESC LIMIT $limit";
+            rounds.Parameters.AddWithValue("$p", platform); rounds.Parameters.AddWithValue("$t", tableId); rounds.Parameters.AddWithValue("$s", segment);
+            rounds.Parameters.AddWithValue("$limit", Math.Clamp(limit, 1, 500));
+            var outcomes = new List<object>();
+            using var rows = rounds.ExecuteReader();
+            while (rows.Read()) outcomes.Add(new { position = rows.GetInt64(0), winner = rows.GetString(1), observedAt = rows.GetInt64(2) });
+            outcomes.Reverse();
+            return new { platform, tableId, shoe, segment, outcomes };
         }
     }
 

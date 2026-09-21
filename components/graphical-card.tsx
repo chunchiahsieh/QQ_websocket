@@ -1,8 +1,7 @@
 'use client';
 
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { BaccaratRoad, type RoadConnection, type RoadHighlight } from '@/components/baccarat-road';
-import { walkForwardAccuracy } from '@/lib/walk-forward-accuracy';
 
 type GraphicalMode = 'v3' | 'v5' | 'cross';
 type ShapeOrientation = 'down' | 'up' | 'right' | 'left' | 'cross' | 'x';
@@ -163,14 +162,10 @@ function nextPatternCandidates(columns: Cell[][], mode: GraphicalMode): Candidat
       !columns[point.column]?.[point.row] && futurePoints.some(next => next.column === point.column && next.row === point.row)) }));
 }
 
-function unambiguousPatternSide(entries: CandidateEntry[]): Side | undefined {
-  const sides = new Set(entries.filter(entry => entry.targetPoints.length > 0)
-    .map(entry => entry.candidate.side).filter((side): side is Side => side === '1' || side === '2'));
-  return sides.size === 1 ? [...sides][0] : undefined;
-}
-
-export function GraphicalCard({ beadRaw, fallbackRaw, mode }: { beadRaw: string; fallbackRaw: string; mode: GraphicalMode }) {
-  const modeLabel = mode === 'v3' ? 'V型-3' : mode === 'v5' ? 'V型-5' : '十字';
+export function GraphicalCard({ beadRaw, fallbackRaw, mode }: { beadRaw: string; fallbackRaw: string; mode: GraphicalMode | 'v' }) {
+  const [vMode, setVMode] = useState<'v3' | 'v5'>('v3');
+  const activeMode: GraphicalMode = mode === 'v' ? vMode : mode;
+  const modeLabel = activeMode === 'v3' ? 'V型-3' : activeMode === 'v5' ? 'V型-5' : '十字';
   const host = useRef<HTMLDivElement>(null);
   const [size, setSize] = useState({ width: 0, height: 0 });
   useEffect(() => {
@@ -199,24 +194,8 @@ export function GraphicalCard({ beadRaw, fallbackRaw, mode }: { beadRaw: string;
   const displayRaw = useBeadSource ? beadRaw : encodeBead(columns);
   const outcomes = columns.flat().filter((value): value is Outcome => value !== undefined);
   const actual = outcomes.at(-1);
-  const candidateEntries = nextPatternCandidates(columns, mode);
+  const candidateEntries = nextPatternCandidates(columns, activeMode);
   const prediction = candidateEntries[0]?.candidate.side ?? predictNext(outcomes);
-  const accuracy = useMemo(() => {
-    if (!beadRaw.trim()) return null;
-    const recent = parseColumns(beadRaw).flatMap((column, columnIndex) => column.flatMap((outcome, row) =>
-      outcome ? [{ column: columnIndex, row, outcome }] : [])).slice(-36);
-    const firstColumn = recent[0]?.column ?? 0;
-    const events = recent.map(event => ({ ...event, column: event.column - firstColumn }));
-    return { ...walkForwardAccuracy(events, known => {
-      const prefix: Cell[][] = [];
-      for (const event of known) {
-        prefix[event.column] ??= [];
-        prefix[event.column][event.row] = event.outcome;
-      }
-      return unambiguousPatternSide(nextPatternCandidates(prefix.slice(-columnCount), mode));
-    }), rounds: events.length };
-  }, [beadRaw, columnCount, mode]);
-  const coverage = `近 ${accuracy?.rounds ?? 36} 局`;
   // 若同一個下一局位置同時出現莊、閒兩種圖形命中，保留所有連線，
   // 但將預測格標成黑色表示「建議不打」，避免誤導使用者下注。
   const conflictingPrediction = new Set(candidateEntries.map(({ candidate, targetPoints }) =>
@@ -252,7 +231,13 @@ export function GraphicalCard({ beadRaw, fallbackRaw, mode }: { beadRaw: string;
     return candidate.lines.map(points => ({ points, color: side === '2' ? '#ef3535' : '#2864e8', label: `${outcomeView[side].label}${modeLabel}預測線` }));
   });
   return (
-    <section className="graphical-card grid h-full min-h-0 grid-rows-[minmax(0,1fr)_auto]" aria-label={`${modeLabel}圖形牌卡`}>
+    <section className={`graphical-card grid h-full min-h-0 ${mode === 'v' ? 'grid-rows-[auto_minmax(0,1fr)_auto]' : 'grid-rows-[minmax(0,1fr)_auto]'}`} aria-label={`${modeLabel}圖形牌卡`}>
+      {mode === 'v' && <div className="flex justify-end bg-slate-900 px-2 py-0.5">
+        <select value={vMode} onChange={event => setVMode(event.target.value as 'v3' | 'v5')} aria-label="V型牌卡圖形大小"
+          className="rounded border border-slate-600 bg-slate-800 px-1 text-xs text-white">
+          <option value="v3">V型－3</option><option value="v5">V型－5</option>
+        </select>
+      </div>}
       <div ref={host} className="relative min-h-0 min-w-0 overflow-hidden">
         <BaccaratRoad raw={displayRaw} kind="bead" columnLimit={columnCount} highlights={highlights} connections={connections} />
       </div>
@@ -260,12 +245,8 @@ export function GraphicalCard({ beadRaw, fallbackRaw, mode }: { beadRaw: string;
         <div className="flex flex-wrap items-center justify-between gap-2">
           <span>{modeLabel}偵測：已標示 {matched.size} 個符號{predictionPoints.length ? '，下一局位置已標示' : ''}</span>
           <span className="flex items-center gap-2">
-            <span>下一局預測：{conflictingPrediction ? <strong style={{ color: '#f8fafc' }}>不打</strong> : <strong style={{ color: outcomeView[prediction].color }}>{outcomeView[prediction].label}</strong>} · 實際：{actual ? outcomeView[actual].label : '等待'}</span>
+            <span>下一局預測：{conflictingPrediction ? <strong style={{ color: '#f8fafc' }}>不打</strong> : <strong style={{ color: outcomeView[prediction].color }}>{outcomeView[prediction].label}</strong>} · 最近已開：{actual ? outcomeView[actual].label : '等待'}</span>
           </span>
-        </div>
-        <div className="flex flex-wrap items-center justify-between gap-2" title="僅回放最近 36 局；每局只用此前已開出的珠盤路尋找圖形。無圖形訊號與和局不列入莊閒符合率。">
-          <span>{coverage}圖形訊號符合率：{accuracy === null ? '珠盤路不足' : accuracy.percent === null ? '樣本不足' : `${accuracy.percent}%（${accuracy.hits}/${accuracy.evaluated}）`}</span>
-          {accuracy && <span>無明確圖形 {accuracy.noSignal} 局 · 和局 {accuracy.ties} 局</span>}
         </div>
       </footer>
     </section>
