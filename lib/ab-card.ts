@@ -12,9 +12,8 @@ export function abCard(table: LiveAbTable): TableInfo {
     dealer: table.dealer?.name || '', dealerPhoto: table.dealerPhoto, videoUrl: table.videoUrl || undefined, room: table.tableName || '',
     shoe: '—', round: table.playId || '—', players: '—',
     tableState: table.state === 102 ? '2' : undefined,
-    // The official zero-countdown event can precede status 101. The decoder
-    // only sets openingStarted after a positive countdown in this round, and
-    // clears it at the result even if an older state=101 remains cached.
+    // The official zero-countdown or its witnessed deadline starts opening;
+    // status 101 confirms its end, and 102 is shuffling.
     tablePhase: abTablePhase(table.state, table.openingStarted),
     countdownReceivedAt: table.receivedAt, countdownDeadline: table.countdownDeadline,
     ...baccaratRoads(winners, details) };

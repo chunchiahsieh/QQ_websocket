@@ -1,9 +1,8 @@
 import type { TablePhase } from './table-state';
 
 export function abTablePhase(state?: number, openingStarted?: boolean): TablePhase | undefined {
-  if (state === 102) return undefined;
-  // Explicit decoder lifecycle is authoritative: a result can clear opening
-  // before an old state=101 is replaced by the next round's status packet.
-  if (openingStarted !== undefined) return openingStarted ? 'dealing' : undefined;
-  return state === 101 ? 'dealing' : undefined;
+  // AB 101 confirms the end of opening; 102 is shuffling. Neither may
+  // resurrect a stale phase flag from a delayed countdown packet.
+  if (state === 101 || state === 102) return undefined;
+  return openingStarted === true ? 'dealing' : undefined;
 }
