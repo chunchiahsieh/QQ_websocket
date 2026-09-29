@@ -7,7 +7,14 @@
   </PropertyGroup>
   <ItemGroup>
     <Compile Include="../DgRelay/SharedDgFeed.cs" Link="SharedDgFeed.cs" />
+    <Compile Include="../DgRelay/DgTableDecoder.cs" Link="DgTableDecoder.cs" />
     <Compile Include="../DgRelay/AbTableDecoder.cs" Link="AbTableDecoder.cs" />
     <Compile Include="../DgRelay/AbMediaCatalog.cs" Link="AbMediaCatalog.cs" />
+    <Compile Include="../CollectorDesktop/AbCardMapper.cs" Link="AbCardMapper.cs" />
+    <Compile Include="../CollectorDesktop/AbRoadNormalizer.cs" Link="AbRoadNormalizer.cs" />
+    <Compile Include="../CollectorDesktop/DgRoadNormalizer.cs" Link="DgRoadNormalizer.cs" />
+    <Compile Include="../CollectorDesktop/DgCardMapper.cs" Link="DgCardMapper.cs" />
+    <Compile Include="../CollectorDesktop/MtTableNormalizer.cs" Link="MtTableNormalizer.cs" />
+    <Compile Include="../CollectorDesktop/LatestSnapshotPublisher.cs" Link="LatestSnapshotPublisher.cs" />
   </ItemGroup>
 </Project>

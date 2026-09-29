@@ -28,6 +28,7 @@ export type TableInfo = {
 const roadOnlyModes: CardMode[] = ['big', 'eye', 'small', 'cockroach', 'points', 'value-distribution', 'weighted', 'weighted-consensus', 'v', 'cross', 'chartgpt', 'gemini', 'deepseek', 'claude', 'ai-consensus', 'road-follow', 'road-reverse', 'road-streak', 'road-sequence', 'road-markov'];
 const aiModes: CardMode[] = ['chartgpt', 'gemini', 'deepseek', 'claude', 'ai-consensus'];
 const strategyModes: CardMode[] = ['road-follow', 'road-reverse', 'road-streak', 'road-sequence', 'road-markov'];
+const availableCardModes = new Set<CardMode>(['full', 'bead', 'big', 'eye', 'small', 'cockroach', 'points', 'value-distribution', 'weighted', 'weighted-consensus', 'v', 'cross', 'chartgpt', 'gemini', 'deepseek', 'claude', 'ai-consensus', ...strategyModes]);
 
 const dealerPhotos: Record<string,string> = {'艾希':'https://ds.ofalive99.net/static/imagesx/ad/2FMz3PC89Dsp2ZTfvCbL.png'};
 function DealerPortrait({ name, photo }: { name: string; photo?: string }) {
@@ -47,7 +48,9 @@ function DealerPortrait({ name, photo }: { name: string; photo?: string }) {
     </div>
   );
 }
-export const BaccaratTableCard = memo(function BaccaratTableCard({table, connected, beadOnly: initialBeadOnly = false, onFocusTable, platformLabel}: {table: TableInfo; connected: boolean; beadOnly?: boolean; onFocusTable?: (table: TableInfo) => void; platformLabel?: string}) {
+export const BaccaratTableCard = memo(function BaccaratTableCard({table, connected, beadOnly: initialBeadOnly = false, onFocusTable, platformLabel, storageScope}: {table: TableInfo; connected: boolean; beadOnly?: boolean; onFocusTable?: (table: TableInfo) => void; platformLabel?: string; storageScope?: string}) {
+ const resolvedPlatformLabel = platformLabel ?? (table.id.startsWith('DG:') ? 'DG' : table.id.startsWith('AB:') ? '歐博' : 'MT');
+ const cardModeStorageKey = `jshen-card-mode:${resolvedPlatformLabel}:${storageScope ?? table.id}`;
  const [cardMode, setCardMode] = useState<CardMode>(initialBeadOnly ? 'bead' : 'full');
  const [cardNotice, setCardNotice] = useState('');
  const [actionNotice, setActionNotice] = useState('');
@@ -56,6 +59,12 @@ export const BaccaratTableCard = memo(function BaccaratTableCard({table, connect
   const timer = window.setTimeout(() => setActionNotice(''), 3500);
   return () => window.clearTimeout(timer);
  }, [actionNotice]);
+ useEffect(() => {
+  try {
+   const stored = window.localStorage.getItem(cardModeStorageKey) as CardMode | null;
+   if (stored && availableCardModes.has(stored) && !(resolvedPlatformLabel === 'DG' && (stored === 'points' || stored === 'value-distribution'))) setCardMode(stored);
+  } catch { /* The default card remains available when browser storage is blocked. */ }
+ }, [cardModeStorageKey, resolvedPlatformLabel]);
  const [showDealer, setShowDealer] = useState(true);
  const beadOnly = cardMode === 'bead';
  const roadOnly = roadOnlyModes.includes(cardMode);
@@ -64,12 +73,12 @@ export const BaccaratTableCard = memo(function BaccaratTableCard({table, connect
  const isGraphicalCard = cardMode === 'v' || cardMode === 'cross';
  const roadKind = cardMode === 'eye' ? 'eye' : cardMode === 'small' ? 'small' : cardMode === 'cockroach' ? 'cockroach' : 'big';
  const roadRaw = cardMode === 'eye' ? table.bigEyeRoad : cardMode === 'small' ? table.smallRoad : cardMode === 'cockroach' ? table.cockroachRoad : table.bigRoad;
- const resolvedPlatformLabel = platformLabel ?? (table.id.startsWith('DG:') ? 'DG' : table.id.startsWith('AB:') ? '歐博' : 'MT');
  const overlayLabel = tableOverlayLabel(table.id, table.tableState, resolvedPlatformLabel, table.tablePhase);
  const dealingOverlay = overlayLabel === '開牌中';
  const selectCardMode = (next: CardMode) => {
   if ((next === 'points' || next === 'value-distribution') && resolvedPlatformLabel === 'DG') { setCardNotice(`DG 沒有逐局勝方點數，無法使用${next === 'points' ? '勝方點數分布牌卡' : '數值分布牌卡'}。`); return; }
   setCardNotice(''); setCardMode(next);
+  try { window.localStorage.setItem(cardModeStorageKey, next); } catch { /* Selection still applies for the current page. */ }
  };
  return (<article key={table.id} className="ofa-table-card group overflow-hidden border bg-[#12100c] transition hover:border-cyan-300/65">
                     <div className="table-card-heading">
@@ -111,7 +120,7 @@ export const BaccaratTableCard = memo(function BaccaratTableCard({table, connect
                         </div>
                         </DealerVideo>
                       </div>
-                       {isStrategyCard ? <RoadStrategyCard mode={cardMode} platform={resolvedPlatformLabel === '歐博' ? 'AB' : resolvedPlatformLabel as 'MT' | 'DG'} tableId={table.id} roads={{ bead: table.beadPlate, big: table.bigRoad, eye: table.bigEyeRoad, small: table.smallRoad, cockroach: table.cockroachRoad }} /> : isAiCard ? <AiPredictionCard key={cardMode} raw={table.bigRoad} initialSource={cardMode === 'ai-consensus' ? undefined : cardMode as AiSource} tableState={resolvedPlatformLabel === 'DG' ? undefined : table.tableState} /> : cardMode === 'points' || cardMode === 'value-distribution' ? <PointAnalysisCard bigRoad={table.bigRoad} distributionOnly={cardMode === 'value-distribution'} /> : cardMode === 'weighted-consensus' ? <WeightedConsensusCard beadPlate={table.beadPlate} /> : cardMode === 'weighted' ? <StatisticalCard beadPlate={table.beadPlate} /> : isGraphicalCard ? <GraphicalCard beadRaw={table.beadPlate} fallbackRaw={table.bigRoad} mode={cardMode} /> : <>
+                       {isStrategyCard ? <RoadStrategyCard mode={cardMode} platform={resolvedPlatformLabel === '歐博' ? 'AB' : resolvedPlatformLabel as 'MT' | 'DG'} tableId={table.id} roads={{ bead: table.beadPlate, big: table.bigRoad, eye: table.bigEyeRoad, small: table.smallRoad, cockroach: table.cockroachRoad }} /> : isAiCard ? <AiPredictionCard key={cardMode} raw={table.bigRoad} initialSource={cardMode === 'ai-consensus' ? undefined : cardMode as AiSource} tableState={resolvedPlatformLabel === 'DG' ? undefined : table.tableState} /> : cardMode === 'points' || cardMode === 'value-distribution' ? <PointAnalysisCard bigRoad={table.bigRoad} beadPlate={table.beadPlate} distributionOnly={cardMode === 'value-distribution'} /> : cardMode === 'weighted-consensus' ? <WeightedConsensusCard beadPlate={table.beadPlate} /> : cardMode === 'weighted' ? <StatisticalCard beadPlate={table.beadPlate} /> : isGraphicalCard ? <GraphicalCard beadRaw={table.beadPlate} fallbackRaw={table.bigRoad} mode={cardMode} /> : <>
                          {!roadOnly && <div className="min-h-0 min-w-0 overflow-auto"><BaccaratRoad raw={table.beadPlate} kind="bead" /></div>}
                          {!beadOnly && <div className={`grid min-h-0 min-w-0 overflow-auto ${roadOnly ? 'grid-cols-1' : 'grid-rows-[2fr_1fr]'}`}>
                            {roadOnly ? <BaccaratRoad raw={roadRaw} kind={roadKind} /> : <BaccaratRoad raw={table.bigRoad} kind="big" />}

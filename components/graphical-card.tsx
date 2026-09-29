@@ -1,7 +1,8 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { BaccaratRoad, type RoadConnection, type RoadHighlight } from '@/components/baccarat-road';
+import { evaluatePredictions } from '@/lib/prediction-performance';
 
 type GraphicalMode = 'v3' | 'v5' | 'cross';
 type ShapeOrientation = 'down' | 'up' | 'right' | 'left' | 'cross' | 'x';
@@ -26,20 +27,6 @@ function parseColumns(raw: string): Cell[][] {
       return value === '1' || value === '2' || value === '3' ? value : undefined;
     });
   }).filter(column => column.some(value => value !== undefined));
-}
-
-function predictNext(outcomes: Outcome[]): Side {
-  const recent: Side[] = [];
-  for (const outcome of outcomes.slice(-12)) {
-    if (outcome === '1' || outcome === '2') recent.push(outcome);
-    else if (recent.length) recent.push(recent.at(-1)!); // 和局歸入最近的莊／閒
-    else recent.push('1');
-  }
-  if (!recent.length) return '1';
-  const player = recent.filter(value => value === '1').length;
-  const banker = recent.length - player;
-  if (player === banker) return recent.at(-1) === '1' ? '2' : '1';
-  return player > banker ? '1' : '2';
 }
 
 function encodeBead(columns: Cell[][]) {
@@ -162,6 +149,23 @@ function nextPatternCandidates(columns: Cell[][], mode: GraphicalMode): Candidat
       !columns[point.column]?.[point.row] && futurePoints.some(next => next.column === point.column && next.row === point.row)) }));
 }
 
+function columnsFromOutcomes(outcomes: readonly Outcome[]): Cell[][] {
+  const columns: Cell[][] = [];
+  outcomes.forEach((outcome, index) => {
+    const column = Math.floor(index / 6);
+    (columns[column] ??= []).push(outcome);
+  });
+  return columns;
+}
+
+function graphicalPrediction(outcomes: readonly Outcome[], mode: GraphicalMode): Side | undefined {
+  const columns = columnsFromOutcomes(outcomes);
+  const candidates = nextPatternCandidates(columns, mode);
+  const candidateSides = new Set(candidates.filter(entry => entry.targetPoints.length).map(entry => entry.candidate.side).filter((side): side is Side => Boolean(side)));
+  if (candidateSides.size > 1) return undefined;
+  return candidateSides.values().next().value;
+}
+
 export function GraphicalCard({ beadRaw, fallbackRaw, mode }: { beadRaw: string; fallbackRaw: string; mode: GraphicalMode | 'v' }) {
   const [vMode, setVMode] = useState<'v3' | 'v5'>('v3');
   const activeMode: GraphicalMode = mode === 'v' ? vMode : mode;
@@ -190,16 +194,18 @@ export function GraphicalCard({ beadRaw, fallbackRaw, mode }: { beadRaw: string;
   // spacing, so use the original payload whenever it contains any cells.
   const useBeadSource = beadRaw.trim().length > 0;
   const sourceColumns = beadCount > 0 ? beadColumns : fallbackColumns;
+  const allOutcomes = sourceColumns.flat().filter((value): value is Outcome => value !== undefined);
+  const performance = useMemo(() => evaluatePredictions(allOutcomes, history => graphicalPrediction(history, activeMode), side => side), [allOutcomes, activeMode]);
   const columns = sourceColumns.slice(-columnCount);
   const displayRaw = useBeadSource ? beadRaw : encodeBead(columns);
   const outcomes = columns.flat().filter((value): value is Outcome => value !== undefined);
-  const actual = outcomes.at(-1);
   const candidateEntries = nextPatternCandidates(columns, activeMode);
-  const prediction = candidateEntries[0]?.candidate.side ?? predictNext(outcomes);
+  const reachableCandidates = candidateEntries.filter(({ candidate, targetPoints }) => targetPoints.length > 0 && Boolean(candidate.side));
   // 若同一個下一局位置同時出現莊、閒兩種圖形命中，保留所有連線，
   // 但將預測格標成黑色表示「建議不打」，避免誤導使用者下注。
-  const conflictingPrediction = new Set(candidateEntries.map(({ candidate, targetPoints }) =>
-    targetPoints.length ? candidate.side : undefined).filter((side): side is Side => Boolean(side))).size > 1;
+  const conflictingPrediction = new Set(reachableCandidates.map(({ candidate }) =>
+    candidate.side).filter((side): side is Side => Boolean(side))).size > 1;
+  const prediction = conflictingPrediction ? undefined : reachableCandidates[0]?.candidate.side;
   const bankerDoubleHit = candidateEntries.filter(({ candidate, targetPoints }) =>
     candidate.side === '2' && targetPoints.length > 0).length >= 2;
   const playerDoubleHit = candidateEntries.filter(({ candidate, targetPoints }) =>
@@ -214,7 +220,7 @@ export function GraphicalCard({ beadRaw, fallbackRaw, mode }: { beadRaw: string;
     .filter((point, index, all) => all.findIndex(item => item.column === point.column && item.row === point.row) === index);
   const highlights: RoadHighlight[] = candidateEntries.flatMap(({ candidate, targetPoints }) => {
     if (!targetPoints.length) return [];
-    const side = candidate.side ?? prediction;
+    const side = candidate.side!;
     const lineColor = side === '2' ? '#ef3535' : '#2864e8';
     const predictionBackground = side === '2' ? '#fecaca' : '#bfdbfe';
     const matchedHighlights = candidate.points
@@ -227,7 +233,7 @@ export function GraphicalCard({ beadRaw, fallbackRaw, mode }: { beadRaw: string;
   });
   const connections: RoadConnection[] = candidateEntries.flatMap(({ candidate, targetPoints }) => {
     if (!targetPoints.length) return [];
-    const side = candidate.side ?? prediction;
+    const side = candidate.side!;
     return candidate.lines.map(points => ({ points, color: side === '2' ? '#ef3535' : '#2864e8', label: `${outcomeView[side].label}${modeLabel}預測線` }));
   });
   return (
@@ -242,11 +248,11 @@ export function GraphicalCard({ beadRaw, fallbackRaw, mode }: { beadRaw: string;
         <BaccaratRoad raw={displayRaw} kind="bead" columnLimit={columnCount} highlights={highlights} connections={connections} />
       </div>
       <footer className="graphical-card-footer grid gap-0.5 border-t border-slate-600 px-2 py-1 text-[11px] font-semibold leading-4">
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <span>{modeLabel}偵測：已標示 {matched.size} 個符號{predictionPoints.length ? '，下一局位置已標示' : ''}</span>
-          <span className="flex items-center gap-2">
-            <span>下一局預測：{conflictingPrediction ? <strong style={{ color: '#f8fafc' }}>不打</strong> : <strong style={{ color: outcomeView[prediction].color }}>{outcomeView[prediction].label}</strong>} · 最近已開：{actual ? outcomeView[actual].label : '等待'}</span>
-          </span>
+        <div className="flex flex-wrap items-center gap-x-3">
+          <span>下局預測：{!prediction ? <strong style={{ color: '#cbd5e1' }}>無訊號</strong> : <strong style={{ color: outcomeView[prediction].color }}>{outcomeView[prediction].label}</strong>}</span>
+          <span>上一局：<strong className={performance.lastResult === '命中' ? 'text-emerald-300' : performance.lastResult === '錯誤' ? 'text-orange-300' : 'text-slate-300'}>{performance.lastResult}</strong></span>
+          <span>目前連中：<strong className="text-emerald-300">{performance.streak}</strong>（最高 {performance.maxStreak}）</span>
+          <span>目前連錯：<strong className="text-orange-300">{performance.missStreak}</strong>（最高 {performance.maxMissStreak}）</span>
         </div>
       </footer>
     </section>

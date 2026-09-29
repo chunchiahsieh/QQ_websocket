@@ -3,25 +3,27 @@
   var taiwanOffset = TimeSpan.FromHours(8);
   var defaultExpiry = DateTimeOffset.UtcNow.ToOffset(taiwanOffset).AddDays(30);
 }
-<header>
-  <div>
-    <h1>J神・圖形來世 · 管理中心</h1>
-    <p class="muted">系統設定與使用者帳號管理 · @Model.Accounts.Count 個帳號 · 台灣時間 UTC+8</p>
-  </div>
-  <form asp-action="Logout" method="post"><button class="secondary">登出管理</button></form>
-</header>
-
-<nav class="admin-menu" aria-label="管理選單">
-  <a href="#payout">派彩設定</a>
-  <a href="#accounts">帳號管理</a>
-  <a href="#security">管理員密碼</a>
-  <a class="front-link" href="/">← 返回前台</a>
-</nav>
+<div class="admin-shell">
+<aside class="admin-sidebar">
+  <div class="admin-brand"><img src="/jshen-logo.svg" alt="" /><div><strong>J神・圖形來世</strong><small>管理中心</small></div></div>
+  <nav class="admin-menu" aria-label="管理選單">
+    <a href="#payout" data-admin-target="payout"><span>01</span>派彩功能設定</a>
+    <a href="#award" data-admin-target="award"><span>02</span>指定使用者派彩</a>
+    <a href="#payout-history" data-admin-target="payout-history"><span>03</span>派彩紀錄</a>
+    <a href="#accounts" data-admin-target="accounts"><span>04</span>帳號管理</a>
+    <a href="#security" data-admin-target="security"><span>05</span>管理員密碼</a>
+  </nav>
+  <button type="button" class="admin-online" id="admin-online-toggle" title="點擊查看在線帳號"><span class="online-dot"></span><span class="online-summary"><small>目前在線</small><strong><b id="admin-online-count">—</b> 人</strong></span><span class="online-arrow">⌄</span></button>
+  <div class="online-account-list" id="online-account-list" hidden><strong>在線帳號</strong><div id="online-account-items"><span class="muted">目前無人在線</span></div></div>
+  <div class="admin-sidebar-actions"><a class="front-link" href="/">← 返回前台</a><form asp-action="Logout" method="post"><button class="secondary">登出管理</button></form></div>
+</aside>
+<div class="admin-content">
+<header><div><h1>後台管理</h1><p class="muted">系統設定與使用者帳號管理 · @Model.Accounts.Count 個帳號 · 台灣時間 UTC+8</p></div></header>
 
 @if(TempData["Success"] is string success){<p class="notice" role="status">@success</p>}
 @if(TempData["Error"] is string error){<p class="notice error" role="alert">@error</p>}
 
-<section id="payout" class="panel">
+<section id="payout" class="panel" data-admin-page="payout">
   <div class="section-heading"><div><h2>派彩功能設定</h2><p class="muted">調整前台獎池顯示的名稱、目前金額與上下限。四類派彩固定提供，不設啟用／停用開關。</p></div><span class="badge">四類獎池</span></div>
   <form asp-action="SavePayout" method="post">
     <div class="scroll"><table class="settings-table"><thead><tr><th>類別</th><th>顯示名稱</th><th>目前金額</th><th>下限</th><th>上限</th></tr></thead><tbody>
@@ -40,22 +42,26 @@
   </form>
 </section>
 
-<section id="award" class="panel">
-  <div class="section-heading"><div><h2>指定使用者派彩</h2><p class="muted">完成後會留下派彩紀錄，該類獎池回到下限並繼續累積。派彩金額不得低於目前累積獎金，也不得超過類別上限。</p></div><span class="badge">管理者確認</span></div>
+<section id="award" class="panel" data-admin-page="award">
+  <div class="section-heading"><div><h2>派彩方式</h2><p class="muted">虛擬帳號由系統循環派彩；管理者也可立即派彩給指定 USER。</p></div></div>
+  <div class="payout-mode-grid"><article class="payout-mode-card"><span class="badge">虛擬</span><h3>虛擬帳號自動派彩</h3><p>獎池達到上限後，系統隨機選用不可註冊的虛擬帳號，寫入派彩紀錄並回到下限繼續累加。</p><strong class="mode-enabled">● 自動循環中</strong></article><article class="payout-mode-card actual"><span class="badge">實際</span><h3>實際 USER 指定派彩</h3><p>選擇已註冊 USER、派彩類別與金額，按下按鈕後立即派彩並通知。</p></article></div>
+  <h3 class="form-subtitle">指定實際 USER 立即派彩</h3>
   <form asp-action="AwardPayout" method="post" class="row">
     <div class="field"><label for="payout-user">使用者</label><select id="payout-user" name="username" required>
       <option value="">請選擇使用者</option>
       @foreach(var account in Model.Accounts.Where(item => item.Enabled && item.ExpiresAt > DateTimeOffset.UtcNow).OrderBy(item => item.Username)) { <option value="@account.Username">@account.Username</option> }
     </select></div>
     <div class="field"><label for="payout-code">派彩類別</label><select id="payout-code" name="code" required>
-      @foreach(var payout in Model.PayoutSettings) { <option value="@payout.Code">@payout.Code · @payout.Name（目前 @payout.Amount.ToString("N2")）</option> }
+      @for(var i = 0; i < Model.PayoutSettings.Count; i++) {
+        var payout = Model.PayoutSettings[i];
+        <option value="@payout.Code" data-payout-index="@i" data-payout-name="@payout.Name" data-payout-amount="@payout.Amount.ToString("0.00", System.Globalization.CultureInfo.InvariantCulture)" data-payout-base="@payout.BaseAmount.ToString("0.00", System.Globalization.CultureInfo.InvariantCulture)" data-payout-cap="@payout.CapAmount.ToString("0.00", System.Globalization.CultureInfo.InvariantCulture)">@payout.Code · @payout.Name（目前 @payout.Amount.ToString("N2")）</option>
+      }
     </select></div>
-    <div class="field"><label for="payout-amount">派彩金額</label><input id="payout-amount" name="amount" type="number" min="0.01" step="0.01" required /></div>
-    <button>確認派彩</button>
+    <button>立即派彩</button>
   </form>
 </section>
 
-<section id="payout-history" class="panel">
+<section id="payout-history" class="panel" data-admin-page="payout-history">
   <div class="section-heading"><div><h2>派彩紀錄</h2><p class="muted">最近 100 筆管理者確認的派彩資料。</p></div></div>
   <div class="scroll"><table><thead><tr><th>時間</th><th>使用者</th><th>類別</th><th>金額</th></tr></thead><tbody>
   @if(Model.PayoutRecords.Count == 0) { <tr><td colspan="4" class="muted">目前尚無派彩紀錄。</td></tr> }
@@ -63,90 +69,48 @@
   </tbody></table></div>
 </section>
 
-<section id="accounts" class="panel">
+<section id="accounts" class="panel" data-admin-page="accounts">
   <div class="section-heading"><div><h2>帳號管理</h2><p class="muted">建立、停用、刪除一般使用者帳號，或重設使用者密碼。</p></div></div>
-  <form asp-action="Create" method="post" class="row">
+  <form asp-action="Create" method="post" class="account-create-form">
     <div class="field"><label for="new-user">帳號</label><input id="new-user" name="username" required minlength="3" maxlength="64" pattern="[a-zA-Z0-9_.\-]+" autocomplete="off" /></div>
     <div class="field"><label for="new-pass">初始密碼（至少 6 字元）</label><input id="new-pass" name="password" type="password" required minlength="6" maxlength="128" autocomplete="new-password" /></div>
     <div class="field expiry-picker" data-expiry-picker>
       <label>到期時間</label>
-      <div class="expiry-inputs">
+      <div class="expiry-inline"><div class="expiry-inputs">
         <input id="new-expiry-date" type="date" value="@defaultExpiry.ToString("yyyy-MM-dd")" min="@DateTimeOffset.UtcNow.ToOffset(taiwanOffset).ToString("yyyy-MM-dd")" aria-label="到期日期" required />
         <input id="new-expiry-time" type="time" value="@defaultExpiry.ToString("HH:mm")" aria-label="到期時間" required />
-      </div>
+      </div><small class="expiry-preview" data-expiry-preview></small></div>
       <input id="new-expiry" name="expires" type="hidden" value="@defaultExpiry.ToString("yyyy-MM-ddTHH:mm")" />
-      <div class="expiry-presets" aria-label="到期時間快捷選擇">
-        <button type="button" class="chip" data-expiry-days="7">7 天</button>
-        <button type="button" class="chip" data-expiry-days="30">30 天</button>
-        <button type="button" class="chip" data-expiry-days="90">90 天</button>
-        <button type="button" class="chip" data-expiry-days="365">1 年</button>
-      </div>
-      <small class="expiry-preview" data-expiry-preview></small>
     </div>
     <button>建立帳號</button>
   </form>
 </section>
 
-<section class="panel">
-  <h2>使用者列表</h2>
-  <div class="scroll"><table><thead><tr><th>帳號／狀態</th><th>到期時間／啟用／重設密碼</th><th>刪除</th></tr></thead><tbody>
+<section class="panel" data-admin-page="accounts">
+  <div class="section-heading"><div><h2>使用者列表</h2><p class="muted">管理帳號期限、啟用狀態及登入密碼。</p></div><span class="badge">@Model.Accounts.Count 個帳號</span></div>
+  <div class="account-list">
   @foreach(var account in Model.Accounts){
-    <tr>
-      <td>@account.Username <span class="badge">@(!account.Enabled ? "已停用" : account.ExpiresAt<=DateTimeOffset.UtcNow ? "已到期" : "有效")</span></td>
-      <td><form asp-action="Update" method="post" class="row">
+    <article class="account-card"><form asp-action="Update" method="post" class="account-row">
         <input type="hidden" name="id" value="@account.Id" />
+        <div class="account-identity"><strong>@account.Username</strong><span class="badge">@(!account.Enabled ? "已停用" : account.ExpiresAt<=DateTimeOffset.UtcNow ? "已到期" : "有效")</span></div>
         @{ var localExpiry = account.ExpiresAt.ToOffset(taiwanOffset); }
-        <div class="expiry-picker compact" data-expiry-picker>
-          <label class="sr-only" for="expiry-date-@account.Id">@account.Username 到期日期</label>
-          <div class="expiry-inputs">
+        <div class="expiry-picker compact field" data-expiry-picker data-expiry-extend="true">
+          <label for="expiry-date-@account.Id">到期日期與時間</label>
+          <div class="expiry-inline"><div class="expiry-inputs">
             <input id="expiry-date-@account.Id" type="date" value="@localExpiry.ToString("yyyy-MM-dd")" min="@DateTimeOffset.UtcNow.ToOffset(taiwanOffset).ToString("yyyy-MM-dd")" aria-label="@account.Username 到期日期" required />
             <input type="time" value="@localExpiry.ToString("HH:mm")" aria-label="@account.Username 到期時間" required />
-          </div>
+          </div><small class="expiry-preview" data-expiry-preview></small></div>
           <input type="hidden" name="expires" value="@localExpiry.ToString("yyyy-MM-ddTHH:mm")" />
-          <div class="expiry-presets" aria-label="到期時間快捷選擇">
-            <button type="button" class="chip" data-expiry-days="30">+30 天</button>
-            <button type="button" class="chip" data-expiry-days="365">+1 年</button>
-          </div>
-          <small class="expiry-preview" data-expiry-preview></small>
         </div>
-        <label><input type="checkbox" name="enabled" value="true" checked="@account.Enabled" /> 啟用</label>
-        <input aria-label="@account.Username 新密碼" name="password" type="password" placeholder="留空不更改密碼" minlength="6" maxlength="128" autocomplete="new-password" />
-        <button>儲存</button>
-      </form></td>
-      <td><form asp-action="Delete" method="post" onsubmit="return confirm('確定要刪除這個帳號嗎？');"><input type="hidden" name="id" value="@account.Id" /><button class="danger">刪除</button></form></td>
-    </tr>
+        <label class="account-enabled"><span>帳號狀態</span><span class="toggle-row"><input type="checkbox" name="enabled" value="true" checked="@account.Enabled" /> 啟用此帳號</span></label>
+        <label class="field"><span>重設密碼</span><input aria-label="@account.Username 新密碼" name="password" type="password" placeholder="留空表示不更改" minlength="6" maxlength="128" autocomplete="new-password" /></label>
+        <div class="account-actions"><button class="save-account">儲存</button><button type="submit" class="danger" formaction="/admin/Delete" formmethod="post" data-delete-account="@account.Username">刪除</button></div>
+      </form></article>
   }
-  </tbody></table></div>
+  </div>
 </section>
 
-<script>
-(() => {
-  const format = value => value ? new Intl.DateTimeFormat('zh-TW', { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(value)) : '請選擇日期與時間';
-  const pad = value => String(value).padStart(2, '0');
-  document.querySelectorAll('[data-expiry-picker]').forEach(picker => {
-    const date = picker.querySelector('input[type="date"]');
-    const time = picker.querySelector('input[type="time"]');
-    const hidden = picker.querySelector('input[type="hidden"]');
-    const preview = picker.querySelector('[data-expiry-preview]');
-    const sync = () => {
-      hidden.value = date.value && time.value ? `${date.value}T${time.value}` : '';
-      preview.textContent = hidden.value ? `將於 ${format(hidden.value)}` : '請選擇到期時間';
-    };
-    picker.querySelectorAll('[data-expiry-days]').forEach(button => button.addEventListener('click', () => {
-      const next = new Date();
-      next.setDate(next.getDate() + Number(button.dataset.expiryDays));
-      date.value = `${next.getFullYear()}-${pad(next.getMonth() + 1)}-${pad(next.getDate())}`;
-      if (!time.value) time.value = '23:59';
-      sync();
-    }));
-    date.addEventListener('change', sync);
-    time.addEventListener('change', sync);
-    sync();
-  });
-})();
-</script>
-
-<section id="security" class="panel">
+<section id="security" class="panel" data-admin-page="security">
   <h2>變更管理員密碼</h2>
   <p class="muted">更新後目前管理員工作階段會登出，請使用新密碼重新登入。</p>
   <form asp-action="Password" method="post" class="row">
@@ -155,3 +119,5 @@
     <button>變更並登出</button>
   </form>
 </section>
+</div>
+</div>

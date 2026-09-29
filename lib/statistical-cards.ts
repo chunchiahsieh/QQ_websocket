@@ -5,7 +5,7 @@ export function beadWinners(raw: string): Side[] {
   return raw.split('#').flatMap(column => {
     const cells = column.match(/0[123]/g) ?? [];
     return cells.map(cell => cell[1] as Side);
-  }).slice(-36);
+  });
 }
 
 export type CardSignal = { answer: '莊' | '閒' | '無訊號'; sample: number; banker: number; player: number; reason: string };

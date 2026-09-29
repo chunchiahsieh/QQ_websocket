@@ -9,7 +9,8 @@ public sealed record Account(Guid Id, string Username, string PasswordHash, bool
 public sealed record AccountView(Guid Id, string Username, bool Enabled, DateTimeOffset ExpiresAt);
 public sealed record PayoutSetting(string Code, string Name, decimal Amount, decimal BaseAmount, decimal CapAmount, bool Enabled);
 public sealed record PayoutRecord(Guid Id, string Username, string CategoryCode, string CategoryName, decimal Amount, DateTimeOffset CreatedAt);
-public sealed record PayoutSnapshot(List<PayoutSetting> Settings, List<PayoutRecord> Records);
+public sealed record ScheduledPayout(Guid Id, string Username, string CategoryCode, decimal Amount, DateTimeOffset ScheduledAt, DateTimeOffset CreatedAt);
+public sealed record PayoutSnapshot(List<PayoutSetting> Settings, List<PayoutRecord> Records, List<PayoutRecord> Announcements, long Revision);
 public sealed record AdminDashboardView(List<AccountView> Accounts, List<PayoutSetting> PayoutSettings, List<PayoutRecord> PayoutRecords);
 public sealed record FileData(int Version, string AdminName, string AdminHash, string AdminStamp, List<Account> Accounts);
 
@@ -18,6 +19,7 @@ public sealed class AccountStore : IDisposable
     readonly string file;
     readonly string payoutFile;
     readonly string payoutRecordsFile;
+    readonly string scheduledPayoutsFile;
     readonly string focusedTablesFile;
     readonly FileStream processLock;
     readonly object gate = new();
@@ -25,7 +27,7 @@ public sealed class AccountStore : IDisposable
     FileData data = null!;
     readonly string dummyHash;
     public AccountStore(string directory) {
-        Directory.CreateDirectory(directory); file = Path.Combine(directory, "accounts.json"); payoutFile = Path.Combine(directory, "payout-settings.json"); payoutRecordsFile = Path.Combine(directory, "payout-records.json"); focusedTablesFile = Path.Combine(directory, "focused-tables.json");
+        Directory.CreateDirectory(directory); file = Path.Combine(directory, "accounts.json"); payoutFile = Path.Combine(directory, "payout-settings.json"); payoutRecordsFile = Path.Combine(directory, "payout-records.json"); scheduledPayoutsFile = Path.Combine(directory, "scheduled-payouts.json"); focusedTablesFile = Path.Combine(directory, "focused-tables.json");
         // Exactly one writer process; a second instance fails rather than overwriting data.
         processLock = new FileStream(Path.Combine(directory,"writer.lock"), FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None);
         dummyHash = hasher.HashPassword("dummy", Convert.ToHexString(RandomNumberGenerator.GetBytes(32)));
@@ -47,15 +49,42 @@ public sealed class AccountStore : IDisposable
     }
     public bool IsAdminSession(string? stamp) { lock(gate) return stamp != null && stamp == data.AdminStamp; }
     public List<AccountView> List() { lock(gate) return data.Accounts.OrderBy(a=>a.Username).Select(a=>new AccountView(a.Id,a.Username,a.Enabled,a.ExpiresAt)).ToList(); }
-    public List<PayoutSetting> ListPayoutSettings() { lock (gate) return ReadPayoutSettings(); }
+    public List<PayoutSetting> ListPayoutSettings() { lock (gate) { AccrueAutomaticPayoutsUnsafe(); return ReadPayoutSettings(); } }
     public List<PayoutRecord> ListPayoutRecords(int limit = 100) {
-        lock (gate) return ReadPayoutRecords().OrderByDescending(item => item.CreatedAt).Take(Math.Clamp(limit, 1, 500)).ToList();
+        lock (gate) { return ReadPayoutRecords().OrderByDescending(item => item.CreatedAt).Take(Math.Clamp(limit, 1, 500)).ToList(); }
     }
+    public List<ScheduledPayout> ListScheduledPayouts() { lock (gate) { ProcessScheduledPayoutsUnsafe(); return ReadScheduledPayouts().OrderBy(item => item.ScheduledAt).ToList(); } }
     public PayoutSnapshot GetPayoutSnapshot(string? username = null, int limit = 50) {
         lock (gate) {
-            var records = ReadPayoutRecords().Where(item => string.IsNullOrWhiteSpace(username) || item.Username.Equals(username.Trim(), StringComparison.OrdinalIgnoreCase))
+            AccrueAutomaticPayoutsUnsafe();
+            var allRecords = ReadPayoutRecords().OrderByDescending(item => item.CreatedAt).ToList();
+            var records = allRecords.Where(item => string.IsNullOrWhiteSpace(username) || item.Username.Equals(username.Trim(), StringComparison.OrdinalIgnoreCase))
                 .OrderByDescending(item => item.CreatedAt).Take(Math.Clamp(limit, 1, 500)).ToList();
-            return new(ReadPayoutSettings(), records);
+            var revision = File.Exists(payoutFile)
+                ? new DateTimeOffset(File.GetLastWriteTimeUtc(payoutFile)).ToUnixTimeMilliseconds()
+                : DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+            return new(ReadPayoutSettings(), records, allRecords.Take(Math.Clamp(limit, 1, 500)).ToList(), revision);
+        }
+    }
+    public void SchedulePayout(string username, string code, decimal amount, DateTimeOffset scheduledAt) {
+        username = username.Trim(); code = code.Trim().ToUpperInvariant();
+        lock (gate) {
+            var account = data.Accounts.FirstOrDefault(item => item.Username.Equals(username, StringComparison.OrdinalIgnoreCase));
+            if (account is null || !account.Enabled || account.ExpiresAt <= DateTimeOffset.UtcNow) throw new ArgumentException("指定帳號不存在、已停用或已到期。");
+            var setting = ReadPayoutSettings().FirstOrDefault(item => item.Code.Equals(code, StringComparison.OrdinalIgnoreCase));
+            if (setting is null) throw new ArgumentException("派彩類別不存在。");
+            if (amount < setting.BaseAmount || amount > setting.CapAmount) throw new ArgumentException($"指定金額必須介於 {setting.BaseAmount:N2} 與 {setting.CapAmount:N2} 之間。");
+            if (scheduledAt <= DateTimeOffset.UtcNow) throw new ArgumentException("預計派彩時間必須晚於現在。");
+            var schedules = ReadScheduledPayouts();
+            schedules.Add(new(Guid.NewGuid(), account.Username, code, decimal.Round(amount, 2), scheduledAt.ToUniversalTime(), DateTimeOffset.UtcNow));
+            SaveScheduledPayouts(schedules);
+        }
+    }
+    public void CancelScheduledPayout(Guid id) {
+        lock (gate) {
+            var schedules = ReadScheduledPayouts();
+            if (!schedules.Any(item => item.Id == id)) throw new ArgumentException("找不到指定的待執行計畫。");
+            SaveScheduledPayouts(schedules.Where(item => item.Id != id).ToList());
         }
     }
     public Account? Login(string username, string password) {
@@ -128,10 +157,9 @@ public sealed class AccountStore : IDisposable
             Save(data with { Accounts = data.Accounts.Where(a => a.Id != id).ToList() });
         }
     }
-    public PayoutRecord AwardPayout(string username, string code, decimal amount) {
+    public PayoutRecord AwardPayout(string username, string code) {
         username = username.Trim(); code = code.Trim().ToUpperInvariant();
         ValidateName(username);
-        if (amount <= 0) throw new ArgumentException("派彩金額必須大於 0。");
         lock (gate) {
             var account = data.Accounts.FirstOrDefault(item => item.Username.Equals(username, StringComparison.OrdinalIgnoreCase));
             if (account is null) throw new ArgumentException("找不到指定的使用者帳號。");
@@ -139,11 +167,7 @@ public sealed class AccountStore : IDisposable
             var settings = ReadPayoutSettings();
             var setting = settings.FirstOrDefault(item => item.Code.Equals(code, StringComparison.OrdinalIgnoreCase));
             if (setting is null) throw new ArgumentException("派彩類別不存在。");
-            if (amount < setting.BaseAmount || amount > setting.CapAmount)
-                throw new ArgumentException($"派彩金額必須介於 {setting.BaseAmount:N2} 與 {setting.CapAmount:N2} 之間。");
-            if (amount < setting.Amount)
-                throw new ArgumentException($"派彩金額不可低於目前累積獎金 {setting.Amount:N2}。");
-            var record = new PayoutRecord(Guid.NewGuid(), account.Username, setting.Code, setting.Name, decimal.Round(amount, 2), DateTimeOffset.UtcNow);
+            var record = new PayoutRecord(Guid.NewGuid(), account.Username, setting.Code, setting.Name, decimal.Round(setting.Amount, 2), DateTimeOffset.UtcNow);
             var nextSettings = settings.Select(item => item.Code.Equals(setting.Code, StringComparison.OrdinalIgnoreCase)
                 ? item with { Amount = item.BaseAmount } : item).ToList();
             var previousRecords = ReadPayoutRecords();
@@ -205,6 +229,59 @@ public sealed class AccountStore : IDisposable
         if (!File.Exists(payoutRecordsFile)) return [];
         return JsonSerializer.Deserialize<List<PayoutRecord>>(File.ReadAllText(payoutRecordsFile)) ?? [];
     }
+    List<ScheduledPayout> ReadScheduledPayouts() {
+        if (!File.Exists(scheduledPayoutsFile)) return [];
+        return JsonSerializer.Deserialize<List<ScheduledPayout>>(File.ReadAllText(scheduledPayoutsFile)) ?? [];
+    }
+    void ProcessScheduledPayoutsUnsafe() {
+        var schedules = ReadScheduledPayouts();
+        var due = schedules.Where(item => item.ScheduledAt <= DateTimeOffset.UtcNow).OrderBy(item => item.ScheduledAt).ToList();
+        if (due.Count == 0) return;
+        var settings = ReadPayoutSettings();
+        var records = ReadPayoutRecords();
+        foreach (var schedule in due) {
+            var account = data.Accounts.FirstOrDefault(item => item.Username.Equals(schedule.Username, StringComparison.OrdinalIgnoreCase));
+            var setting = settings.FirstOrDefault(item => item.Code.Equals(schedule.CategoryCode, StringComparison.OrdinalIgnoreCase));
+            if (account is null || setting is null || !account.Enabled || account.ExpiresAt <= DateTimeOffset.UtcNow) continue;
+            var payoutAmount = schedule.Amount > 0 ? schedule.Amount : setting.Amount;
+            records.Insert(0, new(Guid.NewGuid(), account.Username, setting.Code, setting.Name, decimal.Round(payoutAmount, 2), DateTimeOffset.UtcNow));
+            settings = settings.Select(item => item.Code.Equals(setting.Code, StringComparison.OrdinalIgnoreCase) ? item with { Amount = item.BaseAmount } : item).ToList();
+        }
+        SavePayoutRecords(records.Take(1000).ToList());
+        SavePayout(settings);
+        SaveScheduledPayouts(schedules.Where(item => item.ScheduledAt > DateTimeOffset.UtcNow).ToList());
+    }
+    void AccrueAutomaticPayoutsUnsafe() {
+        if (!File.Exists(payoutFile)) { SavePayout(DefaultPayoutSettings()); return; }
+        var lastWrite = File.GetLastWriteTimeUtc(payoutFile);
+        var elapsedSeconds = Math.Max(0, (DateTime.UtcNow - lastWrite).TotalSeconds);
+        if (elapsedSeconds < 1) return;
+        var nowTaipei = TimeZoneInfo.ConvertTime(DateTimeOffset.UtcNow, TimeZoneInfo.FindSystemTimeZoneById(OperatingSystem.IsWindows() ? "Taipei Standard Time" : "Asia/Taipei"));
+        var range = nowTaipei.Hour < 6 ? (80m, 180m) : nowTaipei.Hour < 12 ? (180m, 350m) : nowTaipei.Hour < 18 ? (350m, 650m) : (650m, 1200m);
+        var progressOfWindow = ((nowTaipei.Minute * 60m + nowTaipei.Second) % 300m) / 300m;
+        var speed = (range.Item1 + (range.Item2 - range.Item1) * progressOfWindow) / 86m;
+        var rates = new Dictionary<string, decimal>(StringComparer.OrdinalIgnoreCase) {
+            ["GRAND"] = 0.21m / 1.2m, ["MAJOR"] = 0.12m / 0.9m, ["MINOR"] = 0.06m / 0.65m, ["MINI"] = 0.03m / 0.45m,
+        };
+        var settings = ReadPayoutSettings();
+        var records = ReadPayoutRecords();
+        var updated = new List<PayoutSetting>(settings.Count);
+        foreach (var setting in settings) {
+            var cycleSize = setting.CapAmount - setting.BaseAmount;
+            var accrued = rates.GetValueOrDefault(setting.Code) * speed * (decimal)elapsedSeconds;
+            var total = Math.Max(0, setting.Amount - setting.BaseAmount) + accrued;
+            var completed = cycleSize > 0 ? (int)decimal.Floor(total / cycleSize) : 0;
+            for (var cycle = 0; cycle < Math.Min(completed, 100); cycle++) {
+                string winner;
+                do { winner = $"幸運玩家{RandomNumberGenerator.GetInt32(100, 1000)}***"; }
+                while (data.Accounts.Any(account => account.Username.Equals(winner, StringComparison.OrdinalIgnoreCase)));
+                records.Insert(0, new(Guid.NewGuid(), winner, setting.Code, setting.Name, setting.CapAmount, DateTimeOffset.UtcNow));
+            }
+            updated.Add(setting with { Amount = setting.BaseAmount + (cycleSize > 0 ? total % cycleSize : 0) });
+        }
+        SavePayoutRecords(records.Take(1000).ToList());
+        SavePayout(updated);
+    }
     static void ValidateName(string name) { if(!Regex.IsMatch(name,@"^[a-zA-Z0-9_.-]{3,64}$")) throw new ArgumentException("帳號須為 3–64 位英數字、底線、句點或減號。"); }
     static void ValidatePassword(string? value) { if(value is null || value.Length<6 || value.Length>128) throw new ArgumentException("密碼須為 6–128 個字元。"); }
     static void ValidateAdminPassword(string? value) { if(value is null || value.Length<4 || value.Length>128) throw new ArgumentException("管理員密碼須為 4–128 個字元。"); }
@@ -235,6 +312,15 @@ public sealed class AccountStore : IDisposable
                 JsonSerializer.Serialize(stream, next, new JsonSerializerOptions { WriteIndented = true }); stream.Flush(true);
             }
             if (File.Exists(payoutRecordsFile)) File.Replace(temporary, payoutRecordsFile, payoutRecordsFile + ".bak"); else File.Move(temporary, payoutRecordsFile);
+        } finally { if (File.Exists(temporary)) File.Delete(temporary); }
+    }
+    void SaveScheduledPayouts(List<ScheduledPayout> next) {
+        var temporary = scheduledPayoutsFile + "." + Guid.NewGuid().ToString("N") + ".tmp";
+        try {
+            using (var stream = new FileStream(temporary, FileMode.CreateNew, FileAccess.Write, FileShare.None)) {
+                JsonSerializer.Serialize(stream, next, new JsonSerializerOptions { WriteIndented = true }); stream.Flush(true);
+            }
+            if (File.Exists(scheduledPayoutsFile)) File.Replace(temporary, scheduledPayoutsFile, scheduledPayoutsFile + ".bak"); else File.Move(temporary, scheduledPayoutsFile);
         } finally { if (File.Exists(temporary)) File.Delete(temporary); }
     }
     public void Dispose() => processLock.Dispose();

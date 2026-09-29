@@ -86,7 +86,7 @@ const payoutPools = [
   { code: 'MINOR', name: 'EXTRA POWER', amount: 12842.58, base: 5000, cap: 20000, color: 'from-blue-950/90 to-cyan-800/70', border: 'border-amber-300/60', menu: 'border-blue-400/60 bg-blue-950/35', bar: 'bg-blue-400' },
   { code: 'MINI', name: 'POWER', amount: 2841.16, base: 1000, cap: 5000, color: 'from-emerald-950/90 to-green-800/70', border: 'border-amber-300/60', menu: 'border-emerald-400/60 bg-emerald-950/35', bar: 'bg-emerald-400' },
 ] as const;
-const payoutAnnouncements = [
+const payoutAnnouncements: readonly (readonly [string, string, string])[] = [
   ['GRAND', '恭喜 win*** 取得 GRAND 派彩 $323,346.67', '2025/11/08 14:32:08'],
   ['GRAND', '恭喜 kev*** 取得 GRAND 派彩 $298,201.05', '2026/03/16 20:52:17'],
   ['MAJOR', '恭喜 ann*** 取得 MAJOR 派彩 $86,214.32', '2026/05/18 11:07:41'],
@@ -98,6 +98,7 @@ const payoutAnnouncements = [
   ['MINI', '恭喜 vic*** 取得 MINI 派彩 $3,104.55', '2026/09/18 14:05:06'],
   ['MINOR', '恭喜 sam*** 取得 MINOR 派彩 $9,101.00', '2026/09/18 13:12:54'],
 ] as const;
+const automaticWinnerNames = ['win***', 'kev***', 'ann***', 'lin***', 'ale***', 'jam***', 'use***', 'tom***'];
 
 const poolTone = (code: string) => {
   if (code === 'GRAND') return 'from-red-950/90 to-rose-800/70';
@@ -139,13 +140,97 @@ const taipeiOnlineUsers = () => {
   return Math.floor(range[0] + (range[1] - range[0]) * progress);
 };
 
-function PayoutFeature() {
+const payoutStorageKey = 'jshen-payout-pools-v1';
+type PayoutAnchor = { amounts: number[]; updatedAt: number };
+
+function usePersistentPayoutAmounts() {
+  const [anchor, setAnchor] = useState<PayoutAnchor>(() => ({ amounts: payoutPools.map(pool => pool.amount), updatedAt: Date.now() }));
   const [amounts, setAmounts] = useState<number[]>(() => payoutPools.map(pool => pool.amount));
+  const [automaticPayouts, setAutomaticPayouts] = useState<(readonly [string, string, string])[]>([]);
+
   useEffect(() => {
-    const speed = taipeiOnlineUsers() / 86;
-    const timers = [1200, 900, 650, 450].map((interval, index) => setInterval(() => setAmounts(current => current.map((amount, item) => item === index ? Math.min(payoutPools[item].cap, amount + [0.21, 0.12, 0.06, 0.03][item] * speed) : amount)), interval));
-    return () => timers.forEach(clearInterval);
+    let next: PayoutAnchor | undefined;
+    try {
+      const stored = window.localStorage.getItem(payoutStorageKey);
+      if (stored) {
+        const parsed = JSON.parse(stored) as Partial<PayoutAnchor>;
+        if (Array.isArray(parsed.amounts) && parsed.amounts.length === payoutPools.length
+          && parsed.amounts.every(value => typeof value === 'number' && Number.isFinite(value))
+          && typeof parsed.updatedAt === 'number' && Number.isFinite(parsed.updatedAt)) {
+          next = { amounts: parsed.amounts, updatedAt: parsed.updatedAt };
+        }
+      }
+    } catch { /* Use a fresh anchor if browser storage is unavailable or invalid. */ }
+    next ??= { amounts: payoutPools.map(pool => pool.amount), updatedAt: Date.now() };
+    setAnchor(next);
+    try { window.localStorage.setItem(payoutStorageKey, JSON.stringify(next)); } catch { /* Display can still continue in memory. */ }
   }, []);
+
+  useEffect(() => {
+    const abort = new AbortController();
+    let inFlight = false;
+    const synchronize = async () => {
+      if (inFlight || abort.signal.aborted) return;
+      inFlight = true;
+      try {
+        const response = await fetch('/api/payouts', { cache: 'no-store', signal: abort.signal });
+        if (!response.ok) return;
+        const payload = await response.json() as { revision?: number | null; pools?: { code?: string; amount?: number }[] };
+        const revision = Number(payload.revision);
+        if (!Number.isFinite(revision) || !Array.isArray(payload.pools)) return;
+        const serverAmounts = payoutPools.map(pool => {
+          const match = payload.pools!.find(item => item.code?.toUpperCase() === pool.code);
+          return typeof match?.amount === 'number' && Number.isFinite(match.amount) ? match.amount : pool.amount;
+        });
+        setAnchor(current => {
+          if (current.updatedAt === revision) return current;
+          const next = { amounts: serverAmounts, updatedAt: revision };
+          try { window.localStorage.setItem(payoutStorageKey, JSON.stringify(next)); } catch { /* Continue in memory. */ }
+          return next;
+        });
+      } catch { /* Keep the last valid local anchor until the account service recovers. */ }
+      finally { inFlight = false; }
+    };
+    void synchronize();
+    const timer = window.setInterval(() => { void synchronize(); }, 5000);
+    return () => { abort.abort(); window.clearInterval(timer); };
+  }, []);
+
+  useEffect(() => {
+    const update = () => {
+      const elapsedSeconds = Math.max(0, (Date.now() - anchor.updatedAt) / 1000);
+      const speed = taipeiOnlineUsers() / 86;
+      const rates = [0.21 / 1.2, 0.12 / 0.9, 0.06 / 0.65, 0.03 / 0.45];
+      const records: (readonly [string, string, string])[] = [];
+      setAmounts(anchor.amounts.map((amount, index) => {
+        const pool = payoutPools[index];
+        const cycleSize = pool.cap - pool.base;
+        const accrued = rates[index] * speed * elapsedSeconds;
+        const progress = Math.max(0, amount - pool.base) + accrued;
+        const completedCycles = Math.floor(progress / cycleSize);
+        const shownCycles = Math.min(completedCycles, 20);
+        for (let cycle = completedCycles - shownCycles + 1; cycle <= completedCycles; cycle += 1) {
+          if (cycle < 1) continue;
+          const secondsToPayout = (cycle * cycleSize - Math.max(0, amount - pool.base)) / Math.max(0.0001, rates[index] * speed);
+          const paidAt = new Date(anchor.updatedAt + secondsToPayout * 1000);
+          const winner = automaticWinnerNames[(index * 3 + cycle) % automaticWinnerNames.length];
+          records.push([pool.code, `恭喜 ${winner} 取得 ${pool.code} 派彩 $${pool.cap.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`, paidAt.toLocaleString('sv-SE', { timeZone: 'Asia/Taipei' })]);
+        }
+        return pool.base + (progress % cycleSize);
+      }));
+      setAutomaticPayouts(records.sort((left, right) => Date.parse(right[2].replace(' ', 'T')) - Date.parse(left[2].replace(' ', 'T'))));
+    };
+    update();
+    const timer = window.setInterval(update, 500);
+    return () => window.clearInterval(timer);
+  }, [anchor]);
+
+  return { amounts, automaticPayouts };
+}
+
+function PayoutFeature() {
+  const { amounts, automaticPayouts } = usePersistentPayoutAmounts();
+  const announcements = [...automaticPayouts, ...payoutAnnouncements];
   return (
     <section className="overflow-hidden rounded-2xl border border-[#86632f]/45 bg-[#0d0b08]/95 shadow-[0_24px_70px_rgba(0,0,0,.42)]">
       <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[#5d451f]/55 bg-[#100d08]/80 px-5 py-4 sm:px-6">
@@ -160,18 +245,13 @@ function PayoutFeature() {
           <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-white/15"><div className={`h-full rounded-full transition-[width] duration-500 ${poolBarTone(pool.code)}`} style={{ width: `${Math.min(100, (amounts[index] / pool.cap) * 100)}%` }} /></div>
         </article>)}
       </div>
-      <div className="border-t border-[#5d451f]/45 p-4 sm:p-6"><div className="rounded-xl border border-[#765728]/35 bg-black/20 p-4"><div className="mb-3 flex items-center gap-2 text-sm font-semibold text-[#f3dfb4]"><Bell className="h-4 w-4 text-[#f0ce83]" />近期派彩公告 <span className="rounded border border-[#765728]/50 px-1.5 py-0.5 text-[10px] text-[#c9a55e]">四類 · 各類依時間排序</span></div><div className="grid gap-4 md:grid-cols-2">{(['GRAND', 'MAJOR', 'MINOR', 'MINI'] as const).map(code => <div key={code} className={`rounded-lg border p-3 ${announcementTone(code)}`}><h3 className="mb-2 text-xs font-bold tracking-[.16em]">{code}</h3><div className="grid gap-2">{payoutAnnouncements.filter(([pool]) => pool === code).sort((a, b) => Date.parse(b[2].replace(' ', 'T')) - Date.parse(a[2].replace(' ', 'T'))).map(([pool, message, time]) => <div key={`${pool}-${time}`} className="flex flex-wrap items-center justify-between gap-2 rounded border border-white/10 bg-black/15 px-2.5 py-2 text-xs"><span className="min-w-0 flex-1">{message}</span><time className="ml-2 whitespace-nowrap opacity-75">{time}</time></div>)}</div></div>)}</div></div></div>
+      <div className="border-t border-[#5d451f]/45 p-4 sm:p-6"><div className="rounded-xl border border-[#765728]/35 bg-black/20 p-4"><div className="mb-3 flex items-center gap-2 text-sm font-semibold text-[#f3dfb4]"><Bell className="h-4 w-4 text-[#f0ce83]" />近期派彩公告 <span className="rounded border border-[#765728]/50 px-1.5 py-0.5 text-[10px] text-[#c9a55e]">四類 · 各類依時間排序</span></div><div className="grid gap-4 md:grid-cols-2">{(['GRAND', 'MAJOR', 'MINOR', 'MINI'] as const).map(code => <div key={code} className={`rounded-lg border p-3 ${announcementTone(code)}`}><h3 className="mb-2 text-xs font-bold tracking-[.16em]">{code}</h3><div className="grid gap-2">{announcements.filter(([pool]) => pool === code).sort((a, b) => Date.parse(b[2].replace(' ', 'T')) - Date.parse(a[2].replace(' ', 'T'))).slice(0, 10).map(([pool, message, time]) => <div key={`${pool}-${time}-${message}`} className="flex flex-wrap items-center justify-between gap-2 rounded border border-white/10 bg-black/15 px-2.5 py-2 text-xs"><span className="min-w-0 flex-1">{message}</span><time className="ml-2 whitespace-nowrap opacity-75">{time}</time></div>)}</div></div>)}</div></div></div>
     </section>
   );
 }
 
 function PoolMenuCards() {
-  const [amounts, setAmounts] = useState<number[]>(() => payoutPools.map(pool => pool.amount));
-  useEffect(() => {
-    const speed = taipeiOnlineUsers() / 86;
-    const timers = [1200, 900, 650, 450].map((interval, index) => setInterval(() => setAmounts(current => current.map((amount, item) => item === index ? Math.min(payoutPools[item].cap, amount + [0.21, 0.12, 0.06, 0.03][item] * speed) : amount)), interval));
-    return () => timers.forEach(clearInterval);
-  }, []);
+  const { amounts } = usePersistentPayoutAmounts();
   return <div className="mt-2 rounded-xl border border-[#765728]/45 bg-black/15 p-2.5" aria-label="獎池摘要"><div className="mb-2 px-1 text-xs font-semibold tracking-wide text-[#f0ce83]">獎池</div><div className="grid gap-2">
     {payoutPools.map((pool, index) => <div key={pool.code} className="flex min-h-[58px] flex-col justify-center rounded-lg border border-transparent px-3 py-3 text-sm text-slate-400 transition hover:border-cyan-400/30 hover:bg-cyan-400/5">
       <div className="flex items-center justify-between gap-2"><span className={`font-bold tracking-[.16em] ${poolTextTone(pool.code)}`}>{pool.code}</span></div>
@@ -232,17 +312,19 @@ function FocusedTableCompare({ tablesByPlatform, connectedByPlatform, selected, 
       ) : (
         <div className={`grid gap-3 p-3 ${cardGridColumns[cardsPerRow]}`}>
           {selected.map((key, index) => {
-            const [source, id] = key.split('::');
+            const [source, id, instanceId] = key.split('::');
             const typedSource = source as 'MT' | 'DG' | 'AB';
             const table = tablesByPlatform[typedSource]?.find(item => item.id === id || item.name === id);
             const label = source === 'AB' ? '歐博' : source;
+            const legacyOccurrence = selected.slice(0, index).filter(item => item === key).length;
+            const storageScope = instanceId ? `focused:${instanceId}` : `focused:${source}:${id}:${legacyOccurrence}`;
             return (
-              <div key={`${key}-${index}`} onDragOver={event => event.preventDefault()} onDrop={() => { if (dragIndex !== null && dragIndex !== index) moveTable(dragIndex, index); setDragIndex(null); }} className="min-w-0">
+              <div key={instanceId ? key : `${key}-${index}`} onDragOver={event => event.preventDefault()} onDrop={() => { if (dragIndex !== null && dragIndex !== index) moveTable(dragIndex, index); setDragIndex(null); }} className="min-w-0">
                 <div className="mb-1 flex justify-end gap-1">
                   <div draggable onDragStart={() => setDragIndex(index)} title="拖曳排序" aria-label="拖曳排序" className="flex h-7 w-7 cursor-grab select-none items-center justify-center rounded border border-cyan-300/30 text-sm text-cyan-200 active:cursor-grabbing">⠿</div>
                   <button type="button" onClick={() => removeTable(index)} title={`移除 ${label} ${id}`} className="flex h-7 w-7 items-center justify-center rounded border border-rose-300/45 text-sm font-semibold text-rose-200 hover:bg-rose-500/15" aria-label={`移除 ${label} ${id}`}>×</button>
                 </div>
-                {table ? <BaccaratTableCard table={table} connected={connectedByPlatform[typedSource]} platformLabel={label} onFocusTable={onFocusTable} /> : <div className="rounded-lg border border-amber-300/30 bg-amber-300/10 p-4 text-sm text-amber-100">{key.replace('::', ' · ')} 尚未收到串流資料，請先切換至對應平台取得資料。</div>}
+                {table ? <BaccaratTableCard table={table} connected={connectedByPlatform[typedSource]} platformLabel={label} onFocusTable={onFocusTable} storageScope={storageScope} /> : <div className="rounded-lg border border-amber-300/30 bg-amber-300/10 p-4 text-sm text-amber-100">{`${source} · ${id}`} 尚未收到串流資料，請先切換至對應平台取得資料。</div>}
               </div>
             );
           })}
@@ -535,6 +617,178 @@ const releaseMtLease = (key: string, owner: string) => {
   try { if (readMtLease(key)?.owner === owner) localStorage.removeItem(key); } catch { /* storage may be unavailable */ }
 };
 
+type UserPayoutNotice = {
+  id: string;
+  username: string;
+  categoryCode: string;
+  categoryName: string;
+  amount: number;
+  createdAt: string;
+  isCurrentUser?: boolean;
+};
+
+function PayoutWinnerNotification() {
+  const [notice, setNotice] = useState<UserPayoutNotice | null>(null);
+  const noticeRef = useRef<UserPayoutNotice | null>(null);
+  const accountRef = useRef('');
+
+  useEffect(() => { noticeRef.current = notice; }, [notice]);
+  useEffect(() => {
+    const abort = new AbortController();
+    let inFlight = false;
+    const poll = async () => {
+      if (inFlight || abort.signal.aborted || noticeRef.current) return;
+      inFlight = true;
+      try {
+        const response = await fetch('/api/payouts', { cache: 'no-store', signal: abort.signal });
+        if (!response.ok) return;
+        const payload = await response.json() as { accountUsername?: string | null; payouts?: UserPayoutNotice[] };
+        const account = payload.accountUsername?.trim() ?? '';
+        if (!account || !Array.isArray(payload.payouts)) return;
+        accountRef.current = account;
+        const storageKey = `jshen-seen-payouts:${account.toLowerCase()}`;
+        let seen: string[] = [];
+        try { seen = JSON.parse(window.localStorage.getItem(storageKey) || '[]') as string[]; } catch { seen = []; }
+        const next = [...payload.payouts]
+          .filter(item => item && typeof item.id === 'string' && !seen.includes(item.id))
+          .sort((left, right) => Date.parse(left.createdAt) - Date.parse(right.createdAt))[0];
+        if (next) setNotice(next);
+      } catch { /* Notification polling retries while the signed-in page remains open. */ }
+      finally { inFlight = false; }
+    };
+    void poll();
+    const timer = window.setInterval(() => { void poll(); }, 10000);
+    return () => { abort.abort(); window.clearInterval(timer); };
+  }, []);
+
+  const dismiss = () => {
+    if (!notice) return;
+    const account = accountRef.current || notice.username;
+    const storageKey = `jshen-seen-payouts:${account.toLowerCase()}`;
+    try {
+      const seen = JSON.parse(window.localStorage.getItem(storageKey) || '[]') as string[];
+      window.localStorage.setItem(storageKey, JSON.stringify([...new Set([...seen, notice.id])].slice(-200)));
+    } catch { /* Acknowledge for this page even when storage is unavailable. */ }
+    setNotice(null);
+  };
+
+  if (!notice) return null;
+  return <div className="fixed inset-0 z-[200] grid place-items-center bg-black/65 px-4 backdrop-blur-sm" role="dialog" aria-modal="true" aria-label="中獎通知">
+    <section className="w-full max-w-md overflow-hidden rounded-2xl border-2 border-amber-300 bg-gradient-to-b from-[#33230b] to-[#100b05] text-center shadow-[0_24px_90px_rgba(245,183,54,.35)]">
+      <div className="border-b border-amber-300/30 bg-amber-300/10 px-6 py-5">
+        <Gift className="mx-auto h-10 w-10 text-amber-300" />
+        <h2 className="mt-3 text-2xl font-black tracking-wide text-amber-100">恭喜中獎！</h2>
+      </div>
+      <div className="px-6 py-6">
+        <p className="text-sm text-amber-200/80">您獲得 {notice.categoryCode} · {notice.categoryName}</p>
+        <p className="mt-3 text-3xl font-black tabular-nums text-[#fff2b6]">${Number(notice.amount).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
+        <p className="mt-4 text-sm font-semibold text-amber-100">請截圖給管理員，確認派彩。</p>
+        <button type="button" onClick={dismiss} className="mt-6 h-11 min-w-36 rounded-lg bg-gradient-to-b from-[#f3d98e] to-[#bd8734] px-6 font-bold text-[#241606] hover:brightness-110">知道了</button>
+      </div>
+    </section>
+  </div>;
+}
+
+function PayoutBroadcastNotification() {
+  const [notice, setNotice] = useState<UserPayoutNotice | null>(null);
+  const latestId = useRef<string | null>(null);
+  useEffect(() => {
+    const abort = new AbortController();
+    let inFlight = false;
+    const poll = async () => {
+      if (inFlight || abort.signal.aborted) return;
+      inFlight = true;
+      try {
+        const response = await fetch('/api/payouts', { cache: 'no-store', signal: abort.signal });
+        if (!response.ok) return;
+        const payload = await response.json() as { accountUsername?: string | null; announcements?: UserPayoutNotice[] };
+        const announcements = Array.isArray(payload.announcements) ? payload.announcements : [];
+        const newest = announcements[0];
+        if (!newest?.id) return;
+        const account = payload.accountUsername?.trim().toLowerCase() ?? '';
+        const important = announcements.find(item => item.categoryCode === 'GRAND' || item.categoryCode === 'MAJOR');
+        const importantStorageKey = account ? `jshen-seen-important-payouts:${account}` : '';
+        const hasSeenImportant = (id: string) => {
+          if (!importantStorageKey) return true;
+          try {
+            const seen = JSON.parse(window.localStorage.getItem(importantStorageKey) || '[]') as string[];
+            return seen.includes(id);
+          } catch { return false; }
+        };
+        const rememberImportant = (id: string) => {
+          if (!importantStorageKey) return;
+          try {
+            const seen = JSON.parse(window.localStorage.getItem(importantStorageKey) || '[]') as string[];
+            window.localStorage.setItem(importantStorageKey, JSON.stringify([...new Set([...seen, id])].slice(-200)));
+          } catch { /* The current page still shows the notice when storage is unavailable. */ }
+        };
+        if (latestId.current === null) {
+          latestId.current = newest.id;
+          // GRAND and MAJOR remain available for the user's first later login.
+          // Smaller pools are intentionally live-only and are not replayed.
+          if (important?.id && !important.isCurrentUser && !hasSeenImportant(important.id)) {
+            rememberImportant(important.id);
+            setNotice(important);
+          }
+          return;
+        }
+        if (latestId.current !== newest.id) {
+          latestId.current = newest.id;
+          if (newest.categoryCode === 'GRAND' || newest.categoryCode === 'MAJOR') rememberImportant(newest.id);
+          if (!newest.isCurrentUser) setNotice(newest);
+        }
+      } catch { /* Retry while the signed-in page remains open. */ }
+      finally { inFlight = false; }
+    };
+    void poll();
+    const timer = window.setInterval(() => { void poll(); }, 5000);
+    return () => { abort.abort(); window.clearInterval(timer); };
+  }, []);
+  useEffect(() => {
+    if (!notice) return;
+    let audio: AudioContext | null = null;
+    let audioTimer: number | undefined;
+    try {
+      if (window.AudioContext) {
+        audio = new window.AudioContext();
+        [523.25, 659.25, 783.99].forEach((frequency, index) => {
+          const oscillator = audio!.createOscillator();
+          const gain = audio!.createGain();
+          const startsAt = audio!.currentTime + index * 0.14;
+          oscillator.frequency.value = frequency;
+          oscillator.type = 'sine';
+          gain.gain.setValueAtTime(0.0001, startsAt);
+          gain.gain.exponentialRampToValueAtTime(0.16, startsAt + 0.025);
+          gain.gain.exponentialRampToValueAtTime(0.0001, startsAt + 0.34);
+          oscillator.connect(gain).connect(audio!.destination);
+          oscillator.start(startsAt);
+          oscillator.stop(startsAt + 0.36);
+        });
+        audioTimer = window.setTimeout(() => { void audio?.close(); }, 1000);
+      }
+    } catch { /* Browsers may block sound until the user has interacted with the page. */ }
+    return () => {
+      if (audioTimer) window.clearTimeout(audioTimer);
+      if (audio?.state !== 'closed') void audio?.close();
+    };
+  }, [notice]);
+  if (!notice) return null;
+  return <div className="fixed inset-0 z-[190] grid place-items-center overflow-hidden bg-black/70 px-4 backdrop-blur-sm" role="dialog" aria-modal="true" aria-label="全站中獎快訊">
+    <div aria-hidden="true" className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_center,rgba(251,191,36,.24),transparent_58%)] animate-pulse" />
+    <section className="relative w-full max-w-lg overflow-hidden rounded-2xl border-2 border-amber-300 bg-gradient-to-b from-[#3d2b0c] via-[#211607] to-[#0e0a04] text-center shadow-[0_24px_100px_rgba(245,183,54,.48)]">
+      <div className="border-b border-amber-300/35 bg-amber-300/10 px-6 py-6">
+        <Gift className="mx-auto h-12 w-12 animate-bounce text-amber-300" />
+        <h2 className="mt-3 text-3xl font-black tracking-wide text-amber-50">恭喜玩家中獎！</h2>
+      </div>
+      <div className="px-6 py-7">
+        <p className="text-lg font-bold text-amber-200">{notice.username}獲得 {notice.categoryCode} · {notice.categoryName}</p>
+        <p className="mt-2 text-4xl font-black tabular-nums text-[#fff2b6]">${Number(notice.amount).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
+        <button type="button" onClick={() => setNotice(null)} className="mt-7 h-11 min-w-40 rounded-lg border border-amber-200/40 bg-amber-300/10 px-6 font-bold text-amber-50 hover:bg-amber-300/20">關閉</button>
+      </div>
+    </section>
+  </div>;
+}
+
 export default function Home() {
   const socket = useRef<WebSocket | null>(null);
   const pollTimer = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -750,7 +1004,8 @@ export default function Home() {
 
   const focusTable = useCallback((table: TableInfo) => {
     const source = table.id.startsWith('DG:') ? 'DG' : table.id.startsWith('AB:') ? 'AB' : 'MT';
-    updateFocusedTables([...focusedTablesRef.current, `${source}::${table.id}`]);
+    const instanceId = createBrowserUuid().replaceAll('-', '');
+    updateFocusedTables([...focusedTablesRef.current, `${source}::${table.id}::${instanceId}`]);
   }, [updateFocusedTables]);
 
   const disconnect = () => {
@@ -1275,6 +1530,8 @@ export default function Home() {
 
   return (
     <main className="ofa-shell min-h-screen text-[#f7edda]">
+      <PayoutWinnerNotification />
+      <PayoutBroadcastNotification />
       <div className={`min-h-screen lg:grid ${menuCollapsed ? 'lg:grid-cols-[78px_minmax(0,1fr)]' : 'lg:grid-cols-[250px_minmax(0,1fr)]'}`}>
         <aside className="border-b border-[#86632f]/35 bg-[#0a0806]/95 px-3 py-3 lg:sticky lg:top-0 lg:h-screen lg:border-b-0 lg:border-r lg:px-5 lg:py-7">
           <div className={`flex items-center gap-3 ${menuCollapsed ? 'justify-center' : 'px-2'}`}>

@@ -49,7 +49,24 @@ public sealed class InternalController(AccountStore store,IConfiguration config)
     [HttpPost("payouts"),RequestSizeLimit(4096)] public IActionResult Payouts(PayoutsInput? input) {
         if(!Authorized()) return StatusCode(StatusCodes.Status403Forbidden);
         var snapshot = store.GetPayoutSnapshot(input?.Username);
-        return Ok(new { pools = snapshot.Settings, payouts = snapshot.Records });
+        // Global announcements are visible to every online viewer. Only expose
+        // the first two username characters; the winner's private payout keeps
+        // the full username in `payouts` so they can identify their own award.
+        var announcements = snapshot.Announcements.Select(record => new {
+            record.Id,
+            Username = MaskUsername(record.Username),
+            record.CategoryCode,
+            record.CategoryName,
+            record.Amount,
+            record.CreatedAt,
+            IsCurrentUser = !string.IsNullOrWhiteSpace(input?.Username)
+                && string.Equals(record.Username, input.Username, StringComparison.OrdinalIgnoreCase)
+        });
+        return Ok(new { pools = snapshot.Settings, payouts = snapshot.Records, announcements, revision = snapshot.Revision });
+    }
+    static string MaskUsername(string username) {
+        var prefix = string.Concat(username.EnumerateRunes().Take(2));
+        return $"{prefix}***";
     }
     [HttpPost("focused-tables"), RequestSizeLimit(16384)]
     public IActionResult FocusedTables(FocusedTablesInput input) {

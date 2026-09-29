@@ -78,7 +78,7 @@ export const BaccaratRoad = memo(function BaccaratRoad({ raw = '', kind, columnL
             <text x={x + 5} y={y - 4} fill="#168235" fontSize="6">{ties}</text></>}
           {isMarker && <>
             <circle cx={x} cy={y} r={radius + 1.5} fill="white" stroke={marker.color} strokeWidth="2" strokeDasharray="3 2" />
-            <text x={x} y={y} textAnchor="middle" dominantBaseline="central" fill={marker.color} fontSize={kind === 'big' ? 8 : 10} fontWeight="bold">{marker.text}</text>
+            <text x={x} y={y} textAnchor="middle" dominantBaseline="central" fill={marker.color} fontSize={kind === 'big' ? (marker.text.length > 2 ? 5.5 : 7) : 10} fontWeight="bold">{marker.text}</text>
             <title>{marker.label ?? 'AI預測位置'}</title>
           </>}
         </g>;
