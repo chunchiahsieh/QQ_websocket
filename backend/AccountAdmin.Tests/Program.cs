@@ -64,6 +64,28 @@ try {
     using (var history = JsonDocument.Parse(JsonSerializer.Serialize(store.RoadHistory("DG", "B02"))))
         Check(history.RootElement.GetProperty("outcomes").GetArrayLength() == 3, "Advancing count must preserve indistinguishable repeated road round");
     Console.WriteLine("PASS: shared feed lease, freshness, and de-duplicated per-shoe road history");
+    var accountDirectory = Path.Combine(directory, "accounts");
+    Guid firstId;
+    string firstStamp;
+    using (var accounts = new AccountStore(accountDirectory)) {
+        accounts.Initialize("admin", "admin-pass");
+        accounts.Create("viewer-one", "secret-one", DateTimeOffset.UtcNow.AddDays(1));
+        accounts.Create("viewer-two", "secret-two", DateTimeOffset.UtcNow.AddDays(1));
+        var firstAccount = accounts.Login("viewer-one", "secret-one")!;
+        var secondAccount = accounts.Login("viewer-two", "secret-two")!;
+        firstId = firstAccount.Id; firstStamp = firstAccount.Stamp;
+        accounts.SetFocusedTables(firstId, firstStamp, ["MT::B01", "DG::DG:RB01", "MT::B01"]);
+        Check(accounts.GetFocusedTables(firstId, firstStamp).SequenceEqual(["MT::B01", "DG::DG:RB01", "MT::B01"]),
+            "Focused table order and duplicates must be retained");
+        Check(accounts.GetFocusedTables(secondAccount.Id, secondAccount.Stamp).Count == 0,
+            "Focused tables must be isolated by account");
+    }
+    using (var accounts = new AccountStore(accountDirectory)) {
+        accounts.Initialize("admin", null);
+        Check(accounts.GetFocusedTables(firstId, firstStamp).Count == 3,
+            "Focused tables must persist across restarts");
+    }
+    Console.WriteLine("PASS: focused tables persist and are isolated by account");
 }
 finally {
     try { Directory.Delete(directory, recursive: true); } catch { }
