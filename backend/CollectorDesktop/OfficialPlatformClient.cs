@@ -18,18 +18,27 @@ public sealed class OfficialPlatformClient : IDisposable
 
     public async Task<(string MtUrl, string DgUrl)> AuthorizeAsync(CancellationToken ct)
     {
+        var token = await LoginAsync(ct);
+        var mt = await AuthorizeGameAsync(token, "MTLI", ct);
+        var dg = await AuthorizeGameAsync(token, "DGLI", ct);
+        return (mt, dg);
+    }
+
+    // Kept separately so the desktop collector can keep one official member
+    // session while refreshing only the platform whose short-lived game URL
+    // has expired.
+    public async Task<string> LoginAsync(CancellationToken ct)
+    {
         if (string.IsNullOrWhiteSpace(settings.Username) || string.IsNullOrWhiteSpace(settings.Password))
             throw new InvalidOperationException("請先填寫採集帳號與密碼。");
         using var login = await http.PostAsJsonAsync("api/v1/login", new { username = settings.Username, password = settings.Password, device_id = settings.DeviceId }, ct);
         using var loginJson = JsonDocument.Parse(await login.Content.ReadAsStreamAsync(ct));
         var token = FindText(loginJson.RootElement, "token") ?? FindText(loginJson.RootElement, "access_token");
         if (!login.IsSuccessStatusCode || string.IsNullOrWhiteSpace(token)) throw new InvalidOperationException($"官方登入失敗（HTTP {(int)login.StatusCode}）。");
-        var mt = await AuthorizeGameAsync(token, "MTLI", ct);
-        var dg = await AuthorizeGameAsync(token, "DGLI", ct);
-        return (mt, dg);
+        return token;
     }
 
-    async Task<string> AuthorizeGameAsync(string token, string code, CancellationToken ct)
+    public async Task<string> AuthorizeGameAsync(string token, string code, CancellationToken ct)
     {
         using var request = new HttpRequestMessage(HttpMethod.Post, $"api/v2/game/{code}/login") {
             Content = JsonContent.Create(new { game_return_url = settings.OfficialUrl, game_kind = "", game_type = "", game_device = "Desktop" })
@@ -38,7 +47,7 @@ public sealed class OfficialPlatformClient : IDisposable
         using var response = await http.SendAsync(request, ct);
         using var json = JsonDocument.Parse(await response.Content.ReadAsStreamAsync(ct));
         var gameUrl = FindText(json.RootElement, "game_url") ?? FindText(json.RootElement, "url");
-        if (!response.IsSuccessStatusCode || !ValidLaunchUrl(gameUrl)) throw new InvalidOperationException($"{code} 授權未取得（HTTP {(int)response.StatusCode}）。");
+        if (!response.IsSuccessStatusCode || !ValidLaunchUrl(gameUrl, code)) throw new InvalidOperationException($"{code} 授權未取得（HTTP {(int)response.StatusCode}）。");
         return gameUrl!;
     }
 
@@ -56,6 +65,9 @@ public sealed class OfficialPlatformClient : IDisposable
         return null;
     }
 
-    static bool ValidLaunchUrl(string? value) => Uri.TryCreate(value, UriKind.Absolute, out var uri) && uri.Scheme == Uri.UriSchemeHttps && !string.IsNullOrWhiteSpace(uri.Query) && uri.Query.Contains("token=", StringComparison.OrdinalIgnoreCase);
+    internal static bool ValidLaunchUrl(string? value, string code) => Uri.TryCreate(value, UriKind.Absolute, out var uri)
+        && uri.Scheme == Uri.UriSchemeHttps && !string.IsNullOrWhiteSpace(uri.Query)
+        && (uri.Query.Contains("token=", StringComparison.OrdinalIgnoreCase)
+            || (code == "AB01" && uri.Query.Contains("sessionId=", StringComparison.OrdinalIgnoreCase)));
     public void Dispose() => http.Dispose();
 }

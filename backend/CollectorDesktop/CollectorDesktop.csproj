@@ -10,5 +10,7 @@
     <PackageReference Include="Microsoft.Playwright" Version="1.62.0" />
     <PackageReference Include="System.Security.Cryptography.ProtectedData" Version="9.0.0" />
     <Compile Include="..\DgRelay\DgTableDecoder.cs" Link="DgTableDecoder.cs" />
+    <Compile Include="..\DgRelay\AbTableDecoder.cs" Link="AbTableDecoder.cs" />
+    <Compile Include="..\DgRelay\AbMediaCatalog.cs" Link="AbMediaCatalog.cs" />
   </ItemGroup>
 </Project>

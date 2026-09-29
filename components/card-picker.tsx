@@ -26,7 +26,7 @@ const cardGroups: { code: string; name: string; cards: { code: string; mode: Car
   ] },
   { code: '4', name: 'AI牌卡', cards: [
     { code: '401', mode: 'chartgpt', name: 'ChartGPT' }, { code: '402', mode: 'gemini', name: 'Google Gemini' },
-    { code: '403', mode: 'deepseek', name: 'Deepseek' }, { code: '404', mode: 'claude', name: 'Claude' },
+    { code: '403', mode: 'deepseek', name: 'DeepSeek' }, { code: '404', mode: 'claude', name: 'Claude' },
     { code: '405', mode: 'ai-consensus', name: 'AI共識牌卡' },
   ] },
   { code: '5', name: '路單策略牌卡', cards: [

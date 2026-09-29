@@ -355,6 +355,25 @@ public sealed class SharedFeedStore : IDisposable
         }
     }
 
+    public List<string> ActiveViewerIds()
+    {
+        lock (gate) {
+            using var connection = Open();
+            var now = Now();
+            using (var prune = connection.CreateCommand()) {
+                prune.CommandText = "DELETE FROM feed_viewers WHERE last_seen < $cutoff";
+                prune.Parameters.AddWithValue("$cutoff", now - ViewerHeartbeatTtlMs);
+                prune.ExecuteNonQuery();
+            }
+            using var command = connection.CreateCommand();
+            command.CommandText = "SELECT viewer_id FROM feed_viewers ORDER BY viewer_id";
+            using var reader = command.ExecuteReader();
+            var result = new List<string>();
+            while (reader.Read()) result.Add(reader.GetString(0));
+            return result;
+        }
+    }
+
     public object Demand()
     {
         lock (gate) {

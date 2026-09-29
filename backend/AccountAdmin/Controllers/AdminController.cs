@@ -9,9 +9,15 @@ using Microsoft.AspNetCore.RateLimiting;
 namespace AccountAdmin.Controllers;
 [Authorize]
 [AutoValidateAntiforgeryToken]
-public sealed class AdminController(AccountStore store) : Controller
+public sealed class AdminController(AccountStore store, SharedFeedStore feeds) : Controller
 {
     public IActionResult Index() => View(new AdminDashboardView(store.List(), store.ListPayoutSettings(), store.ListPayoutRecords()));
+    [HttpGet] public IActionResult Online() {
+        var active = feeds.ActiveViewerIds().ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var accounts = store.List().Where(account => active.Contains(account.Id.ToString()))
+            .Select(account => new { id = account.Id, username = account.Username }).ToList();
+        return Json(new { viewerCount = accounts.Count, accounts });
+    }
     [AllowAnonymous, HttpGet] public IActionResult Login() => View();
     [AllowAnonymous, HttpPost, EnableRateLimiting("login")]
     public async Task<IActionResult> Login(string username, string password) {
@@ -27,7 +33,7 @@ public sealed class AdminController(AccountStore store) : Controller
     [HttpPost] public IActionResult Update(Guid id,bool enabled,string expires,string? password) => Change(()=>store.Update(id,enabled,ParseDate(expires),password));
     [HttpPost] public IActionResult Delete(Guid id) => Change(()=>store.Delete(id));
     [HttpPost] public IActionResult SavePayout(List<PayoutInput> payouts) => Change(() => store.UpdatePayoutSettings(payouts.Select(item => new PayoutSetting(item.Code ?? "", item.Name ?? "", item.Amount, item.BaseAmount, item.CapAmount, true))));
-    [HttpPost] public IActionResult AwardPayout(string username, string code, decimal amount) => Change(() => store.AwardPayout(username ?? "", code ?? "", amount), "派彩完成，該類獎池已回到下限並開始重新累積。");
+    [HttpPost] public IActionResult AwardPayout(string username, string code) => Change(() => store.AwardPayout(username ?? "", code ?? ""), "已按目前獎池金額立即派彩並通知指定 USER。");
     [HttpPost] public async Task<IActionResult> Password(string current,string next) {
         try {
             if(!store.ChangeAdminPassword(current ?? "",next ?? "")) { TempData["Error"]="目前密碼不正確。"; return RedirectToAction(nameof(Index)); }

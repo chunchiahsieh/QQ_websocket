@@ -1,5 +1,378 @@
-<!doctype html><html lang="zh-Hant"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width, initial-scale=1"/><title>J神・圖形來世｜管理中心</title><link rel="icon" href="/jshen-logo.svg"/>
-<style>
-.expiry-picker{min-width:270px}.expiry-inputs{display:flex;gap:8px;align-items:center}.expiry-inputs input{min-width:0}.expiry-inputs input[type=date]{flex:1}.expiry-inputs input[type=time]{width:112px}.expiry-presets{display:flex;gap:6px;flex-wrap:wrap;margin-top:7px}.chip{padding:5px 8px;border-radius:999px;background:#132a3b;color:#c8f4ff;border-color:#2c7890;font-size:12px}.chip:hover{background:#1b5269}.expiry-preview{display:block;margin-top:5px;color:#8ed4df;font-size:12px}.expiry-picker.compact{min-width:360px}.sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
-*{box-sizing:border-box}body{margin:0;background:#101827;color:#e4eaf4;font:16px system-ui,sans-serif}main{max-width:1200px;margin:auto;padding:32px 24px}h1{font-size:26px;margin:0}header{display:flex;justify-content:space-between;align-items:center;margin-bottom:18px}.panel{background:#192536;border:1px solid #324359;border-radius:12px;padding:24px;margin:20px 0}h2{font-size:19px;margin:0 0 20px}label{display:block;font-size:14px;margin:12px 0 6px}input,button{font:inherit;border-radius:6px;padding:10px;border:1px solid #556479}input{background:#0e1828;color:#fff;max-width:100%}button{background:#22b4cb;color:#061924;font-weight:600;cursor:pointer}button.secondary{background:transparent;color:#ddd}.row{display:flex;gap:14px;flex-wrap:wrap;align-items:end}.field{display:flex;flex-direction:column}small,.muted{color:#a8b7cb}.notice{padding:14px;border-radius:6px;background:#164b3c}.error{background:#642c35}.scroll{overflow-x:auto}table{width:100%;border-collapse:collapse}th,td{text-align:left;padding:14px 8px;border-bottom:1px solid #344157;white-space:nowrap}td input[type=password]{width:160px}.login{max-width:440px;margin:10vh auto}.login input{width:100%}.login button{margin-top:24px;width:100%}details{margin-top:14px}.badge{border-radius:5px;padding:4px 8px;background:#33445a;font-size:12px}a{color:#76d9ef}.admin-menu{display:flex;flex-wrap:wrap;gap:10px;padding:10px 12px;background:#0e1828;border:1px solid #324359;border-radius:10px;margin-bottom:20px}.admin-menu a{display:inline-flex;align-items:center;padding:9px 13px;border-radius:7px;border:1px solid #36536d;text-decoration:none;color:#d8f5ff;background:#132a3b}.admin-menu a:hover{background:#1b4056}.admin-menu .front-link{margin-left:auto;border-color:#9a7a3f;color:#ffe8a9}.section-heading{display:flex;justify-content:space-between;align-items:flex-start;gap:16px}.settings-table input:not([type=checkbox]){width:150px}.settings-table td:first-child{min-width:100px}.form-actions{display:flex;justify-content:flex-end;margin-top:16px}.danger{background:#7b2938;color:#fff;border-color:#b54c5d}.danger:hover{background:#963446}
-</style></head><body><main>@RenderBody()</main></body></html>
+<!doctype html>
+<html lang="zh-Hant">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>J神・圖形來世｜管理中心</title>
+    <link rel="icon" href="/jshen-logo.svg" />
+    <style>
+      .expiry-picker {
+        min-width: 270px;
+      }
+      .expiry-inputs {
+        display: flex;
+        gap: 8px;
+        align-items: center;
+      }
+      .expiry-inputs input {
+        min-width: 0;
+      }
+      .expiry-inputs input[type="date"] {
+        flex: 1;
+      }
+      .expiry-inputs input[type="time"] {
+        width: 112px;
+      }
+      .expiry-presets {
+        display: flex;
+        gap: 6px;
+        flex-wrap: wrap;
+        margin-top: 7px;
+      }
+      .chip {
+        padding: 5px 8px;
+        border-radius: 999px;
+        background: #132a3b;
+        color: #c8f4ff;
+        border-color: #2c7890;
+        font-size: 12px;
+      }
+      .chip:hover {
+        background: #1b5269;
+      }
+      .expiry-preview {
+        display: block;
+        margin-top: 8px;
+        padding: 8px 10px;
+        border: 1px solid #28758a;
+        border-radius: 7px;
+        background: #0c2a36;
+        color: #bff5ff;
+        font-size: 14px;
+        font-weight: 700;
+      }
+      .expiry-picker.compact {
+        min-width: 360px;
+      }
+      .expiry-inline{display:flex;align-items:center;gap:8px;white-space:nowrap}.expiry-inline .expiry-preview{display:inline-flex;align-items:center;min-height:43px;margin-top:0;white-space:nowrap}
+      .sr-only {
+        position: absolute;
+        width: 1px;
+        height: 1px;
+        padding: 0;
+        margin: -1px;
+        overflow: hidden;
+        clip: rect(0, 0, 0, 0);
+        white-space: nowrap;
+        border: 0;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        background: #101827;
+        color: #e4eaf4;
+        font:
+          16px system-ui,
+          sans-serif;
+      }
+      main {
+        min-height: 100vh;
+      }
+      h1 {
+        font-size: 26px;
+        margin: 0;
+      }
+      header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 18px;
+      }
+      .admin-shell {
+        display: grid;
+        grid-template-columns: 260px minmax(0, 1fr);
+        min-height: 100vh;
+      }
+      .admin-sidebar {
+        position: sticky;
+        top: 0;
+        height: 100vh;
+        padding: 26px 18px;
+        background: #0a1220;
+        border-right: 1px solid #2c4057;
+        display: flex;
+        flex-direction: column;
+      }
+      .admin-brand {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        padding: 4px 8px 24px;
+        border-bottom: 1px solid #25384d;
+      }
+      .admin-brand img {
+        width: 44px;
+        height: 44px;
+      }
+      .admin-brand strong,
+      .admin-brand small {
+        display: block;
+      }
+      .admin-brand strong {
+        color: #f3dfb4;
+      }
+      .admin-brand small {
+        margin-top: 4px;
+        color: #7990a9;
+      }
+      .admin-content {
+        min-width: 0;
+        width: 100%;
+        max-width: 1500px;
+        padding: 32px clamp(20px, 3vw, 48px);
+      }
+      .panel {
+        background: #192536;
+        border: 1px solid #324359;
+        border-radius: 12px;
+        padding: 24px;
+        margin: 0;
+      }
+      .panel + .panel {
+        margin-top: 18px;
+      }
+      .panel[hidden] {
+        display: none;
+      }
+      .admin-menu {
+        display: grid;
+        gap: 8px;
+        margin-top: 24px;
+      }
+      .admin-menu a {
+        display: flex;
+        align-items: center;
+        gap: 11px;
+        padding: 12px;
+        border-radius: 8px;
+        border: 1px solid transparent;
+        text-decoration: none;
+        color: #a8b7cb;
+        background: transparent;
+      }
+      .admin-menu a span {
+        display: grid;
+        place-items: center;
+        width: 30px;
+        height: 24px;
+        border-radius: 5px;
+        background: #132a3b;
+        color: #58d5eb;
+        font-size: 11px;
+      }
+      .admin-menu a:hover {
+        background: #132a3b;
+        color: #eefaff;
+      }
+      .admin-menu a.active {
+        border-color: #22b4cb;
+        background: #123647;
+        color: #d8faff;
+      }
+  .admin-sidebar-actions {
+        display: grid;
+        gap: 9px;
+        margin-top: auto;
+        padding-top: 22px;
+        border-top: 1px solid #25384d;
+  }
+  .admin-online{display:flex;align-items:center;gap:11px;width:100%;margin-top:auto;margin-bottom:8px;padding:13px;border:1px solid #1f6974;border-radius:9px;background:#0b2932;color:#d9fbff;text-align:left}.admin-online:hover{background:#103742}.online-summary{flex:1}.admin-online small,.admin-online strong{display:block}.admin-online strong{margin-top:3px;color:#e9fdff}.admin-online b{font-size:22px}.online-arrow{font-size:18px;color:#72dce8}.online-dot{width:10px;height:10px;border-radius:50%;background:#2dd4bf;box-shadow:0 0 0 5px rgba(45,212,191,.12)}.online-account-list{margin-bottom:14px;padding:11px;border:1px solid #29445a;border-radius:8px;background:#101c2b;font-size:13px}.online-account-list>strong{display:block;margin-bottom:8px;color:#c9f7ff}.online-account-list [data-online-user]{display:flex;align-items:center;gap:7px;padding:6px 7px;border-radius:6px;background:#16313b;color:#e8fdff}.online-account-list [data-online-user]+[data-online-user]{margin-top:5px}.online-account-list [data-online-user]::before{content:'●';color:#2dd4bf;font-size:10px}
+      .admin-sidebar-actions a,
+      .admin-sidebar-actions button {
+        width: 100%;
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        min-height: 42px;
+        border-radius: 7px;
+        text-decoration: none;
+      }
+      .front-link {
+        border: 1px solid #755d32;
+        color: #ffe1a0;
+      }
+      .section-heading {
+        display: flex;
+        justify-content: space-between;
+        align-items: flex-start;
+        gap: 16px;
+      }
+      h2 {
+        font-size: 19px;
+        margin: 0 0 20px;
+      }
+      label {
+        display: block;
+        font-size: 14px;
+        margin: 12px 0 6px;
+      }
+      input,
+      select,
+      button {
+        font: inherit;
+        border-radius: 6px;
+        padding: 10px;
+        border: 1px solid #556479;
+      }
+      input,
+      select {
+        background: #0e1828;
+        color: #fff;
+        max-width: 100%;
+      }
+      button {
+        background: #22b4cb;
+        color: #061924;
+        font-weight: 600;
+        cursor: pointer;
+      }
+      button.secondary {
+        background: transparent;
+        color: #ddd;
+      }
+      .row {
+        display: flex;
+        gap: 14px;
+        flex-wrap: wrap;
+        align-items: end;
+      }
+      .field {
+        display: flex;
+        flex-direction: column;
+      }
+      small,
+      .muted {
+        color: #a8b7cb;
+      }
+      .notice {
+        padding: 14px;
+        border-radius: 6px;
+        background: #164b3c;
+        margin: 0 0 18px;
+      }
+      .error {
+        background: #642c35;
+      }
+      .scroll {
+        overflow-x: auto;
+      }
+      table {
+        width: 100%;
+        border-collapse: collapse;
+      }
+      th,
+      td {
+        text-align: left;
+        padding: 14px 8px;
+        border-bottom: 1px solid #344157;
+        white-space: nowrap;
+      }
+      td input[type="password"] {
+        width: 160px;
+      }
+      .login {
+        max-width: 440px;
+        margin: 10vh auto;
+      }
+      .login input {
+        width: 100%;
+      }
+      .login button {
+        margin-top: 24px;
+        width: 100%;
+      }
+      details {
+        margin-top: 14px;
+      }
+      .badge {
+        border-radius: 5px;
+        padding: 4px 8px;
+        background: #33445a;
+        font-size: 12px;
+      }
+      a {
+        color: #76d9ef;
+      }
+      .settings-table input:not([type="checkbox"]) {
+        width: 150px;
+      }
+      .settings-table td:first-child {
+        min-width: 100px;
+      }
+      .form-actions {
+        display: flex;
+        justify-content: flex-end;
+        margin-top: 16px;
+      }
+      .danger {
+        background: #7b2938;
+        color: #fff;
+        border-color: #b54c5d;
+      }
+      .danger:hover {
+        background: #963446;
+      }
+      .payout-mode-grid{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin:18px 0}.payout-mode-card{padding:18px;border:1px solid #315269;border-radius:10px;background:#112331}.payout-mode-card.actual{border-color:#8b6a30;background:#2b2315}.payout-mode-card h3{margin:12px 0 8px}.payout-mode-card p{margin:0;color:#a8b7cb;line-height:1.6}.mode-enabled{display:block;margin-top:13px;color:#5ee7c0}.form-subtitle{margin:24px 0 4px}.scheduled-list{margin-top:22px;padding-top:18px;border-top:1px solid #344157}.scheduled-item{display:grid;grid-template-columns:1fr 100px 140px 180px 70px;gap:12px;align-items:center;margin-top:8px;padding:10px 12px;border-radius:7px;background:#101c2b}.scheduled-item time{text-align:right;color:#9eeaf3}.scheduled-item form{margin:0}.scheduled-item button{padding:7px 10px}
+      .account-create-form{display:grid;grid-template-columns:minmax(170px,1fr) minmax(210px,1fr) minmax(600px,2fr) auto;gap:16px;align-items:end}.account-create-form .field,.account-create-form .expiry-picker{min-width:0}.account-create-form input{width:100%}.account-create-form>button{height:43px;margin-bottom:0}.account-list{display:grid;gap:10px;margin-top:18px}.account-card{border:1px solid #344a62;border-radius:10px;background:#131f30}.account-row{display:grid;grid-template-columns:130px minmax(600px,1.8fr) 135px minmax(180px,.7fr) auto;gap:12px;align-items:end;padding:14px}.account-identity{display:flex;align-items:center;gap:8px;align-self:center}.account-identity strong{font-size:16px;color:#f5f8fd}.account-row .expiry-picker.compact{min-width:0}.account-row input[type=password]{width:100%}.account-enabled{display:grid;gap:8px;margin:0}.toggle-row{display:flex;align-items:center;gap:8px;height:43px;padding:0 10px;border:1px solid #556479;border-radius:6px;background:#0e1828;white-space:nowrap}.toggle-row input{width:16px;height:16px}.account-actions{display:flex;gap:7px}.account-actions button{height:43px;white-space:nowrap}
+  @@media (max-width: 800px) {
+        .admin-shell {
+          display: block;
+        }
+        .admin-sidebar {
+          position: static;
+          width: 100%;
+          height: auto;
+          padding: 14px;
+        }
+        .admin-brand {
+          padding: 2px 4px 12px;
+        }
+        .admin-menu {
+          display: flex;
+          overflow-x: auto;
+          margin-top: 12px;
+          padding-bottom: 4px;
+        }
+        .admin-menu a {
+          flex: 0 0 auto;
+          padding: 9px 11px;
+        }
+        .admin-sidebar-actions {
+          grid-template-columns: 1fr 1fr;
+          margin-top: 12px;
+          padding-top: 12px;
+        }
+        .admin-content {
+          padding: 20px 14px;
+        }
+        .panel {
+          padding: 18px;
+        }
+        .section-heading {
+          flex-direction: column;
+        }
+        .expiry-picker.compact {
+          min-width: 280px;
+        }
+        .account-create-form,.account-row{grid-template-columns:1fr}.account-row{padding:14px}.account-create-form>button{width:100%}.account-row .expiry-picker.compact{min-width:0}.account-actions button{flex:1}
+        .payout-mode-grid{grid-template-columns:1fr}.scheduled-item{grid-template-columns:1fr}.scheduled-item time{text-align:left}
+      }
+    </style>
+    <script src="/admin-payout-live.js" defer></script>
+  </head>
+  <body>
+    <main>@RenderBody()</main>
+  </body>
+</html>

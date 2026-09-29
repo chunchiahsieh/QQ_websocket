@@ -23,7 +23,7 @@ const targetCatalog: Target[] = [
   { id: 'cross', name: '十字牌卡', kind: '圖形' },
   { id: 'chartgpt', name: 'ChartGPT', kind: 'AI', model: 'ChartGPT' },
   { id: 'gemini', name: 'Google Gemini', kind: 'AI', model: 'Google Gemini' },
-  { id: 'deepseek', name: 'Deepseek', kind: 'AI', model: 'Deepseek' },
+  { id: 'deepseek', name: 'DeepSeek', kind: 'AI', model: 'DeepSeek' },
   { id: 'claude', name: 'Claude', kind: 'AI', model: 'Claude' },
   { id: 'points', name: '勝方點數分布牌卡', kind: '統計' },
   { id: 'weighted', name: '近局加權牌卡', kind: '統計' },

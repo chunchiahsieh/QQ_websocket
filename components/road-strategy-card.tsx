@@ -5,6 +5,7 @@ import { BaccaratRoad } from '@/components/baccarat-road';
 import { beadWinners } from '@/lib/statistical-cards';
 import { followRoad, markovRoad, reverseRoad, sequenceRoad, streakRoad, type RoadSide } from '@/lib/road-strategies';
 import type { CardMode } from '@/components/card-picker';
+import { evaluatePredictions } from '@/lib/prediction-performance';
 
 const sideName = (side?: RoadSide) => side === '2' ? '莊' : side === '1' ? '閒' : '無訊號';
 type RoadView = 'bead' | 'big' | 'eye' | 'small' | 'cockroach';
@@ -39,11 +40,13 @@ export function RoadStrategyCard({ mode, platform, tableId, roads }: {
   }, [platform, tableId]);
 
   const rounds = historyReady && history.length ? history : beadWinners(roads.bead);
-  const signal = mode === 'road-follow' ? followRoad(rounds)
-    : mode === 'road-reverse' ? reverseRoad(rounds)
-    : mode === 'road-streak' ? streakRoad(rounds, streakLength, continuation)
-    : mode === 'road-sequence' ? sequenceRoad(rounds, order)
-    : markovRoad(rounds, order);
+  const getSignal = (input: readonly RoadSide[]) => mode === 'road-follow' ? followRoad(input)
+    : mode === 'road-reverse' ? reverseRoad(input)
+    : mode === 'road-streak' ? streakRoad(input, streakLength, continuation)
+    : mode === 'road-sequence' ? sequenceRoad(input, order)
+    : markovRoad(input, order);
+  const signal = getSignal(rounds);
+  const performance = evaluatePredictions(rounds, input => getSignal(input).side, side => side);
   const label = mode === 'road-follow' ? '跟路策略牌卡' : mode === 'road-reverse' ? '反路策略牌卡'
     : mode === 'road-streak' ? '連莊／連閒策略牌卡' : mode === 'road-sequence' ? '序列比對牌卡' : '馬可夫轉移牌卡';
   const answer = sideName(signal.side);
@@ -58,7 +61,6 @@ export function RoadStrategyCard({ mode, platform, tableId, roads }: {
         <select aria-label="牌卡路單顯示方式" value={roadView} onChange={event => setRoadView(event.target.value as RoadView)} className="rounded border border-cyan-700 bg-cyan-950 px-1 py-0.5 text-cyan-100"><option value="bead">202 珠盤</option><option value="big">203 大路</option><option value="eye">204 大眼</option><option value="small">205 小路</option><option value="cockroach">206 蟑螂</option></select>
         {mode === 'road-streak' && <><select aria-label="連續局數" value={streakLength} onChange={event => setStreakLength(Number(event.target.value))} className="rounded border border-slate-600 bg-slate-800 px-1 py-0.5">{[2, 3, 4, 5].map(n => <option key={n} value={n}>{n} 局</option>)}</select><select aria-label="延續或中斷" value={continuation ? 'continue' : 'break'} onChange={event => setContinuation(event.target.value === 'continue')} className="rounded border border-slate-600 bg-slate-800 px-1 py-0.5"><option value="continue">延續</option><option value="break">中斷</option></select></>}
         {(mode === 'road-sequence' || mode === 'road-markov') && <select aria-label="比對局數" value={order} onChange={event => setOrder(Number(event.target.value))} className="rounded border border-slate-600 bg-slate-800 px-1 py-0.5">{[1, 2, 3, 4].map(n => <option key={n} value={n}>近 {n} 局</option>)}</select>}
-        <span className="whitespace-nowrap">下局預測：<strong className={signal.side === '2' ? 'text-red-400' : signal.side === '1' ? 'text-blue-400' : 'text-slate-300'}>{answer}</strong></span>
       </div>
     </div>
     <div className="grid min-h-0 grid-cols-[minmax(0,1fr)_34%] gap-1">
@@ -75,6 +77,6 @@ export function RoadStrategyCard({ mode, platform, tableId, roads }: {
         </> : null}
       </div>
     </div>
-    <div className="truncate border-t border-slate-700 pt-0.5 text-[10px] text-white" title={signal.reason}>{signal.reason} {historyReady ? `本靴累計 ${history.length} 局` : `目前桌面 ${rounds.length} 局`}</div>
+    <div className="flex flex-wrap items-center gap-x-3 border-t border-slate-700 pt-0.5 text-[10px] text-white"><span>下局預測：<strong className={signal.side === '2' ? 'text-red-400' : signal.side === '1' ? 'text-blue-400' : 'text-slate-300'}>{answer}</strong></span><span>上一局：<strong className={performance.lastResult === '命中' ? 'text-emerald-300' : performance.lastResult === '錯誤' ? 'text-orange-300' : 'text-slate-300'}>{performance.lastResult}</strong></span><span>目前連中：<strong className="text-emerald-300">{performance.streak}</strong>（最高 {performance.maxStreak}）</span><span>目前連錯：<strong className="text-orange-300">{performance.missStreak}</strong>（最高 {performance.maxMissStreak}）</span></div>
   </section>;
 }

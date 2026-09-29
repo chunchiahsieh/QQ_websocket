@@ -11,7 +11,7 @@ export async function POST(request: Request) {
   if (!session) return Response.json({ message: collector ? '採集端尚未登入。' : '請先登入系統。' }, { status: 401 });
   try {
     if (body.type === 'presence') {
-      const viewerId = typeof body.viewerId === 'string' && body.viewerId.trim() ? body.viewerId.trim().slice(0, 120) : session.accountId || session.accountUsername || request.headers.get('x-viewer-id') || 'viewer';
+      const viewerId = session.accountId || session.accountUsername || (typeof body.viewerId === 'string' && body.viewerId.trim() ? body.viewerId.trim().slice(0, 120) : request.headers.get('x-viewer-id')) || 'viewer';
       return Response.json(await touchSharedMtViewer(viewerId, body.online !== false), { headers: { 'Cache-Control': 'no-store' } });
     }
     if (!collector) return Response.json({ message: '僅採集端可寫入 MT 共享資料。' }, { status: 403 });

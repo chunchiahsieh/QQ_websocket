@@ -16,8 +16,8 @@ export async function GET(request: Request) {
       signal: AbortSignal.timeout(2500), cache: 'no-store',
     });
     if (!response.ok) return Response.json({ message: '派彩服務暫時無法取得資料。' }, { status: 503, headers: { 'Cache-Control': 'no-store' } });
-    const payload = await response.json() as { pools?: unknown; payouts?: unknown };
-    return Response.json({ pools: payload.pools ?? [], payouts: session?.accountUsername ? (payload.payouts ?? []) : [], accountUsername: session?.accountUsername ?? null }, {
+    const payload = await response.json() as { pools?: unknown; payouts?: unknown; announcements?: unknown; revision?: unknown };
+    return Response.json({ pools: payload.pools ?? [], payouts: session?.accountUsername ? (payload.payouts ?? []) : [], announcements: payload.announcements ?? [], revision: payload.revision ?? null, accountUsername: session?.accountUsername ?? null }, {
       headers: { 'Cache-Control': 'no-store' },
     });
   } catch {

@@ -1,11 +1,17 @@
 'use client';
 import { useState } from 'react';
 import { beadWinners, weightedSignal } from '@/lib/statistical-cards';
+import { evaluatePredictions } from '@/lib/prediction-performance';
 
 export function StatisticalCard({ beadPlate }: { beadPlate: string }) {
   const [windowSize, setWindowSize] = useState<18 | 24 | 36>(36);
-  const winners = beadWinners(beadPlate).slice(-windowSize);
+  const allWinners = beadWinners(beadPlate);
+  const winners = allWinners.slice(-windowSize);
   const signal = weightedSignal(winners, windowSize);
+  const performance = evaluatePredictions(allWinners, history => {
+    const answer = weightedSignal(history.slice(-windowSize), windowSize).answer;
+    return answer === '莊' ? '2' : answer === '閒' ? '1' : undefined;
+  }, side => side);
   const color = signal.answer === '莊' ? 'text-red-400' : signal.answer === '閒' ? 'text-blue-400' : 'text-slate-300';
   return <section aria-label="近局加權牌卡" className="grid h-full min-h-0 grid-rows-[auto_minmax(0,1fr)_auto] gap-1 overflow-hidden bg-slate-950 p-2 text-white">
     <div className="flex items-center justify-between gap-2 whitespace-nowrap text-xs">
@@ -17,7 +23,6 @@ export function StatisticalCard({ beadPlate }: { beadPlate: string }) {
         aria-label="近局加權局數" className="rounded border border-slate-600 bg-slate-800 px-1 py-0.5 text-xs text-white">
         <option value={18}>18 局</option><option value={24}>24 局</option><option value={36}>36 局</option>
       </select>
-      <span>下局參考：<strong className={color}>{signal.answer}</strong></span>
     </div>
     <div className="min-h-0 overflow-hidden rounded border border-slate-300 bg-slate-50">
       <table className="h-full w-full table-fixed border-collapse text-center font-mono text-xs font-semibold tabular-nums" aria-label={`最近 ${windowSize} 局逐局加權數值，紅字莊、藍字閒、綠字和，由左上到右下依時間排列`}>
@@ -32,9 +37,11 @@ export function StatisticalCard({ beadPlate }: { beadPlate: string }) {
         })}</tr>)}</tbody>
       </table>
     </div>
-    <div className="flex items-center justify-between gap-2 border-t border-slate-700 pt-1 text-[10px] text-white">
-      <span>{signal.reason}</span>
-      <span className="shrink-0">可比對 {signal.sample} 局</span>
+    <div className="flex flex-wrap items-center gap-x-3 border-t border-slate-700 pt-1 text-[10px] text-white">
+      <span>下局預測：<strong className={color}>{signal.answer}</strong></span>
+      <span>上一局：<strong className={performance.lastResult === '命中' ? 'text-emerald-300' : performance.lastResult === '錯誤' ? 'text-orange-300' : 'text-slate-300'}>{performance.lastResult}</strong></span>
+      <span>目前連中：<strong className="text-emerald-300">{performance.streak}</strong>（最高 {performance.maxStreak}）</span>
+      <span>目前連錯：<strong className="text-orange-300">{performance.missStreak}</strong>（最高 {performance.maxMissStreak}）</span>
     </div>
   </section>;
 }
