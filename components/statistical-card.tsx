@@ -1,17 +1,20 @@
 'use client';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { beadWinners, weightedSignal } from '@/lib/statistical-cards';
 import { evaluatePredictions } from '@/lib/prediction-performance';
+import type { PredictionDecision } from '@/lib/prediction-performance';
 
-export function StatisticalCard({ beadPlate }: { beadPlate: string }) {
+export function StatisticalCard({ beadPlate, onPredictionChange }: { beadPlate: string; onPredictionChange?: (side: '1' | '2' | undefined, history: PredictionDecision[]) => void }) {
   const [windowSize, setWindowSize] = useState<18 | 24 | 36>(36);
   const allWinners = beadWinners(beadPlate);
   const winners = allWinners.slice(-windowSize);
   const signal = weightedSignal(winners, windowSize);
+  const prediction = signal.answer === '莊' ? '2' as const : signal.answer === '閒' ? '1' as const : undefined;
   const performance = evaluatePredictions(allWinners, history => {
     const answer = weightedSignal(history.slice(-windowSize), windowSize).answer;
     return answer === '莊' ? '2' : answer === '閒' ? '1' : undefined;
   }, side => side);
+  useEffect(() => { onPredictionChange?.(prediction, performance.decisions); }, [onPredictionChange, performance.decisions, prediction]);
   const color = signal.answer === '莊' ? 'text-red-400' : signal.answer === '閒' ? 'text-blue-400' : 'text-slate-300';
   return <section aria-label="近局加權牌卡" className="grid h-full min-h-0 grid-rows-[auto_minmax(0,1fr)_auto] gap-1 overflow-hidden bg-slate-950 p-2 text-white">
     <div className="flex items-center justify-between gap-2 whitespace-nowrap text-xs">

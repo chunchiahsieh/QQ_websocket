@@ -1,9 +1,10 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { BaccaratRoad, type RoadMarker } from '@/components/baccarat-road';
 import { aiConsensus, aiSources, type AiSource } from '@/lib/ai-consensus';
 import { Dialog, DialogClose, DialogContent, DialogDescription, DialogTitle } from '@/components/ui/dialog';
+import type { PredictionDecision } from '@/lib/prediction-performance';
 
 const sourceLabels: Record<AiSource, string> = {
   chartgpt: 'ChartGPT', gemini: 'Google Gemini', deepseek: 'DeepSeek', claude: 'Claude',
@@ -36,17 +37,22 @@ function predictionPerformance(raw: string, selected: readonly AiSource[]) {
   let maxStreak = 0;
   let maxMissStreak = 0;
   let lastResult: '命中' | '錯誤' | '無訊號' | '等待' = '等待';
+  const decisions: PredictionDecision[] = [];
   for (const round of rounds) {
     const prefix = columns.slice(0, round.columnIndex + 1).map((column, columnIndex) =>
       column.slice(0, columnIndex === round.columnIndex ? round.rowIndex : column.length).join(','))
       .filter(Boolean).join('#');
-    const predicted = aiConsensus(prefix, selected).side;
+    const roundConsensus = aiConsensus(prefix, selected);
+    const predicted = roundConsensus.side;
+    const actual = round.code.at(-1) as '1' | '2';
+    const agreement = predicted ? roundConsensus.votes.filter(vote => vote.side === predicted).length : 0;
+    decisions.push({ prediction: predicted, outcome: actual, agreement, activeVotes: roundConsensus.active });
     if (!predicted) { noSignal += 1; lastResult = '無訊號'; }
     else if (predicted === round.code.at(-1)) { correct += 1; streak += 1; missStreak = 0; maxStreak = Math.max(maxStreak, streak); lastResult = '命中'; }
     else { streak = 0; missStreak += 1; maxMissStreak = Math.max(maxMissStreak, missStreak); lastResult = '錯誤'; }
   }
   const signaled = rounds.length - noSignal;
-  return { total: rounds.length, correct, noSignal, accuracy: signaled > 0 ? correct / signaled * 100 : null, streak, missStreak, maxStreak, maxMissStreak, lastResult };
+  return { total: rounds.length, correct, noSignal, accuracy: signaled > 0 ? correct / signaled * 100 : null, streak, missStreak, maxStreak, maxMissStreak, lastResult, decisions };
 }
 
 function appendPrediction(raw: string, prediction?: string) {
@@ -89,7 +95,7 @@ function RoadGrid({ raw, prediction, surfaceColor, source }: { raw: string; pred
   </div>;
 }
 
-export function AiPredictionCard({ raw, tableState, initialSource }: { raw: string; tableState?: string; initialSource?: AiSource }) {
+export function AiPredictionCard({ raw, tableState, initialSource, onPredictionChange }: { raw: string; tableState?: string; initialSource?: AiSource; onPredictionChange?: (side: '1' | '2' | undefined, history: PredictionDecision[], agreement?: number) => void }) {
   const [selected, setSelected] = useState<AiSource[]>(initialSource ? [initialSource] : [...aiSources]);
   const [selectionNotice, setSelectionNotice] = useState(false);
   const isShuffling = tableState === '2';
@@ -97,6 +103,8 @@ export function AiPredictionCard({ raw, tableState, initialSource }: { raw: stri
   const performance = useMemo(() => predictionPerformance(raw, selected), [raw, selected]);
   const sourcePerformance = useMemo(() => Object.fromEntries(aiSources.map(source => [source, predictionPerformance(raw, [source])])) as Record<AiSource, ReturnType<typeof predictionPerformance>>, [raw]);
   const prediction = isShuffling ? undefined : consensus.side;
+  const agreement = prediction ? consensus.votes.filter(vote => vote.side === prediction).length : 0;
+  useEffect(() => { onPredictionChange?.(prediction, performance.decisions, agreement); }, [agreement, onPredictionChange, performance.decisions, prediction]);
   const toggle = (source: AiSource) => setSelected(current => {
     if (current.includes(source) && current.length === 1) {
       setSelectionNotice(true);

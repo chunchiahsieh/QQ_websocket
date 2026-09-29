@@ -1,14 +1,18 @@
 'use client';
+import { useEffect } from 'react';
 import { beadWinners, weightedConsensus } from '@/lib/statistical-cards';
 import { evaluatePredictions } from '@/lib/prediction-performance';
+import type { PredictionDecision } from '@/lib/prediction-performance';
 
-export function WeightedConsensusCard({ beadPlate }: { beadPlate: string }) {
+export function WeightedConsensusCard({ beadPlate, onPredictionChange }: { beadPlate: string; onPredictionChange?: (side: '1' | '2' | undefined, history: PredictionDecision[]) => void }) {
   const winners = beadWinners(beadPlate);
   const consensus = weightedConsensus(winners);
+  const prediction = consensus.answer === '莊' ? '2' as const : consensus.answer === '閒' ? '1' as const : undefined;
   const performance = evaluatePredictions(winners, history => {
     const answer = weightedConsensus(history).answer;
     return answer === '莊' ? '2' : answer === '閒' ? '1' : undefined;
   }, side => side);
+  useEffect(() => { onPredictionChange?.(prediction, performance.decisions); }, [onPredictionChange, performance.decisions, prediction]);
   const answerColor = consensus.answer === '莊' ? 'text-red-400' : consensus.answer === '閒' ? 'text-blue-400' : 'text-slate-300';
   return <section aria-label="近局加權共識牌卡" className="grid h-full min-h-0 grid-rows-[auto_minmax(0,1fr)_auto] gap-2 overflow-hidden bg-slate-950 p-2 text-white">
     <div className="text-right text-xs text-cyan-100">18／24／36 局共識</div>

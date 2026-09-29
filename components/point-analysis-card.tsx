@@ -1,12 +1,13 @@
 'use client';
 
-import { useMemo } from 'react';
+import { useEffect, useMemo } from 'react';
 import { pointCounts, recentPointResults } from '@/lib/point-analysis';
 import { winningPointSignal } from '@/lib/statistical-cards';
 import { beadWinners } from '@/lib/statistical-cards';
 import { evaluatePredictions } from '@/lib/prediction-performance';
+import type { PredictionDecision } from '@/lib/prediction-performance';
 
-export function PointAnalysisCard({ bigRoad, beadPlate, distributionOnly = false }: { bigRoad: string; beadPlate: string; distributionOnly?: boolean }) {
+export function PointAnalysisCard({ bigRoad, beadPlate, distributionOnly = false, onPredictionChange }: { bigRoad: string; beadPlate: string; distributionOnly?: boolean; onPredictionChange?: (side: '1' | '2' | undefined, history: PredictionDecision[]) => void }) {
   const results = useMemo(() => recentPointResults(bigRoad), [bigRoad]);
   const allResults = useMemo(() => recentPointResults(bigRoad, Number.MAX_SAFE_INTEGER), [bigRoad]);
   const allWinners = useMemo(() => beadWinners(beadPlate), [beadPlate]);
@@ -14,11 +15,13 @@ export function PointAnalysisCard({ bigRoad, beadPlate, distributionOnly = false
   const player = pointCounts(results, '1');
   const max = Math.max(1, ...banker, ...player);
   const signal = winningPointSignal(results);
+  const prediction = distributionOnly ? undefined : signal.answer === '莊' ? '2' as const : signal.answer === '閒' ? '1' as const : undefined;
   const performance = useMemo(() => evaluatePredictions(allWinners, history => {
     const pointCount = history.filter(side => side !== '3').length;
     const answer = winningPointSignal(allResults.slice(0, pointCount)).answer;
     return answer === '莊' ? '2' : answer === '閒' ? '1' : undefined;
   }, side => side), [allResults, allWinners]);
+  useEffect(() => { onPredictionChange?.(prediction, performance.decisions); }, [onPredictionChange, performance.decisions, prediction]);
   return <section className="grid h-full min-h-0 grid-rows-[auto_minmax(0,1fr)_auto] overflow-hidden bg-slate-950 p-2 text-white" aria-label={distributionOnly ? '數值分布牌卡' : '勝方點數分布牌卡'}>
     <div className="flex items-center justify-between gap-2 text-xs font-semibold text-cyan-100"><span>{distributionOnly ? `數值分布 · 近 ${results.length} 筆` : `勝方點數分布 · 近 ${results.length} 筆`}</span></div>
     <div className="grid min-h-0 grid-cols-10 gap-1 py-2">
