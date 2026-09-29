@@ -4,6 +4,8 @@ import { useState } from 'react';
 import { Check, ChevronDown } from 'lucide-react';
 import { Command, CommandDialog, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from '@/components/ui/command';
 import { cardSearch } from '@/lib/card-search';
+import { bettingStrategyLabels, type BettingStrategy } from '@/lib/betting-strategy';
+import { actionStrategyLabels, type ActionStrategy } from '@/lib/action-strategy';
 
 export type CardMode = 'full' | 'bead' | 'big' | 'eye' | 'small' | 'cockroach'
   | 'points' | 'value-distribution' | 'weighted' | 'weighted-consensus'
@@ -39,8 +41,21 @@ const cardGroups: { code: string; name: string; cards: { code: string; mode: Car
 ];
 
 const cardNames = Object.fromEntries(cardGroups.flatMap(group => group.cards.map(card => [card.mode, card.name]))) as Record<CardMode, string>;
+const bettingCards: { code: string; strategy: BettingStrategy; name: string }[] = [
+  { code: '601', strategy: 'flat', name: '固定注碼' },
+  { code: '602', strategy: '1326', name: '1－3－2－6' },
+  { code: '603', strategy: 'dalembert', name: '達朗貝爾' },
+  { code: '604', strategy: 'martingale', name: '馬丁格爾' },
+];
+const actionCards: { code: string; strategy: ActionStrategy; name: string }[] = [
+  { code: '701', strategy: 'always', name: '每次出手' },
+  { code: '702', strategy: 'ai-consensus', name: 'AI 共識門檻' },
+  { code: '703', strategy: 'confirm', name: '連續確認' },
+  { code: '704', strategy: 'cooldown', name: '連錯冷卻' },
+  { code: '705', strategy: 'road', name: '路勢確認' },
+];
 
-export function CardPicker({ value, tableName, onSelect }: { value: CardMode; tableName: string; onSelect: (mode: CardMode) => void }) {
+export function CardPicker({ value, tableName, onSelect, bettingStrategy = 'flat', onBettingStrategySelect, actionStrategy = 'always', onActionStrategySelect }: { value: CardMode; tableName: string; onSelect: (mode: CardMode) => void; bettingStrategy?: BettingStrategy; onBettingStrategySelect?: (strategy: BettingStrategy) => void; actionStrategy?: ActionStrategy; onActionStrategySelect?: (strategy: ActionStrategy) => void }) {
   const [open, setOpen] = useState(false);
   return <>
     <button type="button" onClick={() => setOpen(true)} title={cardNames[value]}
@@ -52,7 +67,7 @@ export function CardPicker({ value, tableName, onSelect }: { value: CardMode; ta
       className="top-6! translate-y-0! w-[calc(100vw-2rem)] max-h-[calc(100vh-3rem)] max-w-[1320px]! border border-cyan-700 bg-[#111c2d] p-0 text-white shadow-2xl">
       <Command className="bg-[#111c2d] text-white" filter={cardSearch}>
         <div className="px-4 pt-4 text-lg font-bold text-white">選擇牌卡</div>
-        <CommandInput placeholder="輸入 1～5、三位代號或名稱…" aria-label="搜尋牌卡" className="text-white placeholder:text-slate-400" />
+        <CommandInput placeholder="輸入 1～7、三位代號或名稱…" aria-label="搜尋牌卡" className="text-white placeholder:text-slate-400" />
         <CommandList className="card-picker-list max-h-[calc(100vh-9rem)]">
           <CommandEmpty className="text-slate-400">找不到符合的牌卡</CommandEmpty>
           {cardGroups.map(group => <CommandGroup key={group.code} heading={<span className="text-sm font-bold text-cyan-200">{group.code} · {group.name}</span>}
@@ -64,6 +79,26 @@ export function CardPicker({ value, tableName, onSelect }: { value: CardMode; ta
               <span className="min-w-0 flex-1">{card.name}</span>{value === card.mode && <Check className="ml-auto h-4 w-4 text-cyan-300" aria-label="目前使用" />}
             </CommandItem>)}
           </CommandGroup>)}
+          {onBettingStrategySelect && <CommandGroup heading={<span className="text-sm font-bold text-amber-200">6 · 下注策略（套用）</span>}
+            className="rounded-xl border border-amber-500/40 bg-amber-950/20 p-2 text-white">
+            {bettingCards.map(card => <CommandItem key={card.strategy} value={`6|${card.code}|下注策略|套用|${card.name}|${bettingStrategyLabels[card.strategy]}`}
+              onSelect={() => { setOpen(false); onBettingStrategySelect(card.strategy); }}
+              className="mb-1 min-h-11 rounded-lg border border-transparent bg-slate-800/70 px-3 py-2 text-sm font-semibold text-white data-[selected=true]:border-amber-400 data-[selected=true]:bg-amber-900/60 data-[selected=true]:text-white">
+              <span className="w-10 shrink-0 rounded bg-amber-950 px-1.5 py-1 text-center font-mono text-xs text-amber-200">{card.code}</span>
+              <span className="min-w-0 flex-1">{card.name}</span>
+              {bettingStrategy === card.strategy && <span className="ml-auto inline-flex items-center gap-1 text-xs text-amber-200"><Check className="h-4 w-4" />已套用</span>}
+            </CommandItem>)}
+          </CommandGroup>}
+          {onActionStrategySelect && <CommandGroup heading={<span className="text-sm font-bold text-violet-200">7 · 出手策略（套用）</span>}
+            className="rounded-xl border border-violet-500/40 bg-violet-950/20 p-2 text-white">
+            {actionCards.map(card => <CommandItem key={card.strategy} value={`7|${card.code}|出手策略|套用|${card.name}|${actionStrategyLabels[card.strategy]}`}
+              onSelect={() => { setOpen(false); onActionStrategySelect(card.strategy); }}
+              className="mb-1 min-h-11 rounded-lg border border-transparent bg-slate-800/70 px-3 py-2 text-sm font-semibold text-white data-[selected=true]:border-violet-400 data-[selected=true]:bg-violet-900/60 data-[selected=true]:text-white">
+              <span className="w-10 shrink-0 rounded bg-violet-950 px-1.5 py-1 text-center font-mono text-xs text-violet-200">{card.code}</span>
+              <span className="min-w-0 flex-1">{card.name}</span>
+              {actionStrategy === card.strategy && <span className="ml-auto inline-flex items-center gap-1 text-xs text-violet-200"><Check className="h-4 w-4" />已套用</span>}
+            </CommandItem>)}
+          </CommandGroup>}
         </CommandList>
       </Command>
     </CommandDialog>

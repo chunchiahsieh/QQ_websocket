@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { BaccaratRoad, type RoadConnection, type RoadHighlight } from '@/components/baccarat-road';
 import { evaluatePredictions } from '@/lib/prediction-performance';
+import type { PredictionDecision } from '@/lib/prediction-performance';
 
 type GraphicalMode = 'v3' | 'v5' | 'cross';
 type ShapeOrientation = 'down' | 'up' | 'right' | 'left' | 'cross' | 'x';
@@ -166,7 +167,7 @@ function graphicalPrediction(outcomes: readonly Outcome[], mode: GraphicalMode):
   return candidateSides.values().next().value;
 }
 
-export function GraphicalCard({ beadRaw, fallbackRaw, mode }: { beadRaw: string; fallbackRaw: string; mode: GraphicalMode | 'v' }) {
+export function GraphicalCard({ beadRaw, fallbackRaw, mode, onPredictionChange }: { beadRaw: string; fallbackRaw: string; mode: GraphicalMode | 'v'; onPredictionChange?: (side: '1' | '2' | undefined, history: PredictionDecision[]) => void }) {
   const [vMode, setVMode] = useState<'v3' | 'v5'>('v3');
   const activeMode: GraphicalMode = mode === 'v' ? vMode : mode;
   const modeLabel = activeMode === 'v3' ? 'V型-3' : activeMode === 'v5' ? 'V型-5' : '十字';
@@ -206,6 +207,7 @@ export function GraphicalCard({ beadRaw, fallbackRaw, mode }: { beadRaw: string;
   const conflictingPrediction = new Set(reachableCandidates.map(({ candidate }) =>
     candidate.side).filter((side): side is Side => Boolean(side))).size > 1;
   const prediction = conflictingPrediction ? undefined : reachableCandidates[0]?.candidate.side;
+  useEffect(() => { onPredictionChange?.(prediction, performance.decisions); }, [onPredictionChange, performance.decisions, prediction]);
   const bankerDoubleHit = candidateEntries.filter(({ candidate, targetPoints }) =>
     candidate.side === '2' && targetPoints.length > 0).length >= 2;
   const playerDoubleHit = candidateEntries.filter(({ candidate, targetPoints }) =>

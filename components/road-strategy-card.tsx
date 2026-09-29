@@ -6,13 +6,14 @@ import { beadWinners } from '@/lib/statistical-cards';
 import { followRoad, markovRoad, reverseRoad, sequenceRoad, streakRoad, type RoadSide } from '@/lib/road-strategies';
 import type { CardMode } from '@/components/card-picker';
 import { evaluatePredictions } from '@/lib/prediction-performance';
+import type { PredictionDecision } from '@/lib/prediction-performance';
 
 const sideName = (side?: RoadSide) => side === '2' ? '莊' : side === '1' ? '閒' : '無訊號';
 type RoadView = 'bead' | 'big' | 'eye' | 'small' | 'cockroach';
 type Roads = Record<RoadView, string>;
 
-export function RoadStrategyCard({ mode, platform, tableId, roads }: {
-  mode: CardMode; platform: 'MT' | 'DG' | 'AB'; tableId: string; roads: Roads;
+export function RoadStrategyCard({ mode, platform, tableId, roads, onPredictionChange }: {
+  mode: CardMode; platform: 'MT' | 'DG' | 'AB'; tableId: string; roads: Roads; onPredictionChange?: (side: '1' | '2' | undefined, history: PredictionDecision[]) => void;
 }) {
   const [history, setHistory] = useState<RoadSide[]>([]);
   const [historyReady, setHistoryReady] = useState(false);
@@ -47,6 +48,7 @@ export function RoadStrategyCard({ mode, platform, tableId, roads }: {
     : markovRoad(input, order);
   const signal = getSignal(rounds);
   const performance = evaluatePredictions(rounds, input => getSignal(input).side, side => side);
+  useEffect(() => { onPredictionChange?.(signal.side, performance.decisions); }, [onPredictionChange, performance.decisions, signal.side]);
   const label = mode === 'road-follow' ? '跟路策略牌卡' : mode === 'road-reverse' ? '反路策略牌卡'
     : mode === 'road-streak' ? '連莊／連閒策略牌卡' : mode === 'road-sequence' ? '序列比對牌卡' : '馬可夫轉移牌卡';
   const answer = sideName(signal.side);
