@@ -18,13 +18,14 @@ public sealed class AccountStore : IDisposable
     readonly string file;
     readonly string payoutFile;
     readonly string payoutRecordsFile;
+    readonly string focusedTablesFile;
     readonly FileStream processLock;
     readonly object gate = new();
     readonly PasswordHasher<string> hasher = new(Microsoft.Extensions.Options.Options.Create(new PasswordHasherOptions { IterationCount = 210000 }));
     FileData data = null!;
     readonly string dummyHash;
     public AccountStore(string directory) {
-        Directory.CreateDirectory(directory); file = Path.Combine(directory, "accounts.json"); payoutFile = Path.Combine(directory, "payout-settings.json"); payoutRecordsFile = Path.Combine(directory, "payout-records.json");
+        Directory.CreateDirectory(directory); file = Path.Combine(directory, "accounts.json"); payoutFile = Path.Combine(directory, "payout-settings.json"); payoutRecordsFile = Path.Combine(directory, "payout-records.json"); focusedTablesFile = Path.Combine(directory, "focused-tables.json");
         // Exactly one writer process; a second instance fails rather than overwriting data.
         processLock = new FileStream(Path.Combine(directory,"writer.lock"), FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None);
         dummyHash = hasher.HashPassword("dummy", Convert.ToHexString(RandomNumberGenerator.GetBytes(32)));
@@ -65,6 +66,35 @@ public sealed class AccountStore : IDisposable
         }
     }
     public bool Validate(Guid id, string stamp) { lock(gate) return data.Accounts.Any(a=>a.Id==id && a.Stamp==stamp && a.Enabled && a.ExpiresAt>DateTimeOffset.UtcNow); }
+    public List<string> GetFocusedTables(Guid id, string stamp) {
+        lock (gate) {
+            if (!Validate(id, stamp)) throw new UnauthorizedAccessException();
+            if (!File.Exists(focusedTablesFile)) return [];
+            var all = JsonSerializer.Deserialize<Dictionary<Guid, List<string>>>(File.ReadAllText(focusedTablesFile)) ?? [];
+            return all.GetValueOrDefault(id)?.ToList() ?? [];
+        }
+    }
+    public List<string> SetFocusedTables(Guid id, string stamp, List<string> tables) {
+        if (tables.Count > 100 || tables.Any(item => item.Length > 128 || !Regex.IsMatch(item, @"^(MT|DG|AB)::[A-Za-z0-9:_-]+$")))
+            throw new ArgumentException("關注牌桌資料格式不正確。");
+        lock (gate) {
+            if (!Validate(id, stamp)) throw new UnauthorizedAccessException();
+            var all = File.Exists(focusedTablesFile)
+                ? JsonSerializer.Deserialize<Dictionary<Guid, List<string>>>(File.ReadAllText(focusedTablesFile)) ?? []
+                : new Dictionary<Guid, List<string>>();
+            all[id] = tables.ToList();
+            var temporary = focusedTablesFile + "." + Guid.NewGuid().ToString("N") + ".tmp";
+            try {
+                using (var stream = new FileStream(temporary, FileMode.CreateNew, FileAccess.Write, FileShare.None)) {
+                    JsonSerializer.Serialize(stream, all); stream.Flush(true);
+                }
+                if (!OperatingSystem.IsWindows()) File.SetUnixFileMode(temporary, UnixFileMode.UserRead | UnixFileMode.UserWrite);
+                if (File.Exists(focusedTablesFile)) File.Replace(temporary, focusedTablesFile, focusedTablesFile + ".bak");
+                else File.Move(temporary, focusedTablesFile);
+            } finally { if (File.Exists(temporary)) File.Delete(temporary); }
+            return all[id].ToList();
+        }
+    }
     public void Create(string username, string password, DateTimeOffset expires) {
         username=username.Trim(); ValidateName(username); ValidatePassword(password);
         if(expires<=DateTimeOffset.UtcNow) throw new ArgumentException("到期時間必須晚於現在。");

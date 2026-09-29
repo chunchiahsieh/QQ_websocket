@@ -548,6 +548,12 @@ export default function Home() {
   const [tablesByPlatform, setTablesByPlatform] = useState<Record<'MT' | 'DG' | 'AB', TableInfo[]>>({ MT: [], DG: [], AB: [] });
   const [connectedByPlatform, setConnectedByPlatform] = useState<Record<'MT' | 'DG' | 'AB', boolean>>({ MT: false, DG: false, AB: false });
   const [focusedTables, setFocusedTables] = useState<string[]>([]);
+  const focusedTablesRef = useRef<string[]>([]);
+  const focusedWrites = useRef<Promise<void>>(Promise.resolve());
+  const focusedPending = useRef(0);
+  const focusedRevision = useRef(0);
+  const focusedNeedsSave = useRef(false);
+  const [focusedSyncError, setFocusedSyncError] = useState('');
   const [cardsPerRow, setCardsPerRow] = useState<CardColumns>(2);
   const [tableUpdatedAt, setTableUpdatedAt] = useState('');
   const [mtMessage, setMtMessage] = useState('等待牌桌資料');
@@ -702,10 +708,50 @@ export default function Home() {
     return () => abort.abort();
   }, [connectOfficialCollector, isAuthenticated, mtCollectorMode]);
 
+  useEffect(() => {
+    if (!isAuthenticated || mtCollectorMode) return;
+    let active = true;
+    const refresh = async () => {
+      if (focusedPending.current || focusedNeedsSave.current) return;
+      const revision = focusedRevision.current;
+      try {
+        const response = await fetch('/api/focused-tables', { cache: 'no-store' });
+        if (!response.ok) throw new Error('關注牌桌暫時無法同步。');
+        const data = await response.json() as { tables?: string[] };
+        if (active && !focusedPending.current && revision === focusedRevision.current && Array.isArray(data.tables)) {
+          focusedTablesRef.current = data.tables;
+          setFocusedTables(data.tables);
+          setFocusedSyncError('');
+        }
+      } catch { if (active) setFocusedSyncError('關注牌桌暫時無法同步，請稍後重新整理。'); }
+    };
+    void refresh();
+    const timer = setInterval(() => { void refresh(); }, 15000);
+    return () => { active = false; clearInterval(timer); };
+  }, [isAuthenticated, mtCollectorMode]);
+
+  const updateFocusedTables = useCallback((next: string[]) => {
+    focusedRevision.current += 1;
+    focusedTablesRef.current = next;
+    setFocusedTables(next);
+    focusedPending.current += 1;
+    focusedWrites.current = focusedWrites.current.catch(() => {}).then(async () => {
+      try {
+        const response = await fetch('/api/focused-tables', {
+          method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ tables: next }),
+        });
+        if (!response.ok) throw new Error('關注牌桌儲存失敗。');
+        focusedNeedsSave.current = false;
+        setFocusedSyncError('');
+      } catch { focusedNeedsSave.current = true; setFocusedSyncError('關注牌桌儲存失敗，請重試。'); }
+      finally { focusedPending.current -= 1; }
+    });
+  }, []);
+
   const focusTable = useCallback((table: TableInfo) => {
     const source = table.id.startsWith('DG:') ? 'DG' : table.id.startsWith('AB:') ? 'AB' : 'MT';
-    setFocusedTables(current => [...current, `${source}::${table.id}`]);
-  }, []);
+    updateFocusedTables([...focusedTablesRef.current, `${source}::${table.id}`]);
+  }, [updateFocusedTables]);
 
   const disconnect = () => {
     if (pollTimer.current) {
@@ -739,6 +785,8 @@ export default function Home() {
       localStorage.removeItem('table-monitor-token');
       setTables([]); setTableUpdatedAt('');
       setConnectedByPlatform({ MT: false, DG: false, AB: false });
+      focusedTablesRef.current = []; setFocusedTables([]); setFocusedSyncError('');
+      focusedNeedsSave.current = false; focusedRevision.current += 1;
       setPassword(''); setLoginStatus('idle'); setLoginMessage('');
        setMtConnection(null);
       setIsAuthenticated(false);
@@ -785,6 +833,7 @@ export default function Home() {
       }
       localStorage.removeItem('table-monitor-token');
       setPassword('');
+      focusedTablesRef.current = []; setFocusedTables([]); focusedNeedsSave.current = false;
       setLoginStatus('success');
       setLoginMessage('登入成功。');
       setIsAuthenticated(true);
@@ -1057,7 +1106,7 @@ export default function Home() {
   // retain long-lived SSE connections after a tab closes. The separate 15s
   // presence heartbeat above owns viewer liveness; polling is read-only.
   useEffect(() => {
-    const shouldSubscribe = isAuthenticated && activeMenu === 'tables' && platform === 'MT' && mtConnection === null;
+    const shouldSubscribe = isAuthenticated && ((activeMenu === 'tables' && platform === 'MT') || (activeMenu === 'compare' && hasFocusedMt)) && mtConnection === null;
     if (!shouldSubscribe) return;
     const abort = new AbortController();
     let inFlight = false;
@@ -1110,12 +1159,12 @@ export default function Home() {
       clearInterval(timer);
       setConnectedByPlatform(previous => ({ ...previous, MT: false }));
     };
-  }, [activeMenu, handleMtStatus, isAuthenticated, mtConnection, platform]);
+  }, [activeMenu, handleMtStatus, hasFocusedMt, isAuthenticated, mtConnection, platform]);
 
   // Viewer mode never opens a DG relay/WebSocket. It polls only the snapshot
   // published by collector A, matching the MT ownership model exactly.
   useEffect(() => {
-    const shouldSubscribe = isAuthenticated && !mtCollectorMode && activeMenu === 'tables' && platform === 'DG';
+    const shouldSubscribe = isAuthenticated && !mtCollectorMode && ((activeMenu === 'tables' && platform === 'DG') || (activeMenu === 'compare' && hasFocusedDg));
     if (!shouldSubscribe) return;
     const abort = new AbortController();
     let inFlight = false;
@@ -1141,12 +1190,12 @@ export default function Home() {
     void poll();
     const timer = setInterval(() => { void poll(); }, 1000);
     return () => { abort.abort(); clearInterval(timer); setConnectedByPlatform(previous => ({ ...previous, DG: false })); };
-  }, [activeMenu, handleDgStatus, handleDgTables, isAuthenticated, mtCollectorMode, platform]);
+  }, [activeMenu, handleDgStatus, handleDgTables, hasFocusedDg, isAuthenticated, mtCollectorMode, platform]);
 
   // AB follows the same read-only viewer model as DG. It must never open a
   // second official session from a viewer tab.
   useEffect(() => {
-    const shouldSubscribe = isAuthenticated && !mtCollectorMode && activeMenu === 'tables' && platform === 'AB';
+    const shouldSubscribe = isAuthenticated && !mtCollectorMode && ((activeMenu === 'tables' && platform === 'AB') || (activeMenu === 'compare' && hasFocusedAb));
     if (!shouldSubscribe) return;
     const abort = new AbortController();
     let inFlight = false;
@@ -1172,7 +1221,7 @@ export default function Home() {
     void poll();
     const timer = setInterval(() => { void poll(); }, 1000);
     return () => { abort.abort(); clearInterval(timer); setConnectedByPlatform(previous => ({ ...previous, AB: false })); };
-  }, [activeMenu, handleAbStatus, handleAbTables, isAuthenticated, mtCollectorMode, platform]);
+  }, [activeMenu, handleAbStatus, handleAbTables, hasFocusedAb, isAuthenticated, mtCollectorMode, platform]);
 
   const statusInfo = statusView[status];
 
@@ -1303,7 +1352,8 @@ export default function Home() {
           <AbMonitor gameUrl={abGameUrl} collector onStatus={handleAbStatus} onTables={handleAbTables} cardColumns={cardsPerRow} onCardColumnsChange={setCardsPerRow} />
         </div>}
         {activeMenu === 'regression' ? <RegressionTest /> : activeMenu === 'payout' ? <PayoutFeature /> : activeMenu === 'compare' ? <>
-           <FocusedTableCompare tablesByPlatform={tablesByPlatform} connectedByPlatform={connectedByPlatform} selected={focusedTables} onSelectedChange={setFocusedTables} cardsPerRow={cardsPerRow} onCardsPerRowChange={setCardsPerRow} onFocusTable={focusTable} />
+           {focusedSyncError && <p role="alert" className="mb-2 text-sm text-amber-200">{focusedSyncError} {focusedNeedsSave.current && <button type="button" onClick={() => updateFocusedTables(focusedTablesRef.current)} className="underline">重試儲存</button>}</p>}
+           <FocusedTableCompare tablesByPlatform={tablesByPlatform} connectedByPlatform={connectedByPlatform} selected={focusedTables} onSelectedChange={updateFocusedTables} cardsPerRow={cardsPerRow} onCardsPerRowChange={setCardsPerRow} onFocusTable={focusTable} />
            <div className="hidden" aria-hidden="true">
               {ENABLE_BROWSER_AB && hasFocusedAb && <AbMonitor gameUrl={abGameUrl} onStatus={handleAbStatus} onTables={handleAbTables} cardColumns={cardsPerRow} onCardColumnsChange={setCardsPerRow} />}
            </div>

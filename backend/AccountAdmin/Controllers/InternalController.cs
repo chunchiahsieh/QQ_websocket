@@ -11,6 +11,7 @@ public sealed class InternalController(AccountStore store,IConfiguration config)
     public record ResetPasswordInput(string Username,string Password);
     public record ValidateInput(Guid Id,string Stamp);
     public record PayoutsInput(string? Username);
+    public record FocusedTablesInput(Guid Id, string Stamp, List<string>? Tables);
     bool Authorized() {
         var key=config["ADMIN_INTERNAL_KEY"];
         var supplied=Request.Headers["X-Internal-Key"].ToString();
@@ -49,5 +50,16 @@ public sealed class InternalController(AccountStore store,IConfiguration config)
         if(!Authorized()) return StatusCode(StatusCodes.Status403Forbidden);
         var snapshot = store.GetPayoutSnapshot(input?.Username);
         return Ok(new { pools = snapshot.Settings, payouts = snapshot.Records });
+    }
+    [HttpPost("focused-tables"), RequestSizeLimit(16384)]
+    public IActionResult FocusedTables(FocusedTablesInput input) {
+        if (!Authorized()) return StatusCode(StatusCodes.Status403Forbidden);
+        try {
+            var tables = input.Tables is null
+                ? store.GetFocusedTables(input.Id, input.Stamp)
+                : store.SetFocusedTables(input.Id, input.Stamp, input.Tables);
+            return Ok(new { tables });
+        } catch (UnauthorizedAccessException) { return Unauthorized(); }
+        catch (ArgumentException exception) { return BadRequest(new { message = exception.Message }); }
     }
 }
