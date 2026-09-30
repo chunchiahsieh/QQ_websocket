@@ -66,6 +66,15 @@ export type TableInfo = {
   smallRoad: string;
   cockroachRoad: string;
 };
+export type FocusedTableSettings = {
+  cardMode: CardMode;
+  bettingStrategy: BettingStrategy;
+  bettingLedger: BettingLedger;
+  lastSettledRound: number;
+  pendingPrediction: { round: number; side?: BetSide };
+  actionStrategy: ActionStrategy;
+  actionConfig: ActionConfig;
+};
 const roadOnlyModes: CardMode[] = [
   "big",
   "eye",
@@ -163,7 +172,7 @@ export const BaccaratTableCard = memo(function BaccaratTableCard({
   table: TableInfo;
   connected: boolean;
   beadOnly?: boolean;
-  onFocusTable?: (table: TableInfo) => void;
+  onFocusTable?: (table: TableInfo, settings?: FocusedTableSettings) => void;
   platformLabel?: string;
   storageScope?: string;
   highlightShoeProfit?: boolean;
@@ -615,7 +624,15 @@ export const BaccaratTableCard = memo(function BaccaratTableCard({
           onChange={(event) => {
             const action = event.target.value;
             if (action === "focus" && onFocusTable) {
-              onFocusTable(table);
+              onFocusTable(table, {
+                cardMode,
+                bettingStrategy,
+                bettingLedger,
+                lastSettledRound: lastSettledRound.current,
+                pendingPrediction: pendingPrediction.current,
+                actionStrategy,
+                actionConfig,
+              });
               setActionNotice(table.name);
             } else if (action === "toggle-dealer")
               setShowDealer((value) => !value);

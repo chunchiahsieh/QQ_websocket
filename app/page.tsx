@@ -24,6 +24,7 @@ import { BaccaratRoad } from "@/components/baccarat-road";
 import { TableCountdown } from "@/components/table-countdown";
 import {
   BaccaratTableCard,
+  type FocusedTableSettings,
   type TableInfo,
 } from "@/components/baccarat-table-card";
 import { DgMonitor } from "@/components/dg-monitor";
@@ -757,7 +758,7 @@ function FocusedTableCompare({
   onSelectedChange: (next: string[]) => void;
   cardsPerRow: CardColumns;
   onCardsPerRowChange: (value: CardColumns) => void;
-  onFocusTable: (table: TableInfo) => void;
+  onFocusTable: (table: TableInfo, settings?: FocusedTableSettings) => void;
 }) {
   const [dragIndex, setDragIndex] = useState<number | null>(null);
   const removeTable = (index: number) =>
@@ -1952,13 +1953,41 @@ export default function Home() {
   }, []);
 
   const focusTable = useCallback(
-    (table: TableInfo) => {
+    (table: TableInfo, settings?: FocusedTableSettings) => {
       const source = table.id.startsWith("DG:")
         ? "DG"
         : table.id.startsWith("AB:")
           ? "AB"
           : "MT";
       const instanceId = createBrowserUuid().replaceAll("-", "");
+      if (settings) {
+        const label = source === "AB" ? "歐博" : source;
+        const storageScope = `focused:${instanceId}`;
+        try {
+          window.localStorage.setItem(
+            `jshen-card-mode:${label}:${storageScope}`,
+            settings.cardMode,
+          );
+          window.localStorage.setItem(
+            `jshen-betting:${label}:${storageScope}`,
+            JSON.stringify({
+              strategy: settings.bettingStrategy,
+              ledger: settings.bettingLedger,
+              lastSettledRound: settings.lastSettledRound,
+              pendingPrediction: settings.pendingPrediction,
+            }),
+          );
+          window.localStorage.setItem(
+            `jshen-action:${label}:${storageScope}`,
+            JSON.stringify({
+              strategy: settings.actionStrategy,
+              config: settings.actionConfig,
+            }),
+          );
+        } catch {
+          /* The followed table is still added when browser storage is unavailable. */
+        }
+      }
       updateFocusedTables([
         ...focusedTablesRef.current,
         `${source}::${table.id}::${instanceId}`,

@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Crown } from 'lucide-react';
-import { BaccaratTableCard, type TableInfo } from '@/components/baccarat-table-card';
+import { BaccaratTableCard, type FocusedTableSettings, type TableInfo } from '@/components/baccarat-table-card';
 import { CardLayoutSelect, cardGridColumns, type CardColumns } from '@/components/card-layout';
 import type { CardMode } from '@/components/card-picker';
 import { graphicalPrediction } from '@/components/graphical-card';
@@ -160,7 +160,7 @@ export function JshenPicks({ tablesByPlatform, connectedByPlatform, cardsPerRow,
   connectedByPlatform: Record<Platform, boolean>;
   cardsPerRow: CardColumns;
   onCardsPerRowChange: (value: CardColumns) => void;
-  onFocusTable: (table: TableInfo) => void;
+  onFocusTable: (table: TableInfo, settings?: FocusedTableSettings) => void;
 }) {
   const [route, setRoute] = useState<Route>('stable');
   const [sortMode, setSortMode] = useState<SortMode>('win-rate');
