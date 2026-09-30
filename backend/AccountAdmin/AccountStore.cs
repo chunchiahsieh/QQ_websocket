@@ -227,7 +227,11 @@ public sealed class AccountStore : IDisposable
     }
     List<PayoutRecord> ReadPayoutRecords() {
         if (!File.Exists(payoutRecordsFile)) return [];
-        return JsonSerializer.Deserialize<List<PayoutRecord>>(File.ReadAllText(payoutRecordsFile)) ?? [];
+        return (JsonSerializer.Deserialize<List<PayoutRecord>>(File.ReadAllText(payoutRecordsFile)) ?? [])
+            .Select(record => record.Username.StartsWith("幸運玩家", StringComparison.Ordinal)
+                ? record with { Username = record.Username[4..] }
+                : record)
+            .ToList();
     }
     List<ScheduledPayout> ReadScheduledPayouts() {
         if (!File.Exists(scheduledPayoutsFile)) return [];
@@ -273,7 +277,7 @@ public sealed class AccountStore : IDisposable
             var cycles = 0;
             while (amount >= trigger && cycles++ < 100) {
                 string winner;
-                do { winner = $"幸運玩家{RandomNumberGenerator.GetInt32(100, 1000)}***"; }
+                do { winner = $"{RandomVirtualUsername()}***"; }
                 while (data.Accounts.Any(account => account.Username.Equals(winner, StringComparison.OrdinalIgnoreCase)));
                 records.Insert(0, new(Guid.NewGuid(), winner, setting.Code, setting.Name, decimal.Round(trigger, 2), DateTimeOffset.UtcNow));
                 amount = setting.BaseAmount + (amount - trigger);
@@ -285,6 +289,23 @@ public sealed class AccountStore : IDisposable
         SavePayout(updated);
     }
     static bool ValidTrigger(PayoutSetting setting) => setting.NextPayoutAmount > setting.BaseAmount && setting.NextPayoutAmount <= setting.CapAmount;
+    static string RandomVirtualUsername() {
+        const string letters = "abcdefghijklmnopqrstuvwxyz";
+        const string digits = "0123456789";
+        var chars = new[] {
+            letters[RandomNumberGenerator.GetInt32(letters.Length)],
+            letters[RandomNumberGenerator.GetInt32(letters.Length)],
+            letters[RandomNumberGenerator.GetInt32(letters.Length)],
+            digits[RandomNumberGenerator.GetInt32(digits.Length)],
+            digits[RandomNumberGenerator.GetInt32(digits.Length)],
+            digits[RandomNumberGenerator.GetInt32(digits.Length)],
+        };
+        for (var index = chars.Length - 1; index > 0; index--) {
+            var swapIndex = RandomNumberGenerator.GetInt32(index + 1);
+            (chars[index], chars[swapIndex]) = (chars[swapIndex], chars[index]);
+        }
+        return new string(chars);
+    }
     static decimal RandomPayoutTrigger(PayoutSetting setting) {
         var range = setting.CapAmount - setting.BaseAmount;
         if (range <= 0) return setting.CapAmount;
