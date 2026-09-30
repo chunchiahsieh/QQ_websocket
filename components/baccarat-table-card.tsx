@@ -293,7 +293,14 @@ export const BaccaratTableCard = memo(function BaccaratTableCard({
       } | null;
       if (saved && Object.hasOwn(bettingStrategyLabels, saved.strategy ?? ""))
         strategy = saved.strategy!;
-      if (saved?.ledger) ledger = saved.ledger;
+      if (saved?.ledger)
+        ledger = {
+          ...initialBettingLedger(),
+          ...saved.ledger,
+          totalStake: Number.isFinite(saved.ledger.totalStake)
+            ? saved.ledger.totalStake
+            : 0,
+        };
       if (Number.isFinite(saved?.lastSettledRound))
         lastRound = saved!.lastSettledRound!;
       if (saved?.pendingPrediction) pending = saved.pendingPrediction;

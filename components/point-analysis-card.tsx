@@ -35,8 +35,8 @@ export function PointAnalysisCard({ bigRoad, beadPlate, distributionOnly = false
     </div>
     <div className="border-t border-slate-700 pt-1 text-xs font-medium text-white">
       {distributionOnly ? '莊閒勝方點數合併統計；只看分布，不產生訊號。' : <div className="flex flex-wrap items-center gap-x-3">
-        <span>下局預測：<strong className={signal.answer === '莊' ? 'text-red-400' : signal.answer === '閒' ? 'text-blue-400' : 'text-slate-300'}>{signal.answer}</strong></span>
-        <span>上一局：<strong className={performance.lastResult === '命中' ? 'text-emerald-300' : performance.lastResult === '錯誤' ? 'text-orange-300' : 'text-slate-300'}>{performance.lastResult}</strong></span>
+        <span>下局預測：<strong className={signal.answer === '莊' ? 'text-red-400' : signal.answer === '閒' ? 'text-blue-400' : 'text-slate-300'}>{signal.answer}</strong>{signal.answer === '無訊號' && <em className="ml-1 not-italic text-amber-200">（本局不出手）</em>}</span>
+        <span>上次預測：<strong className={performance.lastResult === '命中' ? 'text-emerald-300' : performance.lastResult === '錯誤' ? 'text-orange-300' : 'text-slate-300'}>{performance.lastResult}</strong></span>
         <span>目前連中：<strong className="text-emerald-300">{performance.streak}</strong>（最高 {performance.maxStreak}）</span>
         <span>目前連錯：<strong className="text-orange-300">{performance.missStreak}</strong>（最高 {performance.maxMissStreak}）</span>
       </div>}

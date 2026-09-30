@@ -13,6 +13,7 @@ export type BettingLedger = {
   step: number;
   nextStake: number;
   profit: number;
+  totalStake: number;
   bets: number;
   wins: number;
   losses: number;
@@ -28,7 +29,7 @@ export const bettingStrategyLabels: Record<BettingStrategy, string> = {
   'reverse-martingale': '反馬丁格爾',
 };
 
-export const initialBettingLedger = (): BettingLedger => ({ step: 0, nextStake: 1, profit: 0, bets: 0, wins: 0, losses: 0 });
+export const initialBettingLedger = (): BettingLedger => ({ step: 0, nextStake: 1, profit: 0, totalStake: 0, bets: 0, wins: 0, losses: 0 });
 
 export function settleBet(strategy: BettingStrategy, ledger: BettingLedger, prediction: BetSide | undefined, outcome: BetOutcome): BettingLedger {
   if (!prediction || outcome === '3') return ledger;
@@ -54,6 +55,7 @@ export function settleBet(strategy: BettingStrategy, ledger: BettingLedger, pred
   }
   return {
     step, nextStake, profit: Math.round((ledger.profit + profitDelta) * 100) / 100,
+    totalStake: Math.round(((ledger.totalStake ?? 0) + stake) * 100) / 100,
     bets: ledger.bets + 1, wins: ledger.wins + (won ? 1 : 0), losses: ledger.losses + (won ? 0 : 1),
   };
 }
