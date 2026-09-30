@@ -7,7 +7,7 @@ namespace AccountAdmin;
 
 public sealed record Account(Guid Id, string Username, string PasswordHash, bool Enabled, DateTimeOffset ExpiresAt, string Stamp);
 public sealed record AccountView(Guid Id, string Username, bool Enabled, DateTimeOffset ExpiresAt);
-public sealed record PayoutSetting(string Code, string Name, decimal Amount, decimal BaseAmount, decimal CapAmount, bool Enabled);
+public sealed record PayoutSetting(string Code, string Name, decimal Amount, decimal BaseAmount, decimal CapAmount, bool Enabled, decimal NextPayoutAmount = 0);
 public sealed record PayoutRecord(Guid Id, string Username, string CategoryCode, string CategoryName, decimal Amount, DateTimeOffset CreatedAt);
 public sealed record ScheduledPayout(Guid Id, string Username, string CategoryCode, decimal Amount, DateTimeOffset ScheduledAt, DateTimeOffset CreatedAt);
 public sealed record PayoutSnapshot(List<PayoutSetting> Settings, List<PayoutRecord> Records, List<PayoutRecord> Announcements, long Revision);
@@ -169,7 +169,7 @@ public sealed class AccountStore : IDisposable
             if (setting is null) throw new ArgumentException("派彩類別不存在。");
             var record = new PayoutRecord(Guid.NewGuid(), account.Username, setting.Code, setting.Name, decimal.Round(setting.Amount, 2), DateTimeOffset.UtcNow);
             var nextSettings = settings.Select(item => item.Code.Equals(setting.Code, StringComparison.OrdinalIgnoreCase)
-                ? item with { Amount = item.BaseAmount } : item).ToList();
+                ? item with { Amount = item.BaseAmount, NextPayoutAmount = 0 } : item).ToList();
             var previousRecords = ReadPayoutRecords();
             var nextRecords = new List<PayoutRecord> { record };
             nextRecords.AddRange(previousRecords);
@@ -245,7 +245,7 @@ public sealed class AccountStore : IDisposable
             if (account is null || setting is null || !account.Enabled || account.ExpiresAt <= DateTimeOffset.UtcNow) continue;
             var payoutAmount = schedule.Amount > 0 ? schedule.Amount : setting.Amount;
             records.Insert(0, new(Guid.NewGuid(), account.Username, setting.Code, setting.Name, decimal.Round(payoutAmount, 2), DateTimeOffset.UtcNow));
-            settings = settings.Select(item => item.Code.Equals(setting.Code, StringComparison.OrdinalIgnoreCase) ? item with { Amount = item.BaseAmount } : item).ToList();
+            settings = settings.Select(item => item.Code.Equals(setting.Code, StringComparison.OrdinalIgnoreCase) ? item with { Amount = item.BaseAmount, NextPayoutAmount = 0 } : item).ToList();
         }
         SavePayoutRecords(records.Take(1000).ToList());
         SavePayout(settings);
@@ -267,20 +267,32 @@ public sealed class AccountStore : IDisposable
         var records = ReadPayoutRecords();
         var updated = new List<PayoutSetting>(settings.Count);
         foreach (var setting in settings) {
-            var cycleSize = setting.CapAmount - setting.BaseAmount;
             var accrued = rates.GetValueOrDefault(setting.Code) * speed * (decimal)elapsedSeconds;
-            var total = Math.Max(0, setting.Amount - setting.BaseAmount) + accrued;
-            var completed = cycleSize > 0 ? (int)decimal.Floor(total / cycleSize) : 0;
-            for (var cycle = 0; cycle < Math.Min(completed, 100); cycle++) {
+            var amount = Math.Clamp(setting.Amount, setting.BaseAmount, setting.CapAmount) + accrued;
+            var trigger = ValidTrigger(setting) ? setting.NextPayoutAmount : RandomPayoutTrigger(setting);
+            var cycles = 0;
+            while (amount >= trigger && cycles++ < 100) {
                 string winner;
                 do { winner = $"幸運玩家{RandomNumberGenerator.GetInt32(100, 1000)}***"; }
                 while (data.Accounts.Any(account => account.Username.Equals(winner, StringComparison.OrdinalIgnoreCase)));
-                records.Insert(0, new(Guid.NewGuid(), winner, setting.Code, setting.Name, setting.CapAmount, DateTimeOffset.UtcNow));
+                records.Insert(0, new(Guid.NewGuid(), winner, setting.Code, setting.Name, decimal.Round(trigger, 2), DateTimeOffset.UtcNow));
+                amount = setting.BaseAmount + (amount - trigger);
+                trigger = RandomPayoutTrigger(setting);
             }
-            updated.Add(setting with { Amount = setting.BaseAmount + (cycleSize > 0 ? total % cycleSize : 0) });
+            updated.Add(setting with { Amount = Math.Min(amount, setting.CapAmount), NextPayoutAmount = trigger });
         }
         SavePayoutRecords(records.Take(1000).ToList());
         SavePayout(updated);
+    }
+    static bool ValidTrigger(PayoutSetting setting) => setting.NextPayoutAmount > setting.BaseAmount && setting.NextPayoutAmount <= setting.CapAmount;
+    static decimal RandomPayoutTrigger(PayoutSetting setting) {
+        var range = setting.CapAmount - setting.BaseAmount;
+        if (range <= 0) return setting.CapAmount;
+        // Pick a fresh trigger between 10% and 100% of the configured range.
+        // Persisting it with the pool prevents page refreshes or service restarts
+        // from re-rolling the next payout point.
+        var basisPoints = RandomNumberGenerator.GetInt32(1000, 10001);
+        return decimal.Round(setting.BaseAmount + range * basisPoints / 10000m, 2);
     }
     static void ValidateName(string name) { if(!Regex.IsMatch(name,@"^[a-zA-Z0-9_.-]{3,64}$")) throw new ArgumentException("帳號須為 3–64 位英數字、底線、句點或減號。"); }
     static void ValidatePassword(string? value) { if(value is null || value.Length<6 || value.Length>128) throw new ArgumentException("密碼須為 6–128 個字元。"); }

@@ -24,15 +24,16 @@
 @if(TempData["Error"] is string error){<p class="notice error" role="alert">@error</p>}
 
 <section id="payout" class="panel" data-admin-page="payout">
-  <div class="section-heading"><div><h2>派彩功能設定</h2><p class="muted">調整前台獎池顯示的名稱、目前金額與上下限。四類派彩固定提供，不設啟用／停用開關。</p></div><span class="badge">四類獎池</span></div>
+  <div class="section-heading"><div><h2>派彩功能設定</h2><p class="muted">調整前台獎池顯示的名稱、目前金額與上下限；下次虛擬派彩金額由系統隨機產生。</p></div><span class="badge">四類獎池</span></div>
   <form asp-action="SavePayout" method="post">
-    <div class="scroll"><table class="settings-table"><thead><tr><th>類別</th><th>顯示名稱</th><th>目前金額</th><th>下限</th><th>上限</th></tr></thead><tbody>
+    <div class="scroll"><table class="settings-table"><thead><tr><th>類別</th><th>顯示名稱</th><th>目前金額</th><th>下次虛擬派彩</th><th>下限</th><th>上限</th></tr></thead><tbody>
     @for(var i = 0; i < Model.PayoutSettings.Count; i++){
       var payout = Model.PayoutSettings[i];
       <tr>
         <td><strong>@payout.Code</strong><input type="hidden" name="payouts[@i].Code" value="@payout.Code" /></td>
         <td><input name="payouts[@i].Name" value="@payout.Name" maxlength="80" required /></td>
         <td><input name="payouts[@i].Amount" value="@payout.Amount.ToString("0.00")" type="number" min="0" step="0.01" required /></td>
+        <td><strong>@payout.NextPayoutAmount.ToString("N2")</strong><input type="hidden" name="payouts[@i].NextPayoutAmount" value="@payout.NextPayoutAmount.ToString("0.00", System.Globalization.CultureInfo.InvariantCulture)" /></td>
         <td><input name="payouts[@i].BaseAmount" value="@payout.BaseAmount.ToString("0.00")" type="number" min="0" step="0.01" required /></td>
         <td><input name="payouts[@i].CapAmount" value="@payout.CapAmount.ToString("0.00")" type="number" min="0.01" step="0.01" required /></td>
       </tr>
@@ -44,7 +45,7 @@
 
 <section id="award" class="panel" data-admin-page="award">
   <div class="section-heading"><div><h2>派彩方式</h2><p class="muted">虛擬帳號由系統循環派彩；管理者也可立即派彩給指定 USER。</p></div></div>
-  <div class="payout-mode-grid"><article class="payout-mode-card"><span class="badge">虛擬</span><h3>虛擬帳號自動派彩</h3><p>獎池達到上限後，系統隨機選用不可註冊的虛擬帳號，寫入派彩紀錄並回到下限繼續累加。</p><strong class="mode-enabled">● 自動循環中</strong></article><article class="payout-mode-card actual"><span class="badge">實際</span><h3>實際 USER 指定派彩</h3><p>選擇已註冊 USER、派彩類別與金額，按下按鈕後立即派彩並通知。</p></article></div>
+  <div class="payout-mode-grid"><article class="payout-mode-card"><span class="badge">虛擬</span><h3>虛擬帳號自動派彩</h3><p>系統會在下限與上限範圍內抽出下一個派彩金額；獎池累積達標後，隨機派給不可註冊的虛擬帳號，寫入紀錄並回到下限重新抽取。</p><strong class="mode-enabled">● 自動循環中</strong></article><article class="payout-mode-card actual"><span class="badge">實際</span><h3>實際 USER 指定派彩</h3><p>選擇已註冊 USER、派彩類別與金額，按下按鈕後立即派彩並通知。</p></article></div>
   <h3 class="form-subtitle">指定實際 USER 立即派彩</h3>
   <form asp-action="AwardPayout" method="post" class="row">
     <div class="field"><label for="payout-user">使用者</label><select id="payout-user" name="username" required>
