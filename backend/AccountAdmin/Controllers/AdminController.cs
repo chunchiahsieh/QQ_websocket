@@ -32,7 +32,7 @@ public sealed class AdminController(AccountStore store, SharedFeedStore feeds) :
     [HttpPost] public IActionResult Create(string username,string password,string expires) => Change(()=>store.Create(username ?? "",password ?? "",ParseDate(expires)));
     [HttpPost] public IActionResult Update(Guid id,bool enabled,string expires,string? password) => Change(()=>store.Update(id,enabled,ParseDate(expires),password));
     [HttpPost] public IActionResult Delete(Guid id) => Change(()=>store.Delete(id));
-    [HttpPost] public IActionResult SavePayout(List<PayoutInput> payouts) => Change(() => store.UpdatePayoutSettings(payouts.Select(item => new PayoutSetting(item.Code ?? "", item.Name ?? "", item.Amount, item.BaseAmount, item.CapAmount, true))));
+    [HttpPost] public IActionResult SavePayout(List<PayoutInput> payouts) => Change(() => store.UpdatePayoutSettings(payouts.Select(item => new PayoutSetting(item.Code ?? "", item.Name ?? "", item.Amount, item.BaseAmount, item.CapAmount, true, item.NextPayoutAmount))));
     [HttpPost] public IActionResult AwardPayout(string username, string code) => Change(() => store.AwardPayout(username ?? "", code ?? ""), "已按目前獎池金額立即派彩並通知指定 USER。");
     [HttpPost] public async Task<IActionResult> Password(string current,string next) {
         try {
@@ -58,5 +58,6 @@ public sealed class AdminController(AccountStore store, SharedFeedStore feeds) :
         public decimal Amount { get; set; }
         public decimal BaseAmount { get; set; }
         public decimal CapAmount { get; set; }
+        public decimal NextPayoutAmount { get; set; }
     }
 }
