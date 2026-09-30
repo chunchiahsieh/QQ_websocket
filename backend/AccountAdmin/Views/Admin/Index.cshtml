@@ -64,9 +64,9 @@
 
 <section id="payout-history" class="panel" data-admin-page="payout-history">
   <div class="section-heading"><div><h2>派彩紀錄</h2><p class="muted">最近 100 筆管理者確認的派彩資料。</p></div></div>
-  <div class="scroll"><table><thead><tr><th>時間</th><th>使用者</th><th>類別</th><th>金額</th></tr></thead><tbody>
-  @if(Model.PayoutRecords.Count == 0) { <tr><td colspan="4" class="muted">目前尚無派彩紀錄。</td></tr> }
-  @foreach(var record in Model.PayoutRecords) { <tr><td>@record.CreatedAt.ToOffset(TimeSpan.FromHours(8)).ToString("yyyy-MM-dd HH:mm:ss")</td><td>@record.Username</td><td>@record.CategoryCode · @record.CategoryName</td><td>@record.Amount.ToString("N2")</td></tr> }
+  <div class="scroll"><table><thead><tr><th>時間</th><th>使用者</th><th>類別</th><th>金額</th><th>操作</th></tr></thead><tbody>
+  @if(Model.PayoutRecords.Count == 0) { <tr><td colspan="5" class="muted">目前尚無派彩紀錄。</td></tr> }
+  @foreach(var record in Model.PayoutRecords) { <tr><td>@record.CreatedAt.ToOffset(TimeSpan.FromHours(8)).ToString("yyyy-MM-dd HH:mm:ss")</td><td>@record.Username</td><td>@record.CategoryCode · @record.CategoryName</td><td>@record.Amount.ToString("N2")</td><td><form asp-action="DeletePayout" method="post" onsubmit="return confirm('確定刪除這筆派彩紀錄？');"><input type="hidden" name="id" value="@record.Id" /><button type="submit" class="danger">刪除</button></form></td></tr> }
   </tbody></table></div>
 </section>
 

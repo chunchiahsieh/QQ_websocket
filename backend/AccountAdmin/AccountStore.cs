@@ -53,6 +53,13 @@ public sealed class AccountStore : IDisposable
     public List<PayoutRecord> ListPayoutRecords(int limit = 100) {
         lock (gate) { return ReadPayoutRecords().OrderByDescending(item => item.CreatedAt).Take(Math.Clamp(limit, 1, 500)).ToList(); }
     }
+    public void DeletePayoutRecord(Guid id) {
+        lock (gate) {
+            var records = ReadPayoutRecords();
+            if (!records.Any(item => item.Id == id)) throw new ArgumentException("找不到指定的派彩紀錄。");
+            SavePayoutRecords(records.Where(item => item.Id != id).ToList());
+        }
+    }
     public List<ScheduledPayout> ListScheduledPayouts() { lock (gate) { ProcessScheduledPayoutsUnsafe(); return ReadScheduledPayouts().OrderBy(item => item.ScheduledAt).ToList(); } }
     public PayoutSnapshot GetPayoutSnapshot(string? username = null, int limit = 50) {
         lock (gate) {
@@ -269,19 +276,26 @@ public sealed class AccountStore : IDisposable
         };
         var settings = ReadPayoutSettings();
         var records = ReadPayoutRecords();
+        var automaticPayoutOnCooldown = records
+            .Where(record => !data.Accounts.Any(account => account.Username.Equals(record.Username, StringComparison.OrdinalIgnoreCase)))
+            .OrderByDescending(record => record.CreatedAt)
+            .Select(record => record.CreatedAt)
+            .FirstOrDefault() > DateTimeOffset.UtcNow.AddMinutes(-5);
+        var automaticPayoutCreated = false;
         var updated = new List<PayoutSetting>(settings.Count);
         foreach (var setting in settings) {
             var accrued = rates.GetValueOrDefault(setting.Code) * speed * (decimal)elapsedSeconds;
             var amount = Math.Clamp(setting.Amount, setting.BaseAmount, setting.CapAmount) + accrued;
             var trigger = ValidTrigger(setting) ? setting.NextPayoutAmount : RandomPayoutTrigger(setting);
             var cycles = 0;
-            while (amount >= trigger && cycles++ < 100) {
+            while (!automaticPayoutOnCooldown && !automaticPayoutCreated && amount >= trigger && cycles++ < 100) {
                 string winner;
                 do { winner = $"{RandomVirtualUsername()}***"; }
                 while (data.Accounts.Any(account => account.Username.Equals(winner, StringComparison.OrdinalIgnoreCase)));
                 records.Insert(0, new(Guid.NewGuid(), winner, setting.Code, setting.Name, decimal.Round(trigger, 2), DateTimeOffset.UtcNow));
                 amount = setting.BaseAmount + (amount - trigger);
                 trigger = RandomPayoutTrigger(setting);
+                automaticPayoutCreated = true;
             }
             updated.Add(setting with { Amount = Math.Min(amount, setting.CapAmount), NextPayoutAmount = trigger });
         }
