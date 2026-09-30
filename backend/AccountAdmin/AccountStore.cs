@@ -76,7 +76,8 @@ public sealed class AccountStore : IDisposable
     public List<SimulationLine> ListSimulationLines() { lock (gate) { PruneSimulationLines(); return simulationLines.ToList(); } }
     public void AppendSimulationLinesTrusted(Guid sessionId, IEnumerable<(string Type, string Text)> entries) {
         lock (gate) {
-            if (ReadSimulationControl().SessionId != sessionId) return;
+            var control = ReadSimulationControl();
+            if (!control.Running || control.SessionId != sessionId) return;
             PruneSimulationLines();
             var now = DateTimeOffset.UtcNow;
             foreach (var (type, text) in entries) simulationLines.Add(new(Guid.NewGuid().ToString("N"), type, text, now));

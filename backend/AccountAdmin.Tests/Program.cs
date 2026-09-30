@@ -121,13 +121,22 @@ try {
         await worker.StartAsync(CancellationToken.None);
         for (var attempt = 0; attempt < 40 && worker.Snapshot().PendingCount < 6; attempt++) await Task.Delay(100);
         Check(worker.Snapshot().TableCount == 6 && worker.Snapshot().PendingCount == 6, "C# worker must place six pending simulations with no browser");
+        Check(worker.Snapshot().Tables.All(table => table.Prediction is "莊" or "閒" && table.Stake > 0 && table.State == "已模擬下單・待結算"),
+            "Table status must show the actual pending side and stake");
         var settledTables = Enumerable.Range(1, 14).Select(index => new { id = $"B{index:00}", name = $"B{index:00}", beadPlate = allBanker.Bead + "02", bigRoad = "" }).ToArray();
         var settledSnapshot = JsonSerializer.Serialize(new { type = "snapshot", tables = settledTables });
         Check(feed.SaveSnapshot("MT", settledSnapshot, DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(), 2, "test-collector"), "Simulation feed must accept next result");
         for (var attempt = 0; attempt < 60 && (accounts.GetSimulationControl().Summary?.Bets ?? 0) < 6; attempt++) await Task.Delay(100);
         Check(accounts.GetSimulationControl().Summary?.Bets == 6, "C# worker must settle pending bets without a browser");
         Check(worker.Snapshot().ProfitSeries.Count == 6, "C# worker must publish profit chart points");
-        accounts.StopSimulation();
+        var stopped = worker.StopFromAdmin();
+        Check(!stopped.Running && worker.Snapshot().TableCount == 0 && worker.Snapshot().PendingCount == 0,
+            "Stopping from admin must immediately clear active simulated tables and bets");
+        var stoppedSummary = accounts.GetSimulationControl().Summary;
+        var stoppedLineCount = accounts.ListSimulationLines().Count;
+        await Task.Delay(3300);
+        Check(accounts.GetSimulationControl().Summary == stoppedSummary && accounts.ListSimulationLines().Count == stoppedLineCount,
+            "The C# worker must not change simulation results after the stop action completes");
         await worker.StopAsync(CancellationToken.None);
     }
     Console.WriteLine("PASS: C# worker keeps collector demand, bets, and settles with no browser");

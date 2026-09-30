@@ -3,7 +3,8 @@ using Microsoft.Extensions.Hosting;
 namespace AccountAdmin;
 
 public sealed record SimulationChartPoint(DateTimeOffset At, decimal Profit);
-public sealed record SimulationTableStat(string Table, string Card, string Betting, string Action, double Score, int Bets, int Wins, int Losses, decimal Profit);
+public sealed record SimulationTableStat(string Table, string Card, string Betting, string Action, double Score, int Bets, int Wins, int Losses, decimal Profit,
+    string? Prediction, decimal Stake, string State);
 public sealed record SimulationStatus(int TableCount, int PendingCount, List<SimulationChartPoint> ProfitSeries, List<SimulationTableStat> Tables);
 
 // The simulation belongs to the C# service, not to any logged-in browser.
@@ -21,6 +22,9 @@ public sealed class SimulationWorker(AccountStore store, SharedFeedStore feeds, 
         public List<bool> RecentResults { get; } = [];
         public int SwitchAfterBet { get; set; }
         public double SelectedScore { get; set; }
+        public char? Prediction { get; set; }
+        public decimal DisplayStake { get; set; } = 1;
+        public string State { get; set; } = "等待牌桌資料";
     }
     readonly object gate = new();
     Guid activeSession;
@@ -34,7 +38,18 @@ public sealed class SimulationWorker(AccountStore store, SharedFeedStore feeds, 
         lock (gate) return new(positions.Count, positions.Count(position => position.Pending is not null), profitSeries.ToList(),
             positions.Select(position => new SimulationTableStat(SimulationModel.TableLabel(position.Choice.Table), SimulationModel.CardLabels[position.Choice.Card],
                 SimulationModel.BettingLabels[position.Choice.Betting], SimulationModel.ActionLabels[position.Choice.Action], position.SelectedScore,
-                position.StrategyLedger.Bets, position.StrategyLedger.Wins, position.StrategyLedger.Losses, position.StrategyLedger.Profit * 100)).ToList());
+                position.StrategyLedger.Bets, position.StrategyLedger.Wins, position.StrategyLedger.Losses, position.StrategyLedger.Profit * 100,
+                position.Prediction is char side ? SimulationModel.SideLabel(side) : null, position.DisplayStake, position.State)).ToList());
+    }
+
+    public SimulationControl StopFromAdmin() {
+        lock (gate) {
+            var stopped = store.StopSimulation();
+            activeSession = Guid.Empty;
+            positions.Clear();
+            candidates.Clear();
+            return stopped;
+        }
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken) {
@@ -51,12 +66,14 @@ public sealed class SimulationWorker(AccountStore store, SharedFeedStore feeds, 
     static string SignedUnits(decimal value) => (value >= 0 ? "+" : "-") + Math.Abs(value).ToString("N2") + " 注";
     static string ChoiceLabel(SimChoice choice) => $"{SimulationModel.TableLabel(choice.Table)}｜{SimulationModel.CardLabels[choice.Card]}｜{SimulationModel.BettingLabels[choice.Betting]}｜{SimulationModel.ActionLabels[choice.Action]}｜評分 {choice.Score:F1}";
     void Tick() {
-        var control = store.GetSimulationControl();
-        if (!control.Running || control.SessionId == Guid.Empty) {
-            lock (gate) { activeSession = Guid.Empty; positions.Clear(); candidates.Clear(); }
-            return;
-        }
         lock (gate) {
+            var control = store.GetSimulationControl();
+            if (!control.Running || control.SessionId == Guid.Empty) {
+                activeSession = Guid.Empty;
+                positions.Clear();
+                candidates.Clear();
+                return;
+            }
             if (activeSession != control.SessionId) {
                 activeSession = control.SessionId;
                 positions = [];
@@ -83,11 +100,21 @@ public sealed class SimulationWorker(AccountStore store, SharedFeedStore feeds, 
             var tableMap = tables.ToDictionary(SimulationModel.CanonicalKey);
             var changed = false;
             foreach (var position in positions) {
-                if (!tableMap.TryGetValue(SimulationModel.CanonicalKey(position.Choice.Table), out var table)) continue;
+                if (!tableMap.TryGetValue(SimulationModel.CanonicalKey(position.Choice.Table), out var table)) {
+                    position.Prediction = null;
+                    position.State = "等待牌桌資料";
+                    continue;
+                }
                 var choice = position.Choice with { Table = table };
                 position.Choice = choice;
                 var decisions = SimulationModel.Decisions(table, choice.Card);
-                if (decisions.Count < position.LastCount) { position.LastCount = decisions.Count; position.Pending = null; continue; }
+                if (decisions.Count < position.LastCount) {
+                    position.LastCount = decisions.Count;
+                    position.Pending = null;
+                    position.Prediction = null;
+                    position.State = "等待新靴訊號";
+                    continue;
+                }
                 if (decisions.Count > position.LastCount) {
                     var observed = decisions.Count - position.LastCount;
                     daily = daily with { Rounds = daily.Rounds + observed };
@@ -142,13 +169,23 @@ public sealed class SimulationWorker(AccountStore store, SharedFeedStore feeds, 
                         decisions = SimulationModel.Decisions(table, choice.Card);
                     }
                 }
-                if (position.Pending is null) {
-                    var (side, agreement) = SimulationModel.CurrentPrediction(table, choice.Card);
-                    if (SimulationModel.ShouldAct(choice.Action, side, decisions, choice.Card == "ai-consensus", agreement) && side is char selected) {
-                        var stake = SimulationModel.Stake(choice.Betting, position.StrategyLedger);
-                        position.Pending = (selected, stake, decisions.Count);
-                        store.AppendSimulationLinesTrusted(activeSession, [("bet", $"[BET {position.Slot}] {ChoiceLabel(choice)}｜押{SimulationModel.SideLabel(selected)}｜下注 {stake}單位｜待結算")]);
-                    }
+                if (position.Pending is { } activeBet) {
+                    position.Prediction = activeBet.Side;
+                    position.DisplayStake = activeBet.Stake;
+                    position.State = "已模擬下單・待結算";
+                    continue;
+                }
+                var (side, agreement) = SimulationModel.CurrentPrediction(table, choice.Card);
+                position.Prediction = side;
+                position.DisplayStake = SimulationModel.Stake(choice.Betting, position.StrategyLedger);
+                if (side is null) {
+                    position.State = "等待預測訊號";
+                } else if (!SimulationModel.ShouldAct(choice.Action, side, decisions, choice.Card == "ai-consensus", agreement)) {
+                    position.State = "等待出手條件";
+                } else {
+                    position.Pending = (side.Value, position.DisplayStake, decisions.Count);
+                    position.State = "已模擬下單・待結算";
+                    store.AppendSimulationLinesTrusted(activeSession, [("bet", $"[BET {position.Slot}] {ChoiceLabel(choice)}｜押{SimulationModel.SideLabel(side.Value)}｜下注 {position.DisplayStake}單位｜待結算")]);
                 }
             }
             if (changed) store.UpdateSimulationSummary(daily);

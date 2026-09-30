@@ -9,7 +9,6 @@ import {
 } from "react";
 import {
   Bell,
-  Bot,
   Crown,
   ChevronLeft,
   ChevronRight,
@@ -1691,7 +1690,7 @@ export default function Home() {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [platform, setPlatform] = useState<"MT" | "DG" | "AB">("MT");
   const [activeMenu, setActiveMenu] = useState<
-    "tables" | "payout" | "compare" | "regression" | "curated" | "simulation"
+    "tables" | "payout" | "compare" | "regression" | "curated"
   >("curated");
   const [menuCollapsed, setMenuCollapsed] = useState(false);
   const [mtCollectorMode, setMtCollectorMode] = useState(false);
@@ -2958,15 +2957,6 @@ export default function Home() {
             </button>
             <button
               type="button"
-              title="AI下單 -測試中"
-              onClick={() => setActiveMenu("simulation")}
-              className={`flex items-center rounded-lg border px-3 py-3 text-sm transition ${menuCollapsed ? "justify-center" : "gap-3"} ${activeMenu === "simulation" ? "border-emerald-400/55 bg-emerald-400/10 font-medium text-emerald-100" : "border-transparent text-slate-400 hover:border-emerald-400/30 hover:bg-emerald-400/5"}`}
-            >
-              <Bot className="h-4 w-4 shrink-0" />
-              <span className={menuCollapsed ? "hidden" : ""}>AI下單 -測試中</span>
-            </button>
-            <button
-              type="button"
               title="即時桌況"
               onClick={() => setActiveMenu("tables")}
               className={`flex items-center rounded-lg border px-3 py-3 text-sm transition ${menuCollapsed ? "justify-center" : "gap-3"} ${activeMenu === "tables" ? "border-cyan-400/45 bg-cyan-400/10 font-medium text-cyan-100" : "border-transparent text-slate-400 hover:border-cyan-400/30 hover:bg-cyan-400/5"}`}
@@ -3134,8 +3124,6 @@ export default function Home() {
               )}
             {activeMenu === "curated" ? (
               <JshenPicks tablesByPlatform={tablesByPlatform} connectedByPlatform={connectedByPlatform} cardsPerRow={cardsPerRow} onCardsPerRowChange={setCardsPerRow} onFocusTable={focusTable} />
-            ) : activeMenu === "simulation" ? (
-              <JshenPicks tablesByPlatform={tablesByPlatform} connectedByPlatform={connectedByPlatform} cardsPerRow={cardsPerRow} onCardsPerRowChange={setCardsPerRow} onFocusTable={focusTable} simulationOnly />
             ) : activeMenu === "regression" ? (
               <RegressionTest />
             ) : activeMenu === "payout" ? (
