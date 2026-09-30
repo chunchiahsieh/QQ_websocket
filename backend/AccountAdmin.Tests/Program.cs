@@ -1,5 +1,6 @@
 using AccountAdmin;
 using System.Text.Json;
+using Microsoft.Extensions.Logging.Abstractions;
 
 static void Check(bool condition, string message)
 {
@@ -86,6 +87,50 @@ try {
             "Focused tables must persist across restarts");
     }
     Console.WriteLine("PASS: focused tables persist and are isolated by account");
+
+    var ledger = new SimLedger();
+    Check(SimulationModel.Stake("martingale", ledger) == 1, "Martingale starts at one unit");
+    Check(SimulationModel.Settle("martingale", ledger, '2', '1') == -1, "Lost banker bet must debit one unit");
+    Check(SimulationModel.Stake("martingale", ledger) == 2, "Martingale advances without a simulated stake cap");
+    Check(SimulationModel.Settle("martingale", ledger, '2', '2') == 1.90m, "Banker win must apply five-percent commission");
+    Check(SimulationModel.Stake("martingale", ledger) == 1, "A win must reset Martingale progression");
+    Check(!SimulationModel.ShouldAct("confirm", '2', [], false, 0), "Consecutive confirmation needs a previous signal");
+    Check(SimulationModel.ShouldAct("confirm", '2', [new SimDecision('2', '1')], false, 0), "Consecutive confirmation uses the current card's prior signal");
+    Check(SimulationModel.ShouldAct("ai-consensus", '2', [], true, 3), "AI consensus threshold accepts three agreeing votes");
+    Check(!SimulationModel.ShouldAct("ai-consensus", '2', [], false, 3), "AI consensus threshold must not activate another card");
+    var allBanker = new SimTable("MT", "B01", "B01", string.Join('#', Enumerable.Repeat("020202020202", 7)), "");
+    Check(SimulationModel.Rank([allBanker]).Count == 1, "A positive shoe must produce a candidate without a browser");
+    var startRanking = System.Diagnostics.Stopwatch.StartNew();
+    var ranked = SimulationModel.Rank(Enumerable.Range(1, 14).Select(index => allBanker with { Id = $"B{index:00}" }));
+    Check(ranked.Count == 14, "Candidate ranking must cover each available table");
+    Console.WriteLine($"Simulation ranking: 14 tables in {startRanking.ElapsedMilliseconds} ms");
+    Console.WriteLine("PASS: C# simulation strategy progression, action filters, and autonomous candidate ranking");
+    var simulationDirectory = Path.Combine(directory, "simulation");
+    Directory.CreateDirectory(Path.Combine(simulationDirectory, "feeds"));
+    using (var accounts = new AccountStore(Path.Combine(simulationDirectory, "accounts")))
+    using (var feed = new SharedFeedStore(Path.Combine(simulationDirectory, "feeds"))) {
+        accounts.Initialize("admin", "admin-pass");
+        feed.AdditionalDemand = () => accounts.GetSimulationControl().Running;
+        var tableItems = Enumerable.Range(1, 14).Select(index => new { id = $"B{index:00}", name = $"B{index:00}", beadPlate = allBanker.Bead, bigRoad = "" }).ToArray();
+        var initialSnapshot = JsonSerializer.Serialize(new { type = "snapshot", tables = tableItems });
+        Check(feed.SaveSnapshot("MT", initialSnapshot, DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(), 1, "test-collector"), "Simulation feed must accept initial snapshot");
+        accounts.StartSimulation();
+        using var demand = JsonDocument.Parse(JsonSerializer.Serialize(feed.Demand()));
+        Check(demand.RootElement.GetProperty("shouldCollect").GetBoolean(), "An active simulation must keep collection enabled without viewers");
+        using var worker = new SimulationWorker(accounts, feed, NullLogger<SimulationWorker>.Instance);
+        await worker.StartAsync(CancellationToken.None);
+        for (var attempt = 0; attempt < 40 && worker.Snapshot().PendingCount < 6; attempt++) await Task.Delay(100);
+        Check(worker.Snapshot().TableCount == 6 && worker.Snapshot().PendingCount == 6, "C# worker must place six pending simulations with no browser");
+        var settledTables = Enumerable.Range(1, 14).Select(index => new { id = $"B{index:00}", name = $"B{index:00}", beadPlate = allBanker.Bead + "02", bigRoad = "" }).ToArray();
+        var settledSnapshot = JsonSerializer.Serialize(new { type = "snapshot", tables = settledTables });
+        Check(feed.SaveSnapshot("MT", settledSnapshot, DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(), 2, "test-collector"), "Simulation feed must accept next result");
+        for (var attempt = 0; attempt < 60 && (accounts.GetSimulationControl().Summary?.Bets ?? 0) < 6; attempt++) await Task.Delay(100);
+        Check(accounts.GetSimulationControl().Summary?.Bets == 6, "C# worker must settle pending bets without a browser");
+        Check(worker.Snapshot().ProfitSeries.Count == 6, "C# worker must publish profit chart points");
+        accounts.StopSimulation();
+        await worker.StopAsync(CancellationToken.None);
+    }
+    Console.WriteLine("PASS: C# worker keeps collector demand, bets, and settles with no browser");
 }
 finally {
     try { Directory.Delete(directory, recursive: true); } catch { }

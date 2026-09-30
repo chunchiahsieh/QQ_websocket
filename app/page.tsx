@@ -9,6 +9,7 @@ import {
 } from "react";
 import {
   Bell,
+  Bot,
   Crown,
   ChevronLeft,
   ChevronRight,
@@ -1036,7 +1037,7 @@ const extractTableUpdates = (
       .map(photoUrl)
       .find(Boolean);
     const tableId = toText(table.table_id, "");
-    const videoUrl = Array.isArray(table.video)
+    let videoUrl = Array.isArray(table.video)
       ? table.video
           .map((line) =>
             Array.isArray(line) && typeof line[2] === "string" ? line[2] : "",
@@ -1050,6 +1051,17 @@ const extractTableUpdates = (
             }
           })
       : undefined;
+    if (videoUrl && /_LIVE$/i.test(tableId)) {
+      const liveCode = tableId.replace(/^BAV/i, "").replace(/_LIVE$/i, "").toLowerCase();
+      try {
+        const liveUrl = new URL(videoUrl);
+        liveUrl.pathname = `/livestream/blv${liveCode}-3.flv`;
+        liveUrl.search = "";
+        videoUrl = liveUrl.toString();
+      } catch {
+        // Keep the source value if MT changes to a non-URL transport.
+      }
+    }
     if (!tableId) return;
     const current = unique.get(tableId) ?? { id: tableId };
     const explicitDeadline = finiteNumber(
@@ -1169,6 +1181,18 @@ const extractTableUpdates = (
       }),
     });
   });
+  for (const [liveId, live] of unique) {
+    if (!liveId.toUpperCase().endsWith("_LIVE")) continue;
+    const standard = unique.get(liveId.slice(0, -5));
+    if (!standard) continue;
+    if (standard.videoUrl && standard.videoUrl === live.videoUrl) {
+      delete live.videoUrl;
+    }
+    if (standard.dealerPhoto && standard.dealerPhoto === live.dealerPhoto) {
+      delete standard.dealerPhoto;
+      if (standard.dealer && standard.dealer === live.dealer) delete standard.dealer;
+    }
+  }
   return [...unique.values()];
 };
 
@@ -1667,7 +1691,7 @@ export default function Home() {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [platform, setPlatform] = useState<"MT" | "DG" | "AB">("MT");
   const [activeMenu, setActiveMenu] = useState<
-    "tables" | "payout" | "compare" | "regression" | "curated"
+    "tables" | "payout" | "compare" | "regression" | "curated" | "simulation"
   >("curated");
   const [menuCollapsed, setMenuCollapsed] = useState(false);
   const [mtCollectorMode, setMtCollectorMode] = useState(false);
@@ -2934,6 +2958,15 @@ export default function Home() {
             </button>
             <button
               type="button"
+              title="AI下單 -測試中"
+              onClick={() => setActiveMenu("simulation")}
+              className={`flex items-center rounded-lg border px-3 py-3 text-sm transition ${menuCollapsed ? "justify-center" : "gap-3"} ${activeMenu === "simulation" ? "border-emerald-400/55 bg-emerald-400/10 font-medium text-emerald-100" : "border-transparent text-slate-400 hover:border-emerald-400/30 hover:bg-emerald-400/5"}`}
+            >
+              <Bot className="h-4 w-4 shrink-0" />
+              <span className={menuCollapsed ? "hidden" : ""}>AI下單 -測試中</span>
+            </button>
+            <button
+              type="button"
               title="即時桌況"
               onClick={() => setActiveMenu("tables")}
               className={`flex items-center rounded-lg border px-3 py-3 text-sm transition ${menuCollapsed ? "justify-center" : "gap-3"} ${activeMenu === "tables" ? "border-cyan-400/45 bg-cyan-400/10 font-medium text-cyan-100" : "border-transparent text-slate-400 hover:border-cyan-400/30 hover:bg-cyan-400/5"}`}
@@ -3101,6 +3134,8 @@ export default function Home() {
               )}
             {activeMenu === "curated" ? (
               <JshenPicks tablesByPlatform={tablesByPlatform} connectedByPlatform={connectedByPlatform} cardsPerRow={cardsPerRow} onCardsPerRowChange={setCardsPerRow} onFocusTable={focusTable} />
+            ) : activeMenu === "simulation" ? (
+              <JshenPicks tablesByPlatform={tablesByPlatform} connectedByPlatform={connectedByPlatform} cardsPerRow={cardsPerRow} onCardsPerRowChange={setCardsPerRow} onFocusTable={focusTable} simulationOnly />
             ) : activeMenu === "regression" ? (
               <RegressionTest />
             ) : activeMenu === "payout" ? (

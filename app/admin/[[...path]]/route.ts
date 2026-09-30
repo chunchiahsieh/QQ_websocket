@@ -7,7 +7,7 @@ async function proxy(request: Request) {
   const url = new URL(request.url);
   const suffix = url.pathname.replace(/^\/admin/i, '').replace(/\/$/, '');
   const action = suffix === '' ? 'Index' : suffix.slice(1);
-  const allowed = request.method === 'POST' ? ['Login', 'Logout', 'Create', 'Update', 'Delete', 'SavePayout', 'AwardPayout', 'Password'] : ['Index', 'Login', 'Error', 'Online'];
+  const allowed = request.method === 'POST' ? ['Login', 'Logout', 'Create', 'Update', 'Delete', 'SavePayout', 'AwardPayout', 'DeletePayout', 'StartSimulation', 'StopSimulation', 'Password'] : ['Index', 'Login', 'Error', 'Online'];
   const canonical = allowed.find(value => value.toLowerCase() === action.toLowerCase());
   if (!canonical) return new Response('Not found', { status: 404 });
   if (request.method === 'POST' && !isSameRequestOrigin(request))

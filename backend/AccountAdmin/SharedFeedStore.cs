@@ -20,6 +20,7 @@ public sealed class SharedFeedStore : IDisposable
     readonly string connectionString;
     readonly TimeProvider clock;
     readonly object gate = new();
+    public Func<bool>? AdditionalDemand { get; set; }
 
     public SharedFeedStore(string directory, TimeProvider? timeProvider = null)
     {
@@ -398,7 +399,7 @@ public sealed class SharedFeedStore : IDisposable
                 viewerCount = count,
                 lastViewerAt,
                 idleForMs = lastSeen is null ? long.MaxValue : Math.Max(0, now - lastSeen.Value),
-                shouldCollect = count > 0 || (lastSeen is not null && now - lastSeen.Value <= IdleGraceMs),
+                shouldCollect = AdditionalDemand?.Invoke() == true || count > 0 || (lastSeen is not null && now - lastSeen.Value <= IdleGraceMs),
             };
         }
     }

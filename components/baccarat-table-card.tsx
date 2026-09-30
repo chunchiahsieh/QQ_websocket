@@ -184,6 +184,9 @@ export const BaccaratTableCard = memo(function BaccaratTableCard({
       : table.id.startsWith("AB:")
         ? "歐博"
         : "MT");
+  const displayTableName = resolvedPlatformLabel === "MT"
+    ? table.id.replace(/^BAV/i, "B").replace(/_LIVE$/i, "-L")
+    : table.name;
   const cardModeStorageKey = `jshen-card-mode:${resolvedPlatformLabel}:${storageScope ?? table.id}`;
   const bettingStorageKey = `jshen-betting:${resolvedPlatformLabel}:${storageScope ?? table.id}`;
   const actionStorageKey = `jshen-action:${resolvedPlatformLabel}:${storageScope ?? table.id}`;
@@ -545,7 +548,7 @@ export const BaccaratTableCard = memo(function BaccaratTableCard({
         <div className="table-card-heading-left">
           <span className="table-card-label">
             <span>{resolvedPlatformLabel} · 百家樂</span>
-            <span>{table.name}</span>
+            <span>{displayTableName}</span>
           </span>
           {!table.id.startsWith("AB:") && (
             <span

@@ -11,7 +11,7 @@ namespace AccountAdmin.Controllers;
 [AutoValidateAntiforgeryToken]
 public sealed class AdminController(AccountStore store, SharedFeedStore feeds) : Controller
 {
-    public IActionResult Index() => View(new AdminDashboardView(store.List(), store.ListPayoutSettings(), store.ListPayoutRecords()));
+    public IActionResult Index() => View(new AdminDashboardView(store.List(), store.ListPayoutSettings(), store.ListPayoutRecords(), store.GetSimulationControl(), store.ListSimulationDays()));
     [HttpGet] public IActionResult Online() {
         var active = feeds.ActiveViewerIds().ToHashSet(StringComparer.OrdinalIgnoreCase);
         var accounts = store.List().Where(account => active.Contains(account.Id.ToString()))
@@ -34,6 +34,8 @@ public sealed class AdminController(AccountStore store, SharedFeedStore feeds) :
     [HttpPost] public IActionResult Delete(Guid id) => Change(()=>store.Delete(id));
     [HttpPost] public IActionResult SavePayout(List<PayoutInput> payouts) => Change(() => store.UpdatePayoutSettings(payouts.Select(item => new PayoutSetting(item.Code ?? "", item.Name ?? "", item.Amount, item.BaseAmount, item.CapAmount, true, item.NextPayoutAmount))));
     [HttpPost] public IActionResult AwardPayout(string username, string code) => Change(() => store.AwardPayout(username ?? "", code ?? ""), "已按目前獎池金額立即派彩並通知指定 USER。");
+    [HttpPost] public IActionResult StartSimulation() => Change(() => store.StartSimulation(), "AI下單已在 C# 後台啟動；即使關閉網頁也會持續執行。");
+    [HttpPost] public IActionResult StopSimulation() => Change(() => store.StopSimulation(), "AI下單已停止；每日結果已保留。");
     [HttpPost] public IActionResult DeletePayout(Guid id) => Change(() => store.DeletePayoutRecord(id), "已刪除派彩紀錄與前台公告。");
     [HttpPost] public async Task<IActionResult> Password(string current,string next) {
         try {

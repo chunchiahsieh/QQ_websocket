@@ -2,9 +2,10 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Crown } from 'lucide-react';
+import { Bar, BarChart, CartesianGrid, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 import { BaccaratTableCard, type FocusedTableSettings, type TableInfo } from '@/components/baccarat-table-card';
 import { CardLayoutSelect, cardGridColumns, type CardColumns } from '@/components/card-layout';
-import type { CardMode } from '@/components/card-picker';
+import { cardNames, type CardMode } from '@/components/card-picker';
 import { graphicalPrediction } from '@/components/graphical-card';
 import { predictionPerformance } from '@/components/ai-prediction-card';
 import { aiSources, type AiSource } from '@/lib/ai-consensus';
@@ -29,6 +30,11 @@ type Combination = {
   rankingScore: number;
 };
 type Pick = { key: string; platform: Platform; sourceLabel: string; table: TableInfo; combination: Combination };
+type SimulationEventType = 'system' | 'load' | 'bet' | 'settle-win' | 'settle-loss' | 'settle-tie' | 'switch';
+type SimulationEvent = { id: string; type: SimulationEventType; text: string; createdAt?: string };
+type SimulationSummary = { sessionId: string; day: string; rounds: number; bets: number; wins: number; losses: number; totalStake: number; profit: number; switches: number; endReason: string };
+type SimulationControl = { running: boolean; isRunner?: boolean; sessionId: string; unitAmount: number; summary?: SimulationSummary | null; lines?: SimulationEvent[];
+  status?: { tableCount: number; pendingCount: number; profitSeries: Array<{ at: string; profit: number }>; tables: Array<{ table: string; card: string; betting: string; action: string; score: number; bets: number; wins: number; losses: number; profit: number }> } };
 
 const minimumQualifyingBets = 10;
 const stableStrategies = new Set<BettingStrategy>(['flat', 'dalembert']);
@@ -155,12 +161,57 @@ function bestCombination(table: TableInfo, route: Route, sortMode: SortMode): Co
   return best;
 }
 
-export function JshenPicks({ tablesByPlatform, connectedByPlatform, cardsPerRow, onCardsPerRowChange, onFocusTable }: {
+function renderSimulationEventText(value: string) {
+  return value.split(/(押莊|押閒|下注 \d+(?:\.\d+)?單位)/g).map((part, index) =>
+    <span key={index} className={part === '押莊' ? 'font-bold text-rose-400' : part === '押閒' ? 'font-bold text-sky-400' : /^下注 \d+(?:\.\d+)?單位$/.test(part) ? 'font-bold text-amber-200' : undefined}>{part}</span>);
+}
+function SimulationDashboard() {
+  const [control, setControl] = useState<SimulationControl>();
+  const terminalRef = useRef<HTMLDivElement>(null);
+  const followLatest = useRef(true);
+  useEffect(() => {
+    let cancelled = false;
+    const load = async () => {
+      try {
+        const response = await fetch('/api/simulation', { cache: 'no-store' });
+        if (!response.ok) return;
+        const data = await response.json() as SimulationControl;
+        if (!cancelled) setControl(data);
+      } catch { /* Keep the last snapshot during a brief connection interruption. */ }
+    };
+    void load();
+    const timer = window.setInterval(load, 3000);
+    return () => { cancelled = true; window.clearInterval(timer); };
+  }, []);
+  const summary = control?.summary;
+  const status = control?.status;
+  const events = (control?.lines ?? []).filter(event => event.type === 'bet' || event.type.startsWith('settle-'));
+  const profitChart = (status?.profitSeries ?? []).map((point, index) => ({ index: index + 1, profit: point.profit / 100, time: new Date(point.at).toLocaleTimeString('zh-TW', { hour12: false }) }));
+  const tableChart = (status?.tables ?? []).map(table => ({ name: table.table, profit: table.profit / 100, winRate: table.bets ? Math.round(table.wins / table.bets * 1000) / 10 : 0 }));
+  useEffect(() => { if (terminalRef.current && followLatest.current) terminalRef.current.scrollTop = terminalRef.current.scrollHeight; }, [control?.lines]);
+  const rate = (count: number) => summary?.bets ? `${(count / summary.bets * 100).toFixed(1)}%` : '0.0%';
+  return <section className="overflow-hidden rounded-2xl border border-emerald-400/25 bg-[#0d111a] shadow-[0_24px_70px_rgba(0,0,0,.42)]">
+    <div className="border-b border-emerald-400/20 p-4 sm:p-5">
+      <div className="flex flex-wrap items-center justify-between gap-2"><h2 className="font-mono text-lg font-bold text-emerald-200">AI下單 -測試中</h2><span className={`rounded px-2 py-1 font-mono text-xs ${control?.running ? 'bg-emerald-400/15 text-emerald-300' : 'bg-slate-800 text-slate-400'}`}>{control?.running ? '● RUNNING' : '■ STOPPED'}</span></div>
+      {control?.running && !status?.tableCount && <p className="mt-2 text-xs text-amber-200">等待採集端提供即時牌桌資料。</p>}
+      <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1 font-mono text-xs text-emerald-100"><span>桌數 {status?.tableCount ?? 0}</span><span>已驗證 {summary?.rounds ?? 0} 局</span><span>已結算 {summary?.bets ?? 0} 注</span><span>待結算 {status?.pendingCount ?? 0} 注</span><span>勝率 {rate(summary?.wins ?? 0)}</span><span>錯誤率 {rate(summary?.losses ?? 0)}</span><span>AI 換桌 {summary?.switches ?? 0}</span><span>累計下注 {((summary?.totalStake ?? 0) / 100).toFixed(2)} 注</span><strong className={(summary?.profit ?? 0) >= 0 ? 'text-emerald-300' : 'text-rose-300'}>最後損益 {(summary?.profit ?? 0) >= 0 ? '+' : '-'}{Math.abs((summary?.profit ?? 0) / 100).toFixed(2)} 注</strong></div>
+    </div>
+    <div className="grid gap-3 p-4 lg:grid-cols-2">
+      <div className="rounded-xl border border-slate-700 bg-slate-950/60 p-3"><h3 className="mb-2 text-sm font-semibold text-slate-200">累計損益（注）</h3><div className="h-48">{profitChart.length ? <ResponsiveContainer width="100%" height="100%"><LineChart data={profitChart}><CartesianGrid stroke="#263343" strokeDasharray="3 3" /><XAxis dataKey="index" stroke="#94a3b8" fontSize={10} /><YAxis stroke="#94a3b8" fontSize={10} width={50} /><Tooltip contentStyle={{ background: '#0f172a', borderColor: '#334155' }} /><Line type="monotone" dataKey="profit" name="損益（注）" stroke="#34d399" strokeWidth={2} dot={false} /></LineChart></ResponsiveContainer> : <div className="flex h-full items-center justify-center text-xs text-slate-500">等待已結算資料</div>}</div></div>
+      <div className="rounded-xl border border-slate-700 bg-slate-950/60 p-3"><h3 className="mb-2 text-sm font-semibold text-slate-200">目前六桌損益（注）</h3><div className="h-48">{tableChart.length ? <ResponsiveContainer width="100%" height="100%"><BarChart data={tableChart}><CartesianGrid stroke="#263343" strokeDasharray="3 3" /><XAxis dataKey="name" stroke="#94a3b8" fontSize={10} /><YAxis stroke="#94a3b8" fontSize={10} width={50} /><Tooltip contentStyle={{ background: '#0f172a', borderColor: '#334155' }} /><Bar dataKey="profit" name="損益（注）" fill="#38bdf8" /></BarChart></ResponsiveContainer> : <div className="flex h-full items-center justify-center text-xs text-slate-500">等待選桌資料</div>}</div></div>
+    </div>
+    {!!status?.tables.length && <div className="grid gap-2 px-4 pb-4 sm:grid-cols-2 xl:grid-cols-3">{status.tables.map((table, index) => <div key={`${index}-${table.table}`} className="rounded-lg border border-slate-700 bg-slate-950/50 p-3 text-xs text-slate-300"><div className="font-semibold text-sky-200">{table.table} · {table.card}</div><div className="mt-1 text-slate-400">{table.betting}｜{table.action}｜歷史評分 {table.score.toFixed(1)}</div><div className="mt-1">執行後 {table.bets} 注 · 勝率 {table.bets ? (table.wins / table.bets * 100).toFixed(1) : '—'}% · <strong className={table.profit >= 0 ? 'text-emerald-300' : 'text-rose-300'}>{table.profit >= 0 ? '+' : '-'}{Math.abs(table.profit / 100).toFixed(2)} 注</strong></div></div>)}</div>}
+    <div className="px-4 pb-4"><div ref={terminalRef} onScroll={event => { const element = event.currentTarget; followLatest.current = element.scrollHeight - element.scrollTop - element.clientHeight <= 24; }} className="h-64 overflow-y-auto border border-emerald-500/30 bg-black p-3 font-mono text-[11px] leading-5 sm:text-xs" role="log" aria-live="polite">{events.length ? events.map(event => <div key={event.id} className={event.type === 'settle-loss' ? 'text-rose-300' : event.type === 'settle-win' ? 'text-emerald-300' : event.type === 'settle-tie' ? 'text-slate-300' : 'text-amber-300'}>[{new Date(event.createdAt!).toLocaleTimeString('zh-TW', { hour12: false })}] {renderSimulationEventText(event.text)}</div>) : <span className="text-slate-500">等待模擬下注事件…</span>}</div></div>
+  </section>;
+}
+
+export function JshenPicks({ tablesByPlatform, connectedByPlatform, cardsPerRow, onCardsPerRowChange, onFocusTable, simulationOnly = false }: {
   tablesByPlatform: Record<Platform, TableInfo[]>;
   connectedByPlatform: Record<Platform, boolean>;
   cardsPerRow: CardColumns;
   onCardsPerRowChange: (value: CardColumns) => void;
   onFocusTable: (table: TableInfo, settings?: FocusedTableSettings) => void;
+  simulationOnly?: boolean;
 }) {
   const [route, setRoute] = useState<Route>('stable');
   const [sortMode, setSortMode] = useState<SortMode>('win-rate');
@@ -192,7 +243,18 @@ export function JshenPicks({ tablesByPlatform, connectedByPlatform, cardsPerRow,
     const candidates: Pick[] = [];
     (Object.entries(rankingTables) as Array<[Platform, TableInfo[]]>).forEach(([platform, tables]) => {
       const sourceLabel = platformLabel(platform);
+      const uniqueTables = new Map<string, TableInfo>();
       for (const table of tables) {
+        const tableKey = table.id.trim().toUpperCase();
+        const current = uniqueTables.get(tableKey);
+        const currentFreshness = current?.countdownReceivedAt ?? 0;
+        const nextFreshness = table.countdownReceivedAt ?? 0;
+        if (!current || nextFreshness > currentFreshness ||
+          (nextFreshness === currentFreshness && table.beadPlate.length > current.beadPlate.length)) {
+          uniqueTables.set(tableKey, table);
+        }
+      }
+      for (const table of uniqueTables.values()) {
         const combination = bestCombination(table, route, sortMode);
         if (combination) candidates.push({ key: `${platform}:${table.id}`, platform, sourceLabel, table, combination });
       }
@@ -221,6 +283,7 @@ export function JshenPicks({ tablesByPlatform, connectedByPlatform, cardsPerRow,
     }).slice(0, 6);
   }, [rankingTables, route, sortMode]);
 
+
   useEffect(() => {
     const previous = rankHistory.current[route];
     const next: Record<string, { rank: number; streak: number }> = {};
@@ -247,6 +310,8 @@ export function JshenPicks({ tablesByPlatform, connectedByPlatform, cardsPerRow,
     window.localStorage.setItem(`jshen-betting:${pick.sourceLabel}:${scope}`, JSON.stringify({ strategy: pick.combination.betting, ledger: pick.combination.ledger, lastSettledRound: beadWinners(pick.table.beadPlate).length }));
     window.localStorage.setItem(`jshen-action:${pick.sourceLabel}:${scope}`, JSON.stringify({ strategy: pick.combination.action, config: defaultActionConfig }));
   }
+
+  if (simulationOnly) return <SimulationDashboard />;
 
   return <section className="overflow-hidden rounded-2xl border border-amber-300/25 bg-[#0d111a] shadow-[0_24px_70px_rgba(0,0,0,.42)]">
     <header className="border-b border-amber-300/20 px-5 py-4"><div className="flex flex-wrap items-center justify-between gap-3"><div className="flex items-center gap-2 text-amber-200"><Crown className="h-5 w-5" /><h1 className="text-lg font-semibold">J神嚴選</h1><span className="text-xs font-normal text-slate-400">每 10 秒更新</span></div><div className="flex items-center gap-2"><label className="flex items-center gap-1 text-xs text-slate-400">排序<select value={sortMode} onChange={event => setSortMode(event.target.value as SortMode)} className="rounded-md border border-slate-600 bg-slate-900 px-2 py-1.5 font-semibold text-white"><option value="win-rate">勝率排行</option><option value="profit">收益排行</option><option value="roi">ROI 排行</option></select></label><CardLayoutSelect value={cardsPerRow} onChange={onCardsPerRowChange} /></div></div><div className="mt-3 flex gap-2 overflow-x-auto">{(Object.keys(routeLabels) as Route[]).map(value => <button key={value} type="button" onClick={() => selectRoute(value)} className={`shrink-0 rounded-lg border px-3 py-1.5 text-sm font-bold transition ${route === value ? "border-amber-300 bg-amber-300/15 font-bold text-amber-100" : "border-slate-600 bg-slate-900/60 text-slate-400 hover:border-amber-300/50"}`}>{routeLabels[value]}</button>)}</div><div className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 rounded-lg border border-white/5 bg-black/20 px-3 py-2 text-xs text-slate-300"><strong className="text-amber-100">{routeLabels[route]}</strong><span>{routeDescriptions[route]}</span><span className="rounded bg-slate-800 px-1.5 py-0.5 text-cyan-100">目前依「{sortLabels[sortMode]}」顯示前 6 名</span></div></header>

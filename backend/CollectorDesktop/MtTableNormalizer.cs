@@ -108,8 +108,33 @@ public static class MtTableNormalizer
             var video = VideoUrl(table);
             if (video is not null) row["videoUrl"] = video;
         }
+        SuppressDuplicatedLiveMedia(result);
         return result.Values.ToList();
     }
+
+    // MT currently publishes some *_LIVE variants with the base table's exact
+    // same stream URL, and occasionally gives the base table the live dealer's
+    // portrait too.  Treat those values as missing instead of showing a
+    // confidently wrong dealer/video.  A genuinely distinct source remains.
+    static void SuppressDuplicatedLiveMedia(Dictionary<string, Dictionary<string, object?>> tables)
+    {
+        foreach (var (liveId, live) in tables.Where(item => item.Key.EndsWith("_LIVE", StringComparison.OrdinalIgnoreCase)).ToArray())
+        {
+            var baseId = liveId[..^5];
+            if (!tables.TryGetValue(baseId, out var standard)) continue;
+            if (SameText(standard, live, "videoUrl")) live.Remove("videoUrl");
+            if (SameText(standard, live, "dealerPhoto"))
+            {
+                standard.Remove("dealerPhoto");
+                if (SameText(standard, live, "dealer")) standard.Remove("dealer");
+            }
+        }
+    }
+
+    static bool SameText(IReadOnlyDictionary<string, object?> left, IReadOnlyDictionary<string, object?> right, string key) =>
+        left.TryGetValue(key, out var leftValue) && right.TryGetValue(key, out var rightValue)
+        && leftValue is string leftText && rightValue is string rightText
+        && !string.IsNullOrWhiteSpace(leftText) && string.Equals(leftText, rightText, StringComparison.OrdinalIgnoreCase);
 
     public static string ActionName(JsonElement value)
     {
@@ -131,12 +156,21 @@ public static class MtTableNormalizer
     static string? VideoUrl(JsonElement table)
     {
         if (!table.TryGetProperty("video", out var video) || video.ValueKind != JsonValueKind.Array) return null;
+        var tableId = Text(table, "table_id") ?? "";
         foreach (var line in video.EnumerateArray())
         {
             if (line.ValueKind != JsonValueKind.Array || line.GetArrayLength() < 3) continue;
             var candidate = line[2].ValueKind == JsonValueKind.String ? line[2].GetString() : null;
             if (Uri.TryCreate(candidate, UriKind.Absolute, out var url) && url.Scheme == Uri.UriSchemeHttps && url.AbsolutePath.EndsWith(".flv", StringComparison.OrdinalIgnoreCase))
+            {
+                if (tableId.EndsWith("_LIVE", StringComparison.OrdinalIgnoreCase))
+                {
+                    var liveCode = tableId[..^5].Replace("BAV", "", StringComparison.OrdinalIgnoreCase).Trim('_').ToLowerInvariant();
+                    if (liveCode.Length > 0)
+                        return new UriBuilder(url) { Path = $"/livestream/blv{liveCode}-3.flv", Query = "" }.Uri.ToString();
+                }
                 return url.ToString();
+            }
         }
         return null;
     }

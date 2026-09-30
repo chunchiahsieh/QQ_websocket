@@ -11,7 +11,10 @@ public sealed record PayoutSetting(string Code, string Name, decimal Amount, dec
 public sealed record PayoutRecord(Guid Id, string Username, string CategoryCode, string CategoryName, decimal Amount, DateTimeOffset CreatedAt);
 public sealed record ScheduledPayout(Guid Id, string Username, string CategoryCode, decimal Amount, DateTimeOffset ScheduledAt, DateTimeOffset CreatedAt);
 public sealed record PayoutSnapshot(List<PayoutSetting> Settings, List<PayoutRecord> Records, List<PayoutRecord> Announcements, long Revision);
-public sealed record AdminDashboardView(List<AccountView> Accounts, List<PayoutSetting> PayoutSettings, List<PayoutRecord> PayoutRecords);
+public sealed record SimulationSummary(Guid SessionId, string Day, DateTimeOffset UpdatedAt, int Rounds, int Bets, int Wins, int Losses, decimal TotalStake, decimal Profit, int Switches, string EndReason);
+public sealed record SimulationControl(bool Running, Guid SessionId, DateTimeOffset? StartedAt, DateTimeOffset? StoppedAt, decimal UnitAmount, SimulationSummary? Summary = null);
+public sealed record SimulationLine(string Id, string Type, string Text, DateTimeOffset CreatedAt);
+public sealed record AdminDashboardView(List<AccountView> Accounts, List<PayoutSetting> PayoutSettings, List<PayoutRecord> PayoutRecords, SimulationControl Simulation, List<SimulationSummary> SimulationDays);
 public sealed record FileData(int Version, string AdminName, string AdminHash, string AdminStamp, List<Account> Accounts);
 
 public sealed class AccountStore : IDisposable
@@ -21,13 +24,19 @@ public sealed class AccountStore : IDisposable
     readonly string payoutRecordsFile;
     readonly string scheduledPayoutsFile;
     readonly string focusedTablesFile;
+    readonly string simulationFile;
+    readonly string simulationDaysFile;
     readonly FileStream processLock;
     readonly object gate = new();
+    readonly List<SimulationLine> simulationLines = [];
+    string? simulationRunnerId;
+    Guid simulationRunnerSession;
+    DateTimeOffset simulationRunnerUntil;
     readonly PasswordHasher<string> hasher = new(Microsoft.Extensions.Options.Options.Create(new PasswordHasherOptions { IterationCount = 210000 }));
     FileData data = null!;
     readonly string dummyHash;
     public AccountStore(string directory) {
-        Directory.CreateDirectory(directory); file = Path.Combine(directory, "accounts.json"); payoutFile = Path.Combine(directory, "payout-settings.json"); payoutRecordsFile = Path.Combine(directory, "payout-records.json"); scheduledPayoutsFile = Path.Combine(directory, "scheduled-payouts.json"); focusedTablesFile = Path.Combine(directory, "focused-tables.json");
+        Directory.CreateDirectory(directory); file = Path.Combine(directory, "accounts.json"); payoutFile = Path.Combine(directory, "payout-settings.json"); payoutRecordsFile = Path.Combine(directory, "payout-records.json"); scheduledPayoutsFile = Path.Combine(directory, "scheduled-payouts.json"); focusedTablesFile = Path.Combine(directory, "focused-tables.json"); simulationFile = Path.Combine(directory, "simulation-control.json"); simulationDaysFile = Path.Combine(directory, "simulation-daily.json");
         // Exactly one writer process; a second instance fails rather than overwriting data.
         processLock = new FileStream(Path.Combine(directory,"writer.lock"), FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None);
         dummyHash = hasher.HashPassword("dummy", Convert.ToHexString(RandomNumberGenerator.GetBytes(32)));
@@ -49,6 +58,89 @@ public sealed class AccountStore : IDisposable
     }
     public bool IsAdminSession(string? stamp) { lock(gate) return stamp != null && stamp == data.AdminStamp; }
     public List<AccountView> List() { lock(gate) return data.Accounts.OrderBy(a=>a.Username).Select(a=>new AccountView(a.Id,a.Username,a.Enabled,a.ExpiresAt)).ToList(); }
+    public SimulationControl GetSimulationControl() { lock (gate) return ReadSimulationControl(); }
+    public bool ClaimSimulationRunner(string? runnerId) {
+        lock (gate) {
+            var control = ReadSimulationControl();
+            if (!control.Running || string.IsNullOrWhiteSpace(runnerId) || runnerId.Length > 100) return false;
+            var now = DateTimeOffset.UtcNow;
+            if (simulationRunnerSession != control.SessionId || simulationRunnerUntil <= now) {
+                simulationRunnerSession = control.SessionId;
+                simulationRunnerId = runnerId;
+            }
+            if (simulationRunnerId != runnerId) return false;
+            simulationRunnerUntil = now.AddSeconds(10);
+            return true;
+        }
+    }
+    public List<SimulationLine> ListSimulationLines() { lock (gate) { PruneSimulationLines(); return simulationLines.ToList(); } }
+    public void AppendSimulationLinesTrusted(Guid sessionId, IEnumerable<(string Type, string Text)> entries) {
+        lock (gate) {
+            if (ReadSimulationControl().SessionId != sessionId) return;
+            PruneSimulationLines();
+            var now = DateTimeOffset.UtcNow;
+            foreach (var (type, text) in entries) simulationLines.Add(new(Guid.NewGuid().ToString("N"), type, text, now));
+        }
+    }
+    public List<SimulationLine> AppendSimulationLines(Guid sessionId, string runnerId, List<SimulationLine> lines) {
+        lock (gate) {
+            var control = ReadSimulationControl();
+            if (!control.Running || sessionId != control.SessionId) throw new ArgumentException("模擬工作階段已停止或變更。");
+            if (simulationRunnerSession != sessionId || simulationRunnerId != runnerId || simulationRunnerUntil <= DateTimeOffset.UtcNow)
+                throw new ArgumentException("不是目前的模擬執行端。");
+            if (lines.Count is < 1 or > 50 || lines.Any(line => line.Id.Length is < 1 or > 100 || line.Text.Length is < 1 or > 500 ||
+                !new[] { "system", "load", "bet", "settle-win", "settle-loss", "settle-tie", "switch" }.Contains(line.Type)))
+                throw new ArgumentException("模擬訊息格式不正確。");
+            PruneSimulationLines();
+            var now = DateTimeOffset.UtcNow;
+            foreach (var line in lines) if (!simulationLines.Any(item => item.Id == line.Id))
+                simulationLines.Add(line with { CreatedAt = now });
+            return simulationLines.ToList();
+        }
+    }
+    void PruneSimulationLines() => simulationLines.RemoveAll(line => line.CreatedAt <= DateTimeOffset.UtcNow.AddMinutes(-5));
+    public List<SimulationSummary> ListSimulationDays() { lock (gate) return ReadSimulationDays().OrderByDescending(item => item.Day).ThenByDescending(item => item.UpdatedAt).ToList(); }
+    public SimulationControl StartSimulation() {
+        lock (gate) {
+            simulationLines.Clear();
+            simulationRunnerId = null;
+            var next = new SimulationControl(true, Guid.NewGuid(), DateTimeOffset.UtcNow, null, 100m);
+            SaveSimulationControl(next); return next;
+        }
+    }
+    public SimulationControl StopSimulation() { lock (gate) {
+        var current = ReadSimulationControl();
+        var summary = current.Summary is { } existing ? existing with { EndReason = "後台手動停止", UpdatedAt = DateTimeOffset.UtcNow } : null;
+        if (summary is not null) {
+            var days = ReadSimulationDays();
+            days.RemoveAll(item => item.SessionId == summary.SessionId && item.Day == summary.Day);
+            days.Add(summary);
+            SaveSimulationDays(days);
+        }
+        var next = current with { Running = false, StoppedAt = DateTimeOffset.UtcNow, Summary = summary };
+        SaveSimulationControl(next); return next;
+    } }
+    public SimulationControl UpdateSimulationSummary(SimulationSummary summary) {
+        lock (gate) {
+            var current = ReadSimulationControl();
+            if (summary.SessionId != current.SessionId || current.SessionId == Guid.Empty) throw new ArgumentException("模擬工作階段已變更。");
+            if (!DateOnly.TryParseExact(summary.Day, "yyyy-MM-dd", out var day) || Math.Abs(day.DayNumber - DateOnly.FromDateTime(DateTime.UtcNow.AddHours(8)).DayNumber) > 1)
+                throw new ArgumentException("模擬日期不正確。");
+            var days = ReadSimulationDays();
+            var previous = days.FirstOrDefault(item => item.SessionId == summary.SessionId && item.Day == summary.Day);
+            if (summary.Rounds < 0 || summary.Bets < 0 || summary.Wins < 0 || summary.Losses < 0 || summary.Wins + summary.Losses != summary.Bets ||
+                summary.TotalStake < 0 || summary.Switches < 0 || summary.EndReason.Length > 80 ||
+                previous is not null && (summary.Bets < previous.Bets || summary.Rounds < previous.Rounds))
+                throw new ArgumentException("模擬總結資料不正確。");
+            var updated = summary with { UpdatedAt = DateTimeOffset.UtcNow };
+            days.RemoveAll(item => item.SessionId == summary.SessionId && item.Day == summary.Day);
+            days.Add(updated);
+            SaveSimulationDays(days);
+            var next = current with { Summary = updated };
+            SaveSimulationControl(next);
+            return next;
+        }
+    }
     public List<PayoutSetting> ListPayoutSettings() { lock (gate) { AccrueAutomaticPayoutsUnsafe(); return ReadPayoutSettings(); } }
     public List<PayoutRecord> ListPayoutRecords(int limit = 100) {
         lock (gate) { return ReadPayoutRecords().OrderByDescending(item => item.CreatedAt).Take(Math.Clamp(limit, 1, 500)).ToList(); }
@@ -368,6 +460,30 @@ public sealed class AccountStore : IDisposable
                 JsonSerializer.Serialize(stream, next, new JsonSerializerOptions { WriteIndented = true }); stream.Flush(true);
             }
             if (File.Exists(scheduledPayoutsFile)) File.Replace(temporary, scheduledPayoutsFile, scheduledPayoutsFile + ".bak"); else File.Move(temporary, scheduledPayoutsFile);
+        } finally { if (File.Exists(temporary)) File.Delete(temporary); }
+    }
+    SimulationControl ReadSimulationControl() {
+        if (!File.Exists(simulationFile)) return new(false, Guid.Empty, null, null, 100m);
+        try { return JsonSerializer.Deserialize<SimulationControl>(File.ReadAllText(simulationFile)) ?? new(false, Guid.Empty, null, null, 100m); }
+        catch { return new(false, Guid.Empty, null, null, 100m); }
+    }
+    void SaveSimulationControl(SimulationControl next) {
+        var temporary = simulationFile + "." + Guid.NewGuid().ToString("N") + ".tmp";
+        try {
+            using (var stream = new FileStream(temporary, FileMode.CreateNew, FileAccess.Write, FileShare.None)) { JsonSerializer.Serialize(stream, next, new JsonSerializerOptions { WriteIndented = true }); stream.Flush(true); }
+            if (File.Exists(simulationFile)) File.Replace(temporary, simulationFile, simulationFile + ".bak"); else File.Move(temporary, simulationFile);
+        } finally { if (File.Exists(temporary)) File.Delete(temporary); }
+    }
+    List<SimulationSummary> ReadSimulationDays() {
+        if (!File.Exists(simulationDaysFile)) return [];
+        try { return JsonSerializer.Deserialize<List<SimulationSummary>>(File.ReadAllText(simulationDaysFile)) ?? []; }
+        catch { return []; }
+    }
+    void SaveSimulationDays(List<SimulationSummary> days) {
+        var temporary = simulationDaysFile + "." + Guid.NewGuid().ToString("N") + ".tmp";
+        try {
+            using (var stream = new FileStream(temporary, FileMode.CreateNew, FileAccess.Write, FileShare.None)) { JsonSerializer.Serialize(stream, days, new JsonSerializerOptions { WriteIndented = true }); stream.Flush(true); }
+            if (File.Exists(simulationDaysFile)) File.Replace(temporary, simulationDaysFile, simulationDaysFile + ".bak"); else File.Move(temporary, simulationDaysFile);
         } finally { if (File.Exists(temporary)) File.Delete(temporary); }
     }
     public void Dispose() => processLock.Dispose();

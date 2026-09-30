@@ -10,8 +10,9 @@
     <a href="#payout" data-admin-target="payout"><span>01</span>派彩功能設定</a>
     <a href="#award" data-admin-target="award"><span>02</span>指定使用者派彩</a>
     <a href="#payout-history" data-admin-target="payout-history"><span>03</span>派彩紀錄</a>
-    <a href="#accounts" data-admin-target="accounts"><span>04</span>帳號管理</a>
-    <a href="#security" data-admin-target="security"><span>05</span>管理員密碼</a>
+    <a href="#simulation" data-admin-target="simulation"><span>04</span>AI下單 -測試中</a>
+    <a href="#accounts" data-admin-target="accounts"><span>05</span>帳號管理</a>
+    <a href="#security" data-admin-target="security"><span>06</span>管理員密碼</a>
   </nav>
   <button type="button" class="admin-online" id="admin-online-toggle" title="點擊查看在線帳號"><span class="online-dot"></span><span class="online-summary"><small>目前在線</small><strong><b id="admin-online-count">—</b> 人</strong></span><span class="online-arrow">⌄</span></button>
   <div class="online-account-list" id="online-account-list" hidden><strong>在線帳號</strong><div id="online-account-items"><span class="muted">目前無人在線</span></div></div>
@@ -68,6 +69,32 @@
   @if(Model.PayoutRecords.Count == 0) { <tr><td colspan="5" class="muted">目前尚無派彩紀錄。</td></tr> }
   @foreach(var record in Model.PayoutRecords) { <tr><td>@record.CreatedAt.ToOffset(TimeSpan.FromHours(8)).ToString("yyyy-MM-dd HH:mm:ss")</td><td>@record.Username</td><td>@record.CategoryCode · @record.CategoryName</td><td>@record.Amount.ToString("N2")</td><td><form asp-action="DeletePayout" method="post" onsubmit="return confirm('確定刪除這筆派彩紀錄？');"><input type="hidden" name="id" value="@record.Id" /><button type="submit" class="danger">刪除</button></form></td></tr> }
   </tbody></table></div>
+</section>
+
+<section id="simulation" class="panel" data-admin-page="simulation">
+  <div class="section-heading"><div><h2>AI下單 -測試中</h2><p class="muted">C# 後台獨立選桌、模擬下注與結算；關閉所有網頁仍會執行。前台只查看事件、圖表與結果，不會送出真實投注。</p></div><span class="badge">@(Model.Simulation.Running ? "執行中" : "已停止")</span></div>
+  <div class="payout-mode-grid"><article class="payout-mode-card"><span class="badge">模擬</span><h3>1 單位 = @Model.Simulation.UnitAmount.ToString("N0")</h3><p>注碼依所選牌卡與下注策略計算；長期測試不設單注上限、停利或停損，由後台手動停止。</p><strong class="@(Model.Simulation.Running ? "mode-enabled" : "muted")">@(Model.Simulation.Running ? "● 系統執行中" : "■ 系統已停止")</strong></article></div>
+  @if (Model.Simulation.Summary is { } summary) {
+    <div class="payout-mode-grid"><article class="payout-mode-card"><span class="badge">最新總結</span><h3>@summary.Rounds 局 · @summary.Bets 注</h3><p>@summary.Wins 勝／@summary.Losses 負 · 正確率 @(summary.Bets > 0 ? (100m * summary.Wins / summary.Bets).ToString("0.0") : "0.0")% · 累計下注 @summary.TotalStake.ToString("N0") · 最後損益 @summary.Profit.ToString("+#,##0.00;-#,##0.00;0.00")</p><p>AI 換桌 @summary.Switches 次 · @(string.IsNullOrEmpty(summary.EndReason) ? "執行中" : summary.EndReason) · 最後更新 @summary.UpdatedAt.ToOffset(TimeSpan.FromHours(8)).ToString("yyyy-MM-dd HH:mm:ss")</p></article></div>
+  }
+  <h3>每日模擬結果（台灣時間）</h3>
+  <div class="scroll"><table><thead><tr><th>日期</th><th>已驗證局數</th><th>實際下注</th><th>勝／負與正確率</th><th>AI 換桌</th><th>累計下注</th><th>最後損益</th></tr></thead><tbody>
+  @foreach (var day in Model.SimulationDays.GroupBy(item => item.Day).OrderByDescending(group => group.Key)) {
+    var dayRounds = day.Sum(item => item.Rounds);
+    var dayBets = day.Sum(item => item.Bets);
+    var dayWins = day.Sum(item => item.Wins);
+    var dayLosses = day.Sum(item => item.Losses);
+    <tr><td>@day.Key</td><td>@dayRounds</td><td>@dayBets</td><td>@dayWins 勝／@dayLosses 負 · @(dayBets > 0 ? (100m * dayWins / dayBets).ToString("0.0") : "0.0")%</td><td>@day.Sum(item => item.Switches)</td><td>@day.Sum(item => item.TotalStake).ToString("N0")</td><td>@day.Sum(item => item.Profit).ToString("+#,##0.00;-#,##0.00;0.00")</td></tr>
+  }
+  @if (Model.SimulationDays.Count == 0) { <tr><td colspan="7" class="muted">尚無每日模擬結果。</td></tr> }
+  </tbody></table></div>
+  @if(Model.Simulation.Running) {
+    <form asp-action="StopSimulation" method="post" class="form-actions"><button class="danger">停止模擬並保留結果</button></form>
+  } else {
+    <form asp-action="StartSimulation" method="post" class="row">
+      <button>啟動新模擬</button>
+    </form>
+  }
 </section>
 
 <section id="accounts" class="panel" data-admin-page="accounts">

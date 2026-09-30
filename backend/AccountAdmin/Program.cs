@@ -33,7 +33,11 @@ if (OperatingSystem.IsWindows()) {
 }
 if (!OperatingSystem.IsWindows()) File.SetUnixFileMode(dataPath, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
 builder.Services.AddSingleton(new AccountStore(dataPath));
-builder.Services.AddSingleton(new SharedFeedStore(dataPath));
+builder.Services.AddSingleton(provider => new SharedFeedStore(dataPath) {
+    AdditionalDemand = () => provider.GetRequiredService<AccountStore>().GetSimulationControl().Running,
+});
+builder.Services.AddSingleton<SimulationWorker>();
+builder.Services.AddHostedService(provider => provider.GetRequiredService<SimulationWorker>());
 var protection = builder.Services.AddDataProtection().PersistKeysToFileSystem(new DirectoryInfo(Path.Combine(dataPath, "keys"))).SetApplicationName("TableAccountAdmin");
 if (OperatingSystem.IsWindows()) protection.ProtectKeysWithDpapi();
 builder.Services.AddControllersWithViews();
@@ -59,6 +63,13 @@ builder.Services.AddRateLimiter(options => {
 var app = builder.Build();
 var store = app.Services.GetRequiredService<AccountStore>();
 store.Initialize(builder.Configuration["ADMIN_BOOTSTRAP_USER"] ?? "admin", builder.Configuration["ADMIN_BOOTSTRAP_PASSWORD"]);
+if (builder.Environment.IsDevelopment()) {
+    var localTestUser = builder.Configuration["LOCAL_TEST_USER"];
+    var localTestPassword = builder.Configuration["LOCAL_TEST_PASSWORD"];
+    if (!string.IsNullOrWhiteSpace(localTestUser) && !string.IsNullOrWhiteSpace(localTestPassword) &&
+        !store.List().Any(account => account.Username.Equals(localTestUser, StringComparison.OrdinalIgnoreCase)))
+        store.Create(localTestUser, localTestPassword, DateTimeOffset.UtcNow.AddYears(1));
+}
 if (!app.Environment.IsDevelopment()) { app.UseExceptionHandler("/Admin/Error"); app.UseHsts(); app.UseHttpsRedirection(); }
 app.Use(async (context, next) => {
     context.Response.Headers.CacheControl = "no-store";

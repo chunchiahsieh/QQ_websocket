@@ -5,7 +5,7 @@ using Microsoft.AspNetCore.RateLimiting;
 
 namespace AccountAdmin.Controllers;
 [ApiController, Route("internal/accounts")]
-public sealed class InternalController(AccountStore store,IConfiguration config) : ControllerBase
+public sealed class InternalController(AccountStore store, SimulationWorker simulation, IConfiguration config) : ControllerBase
 {
     public record LoginInput(string Username,string Password);
     public record ResetPasswordInput(string Username,string Password);
@@ -63,6 +63,10 @@ public sealed class InternalController(AccountStore store,IConfiguration config)
                 && string.Equals(record.Username, input.Username, StringComparison.OrdinalIgnoreCase)
         });
         return Ok(new { pools = snapshot.Settings, payouts = snapshot.Records, announcements, revision = snapshot.Revision });
+    }
+    [HttpPost("simulation"), RequestSizeLimit(1024)] public IActionResult Simulation() {
+        if (!Authorized()) return StatusCode(StatusCodes.Status403Forbidden);
+        return Ok(new { control = store.GetSimulationControl(), lines = store.ListSimulationLines(), status = simulation.Snapshot() });
     }
     static string MaskUsername(string username) {
         var prefix = string.Concat(username.EnumerateRunes().Take(2));
