@@ -9,6 +9,7 @@ import {
 } from "react";
 import {
   Bell,
+  Crown,
   ChevronLeft,
   ChevronRight,
   CircleDot,
@@ -35,6 +36,7 @@ import {
   type CardColumns,
 } from "@/components/card-layout";
 import { RegressionTest } from "@/components/regression-test";
+import { JshenPicks } from "@/components/jshen-picks";
 import {
   mtAuthenticateMessage,
   mtMemberMessage,
@@ -1267,33 +1269,6 @@ const mergeTableUpdates = (
   return unchanged ? current : next;
 };
 
-const statusView: Record<
-  ConnectionStatus,
-  { label: string; className: string }
-> = {
-  idle: {
-    label: "尚未連線",
-    className: "border-white/10 bg-white/[0.04] text-stone-400",
-  },
-  connecting: {
-    label: "正在連線",
-    className: "border-amber-300/25 bg-amber-300/10 text-amber-200",
-  },
-  authenticating: {
-    label: "驗證授權中",
-    className: "border-amber-300/25 bg-amber-300/10 text-amber-200",
-  },
-  connected: {
-    label: "即時連線中",
-    className:
-      "border-[#d8ad5b]/50 bg-[#2b1f0d] text-[#f0ce83] shadow-[inset_0_1px_0_rgba(255,235,182,.08)]",
-  },
-  error: {
-    label: "連線錯誤",
-    className: "border-rose-300/25 bg-rose-300/10 text-rose-300",
-  },
-};
-
 type MtLease = { owner: string; expiresAt: number };
 const MT_LEASE_MS = 5000;
 const readMtLease = (key: string): MtLease | null => {
@@ -1691,8 +1666,8 @@ export default function Home() {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [platform, setPlatform] = useState<"MT" | "DG" | "AB">("MT");
   const [activeMenu, setActiveMenu] = useState<
-    "tables" | "payout" | "compare" | "regression"
-  >("tables");
+    "tables" | "payout" | "compare" | "regression" | "curated"
+  >("curated");
   const [menuCollapsed, setMenuCollapsed] = useState(false);
   const [mtCollectorMode, setMtCollectorMode] = useState(false);
   const [loggingOut, setLoggingOut] = useState(false);
@@ -2537,7 +2512,8 @@ export default function Home() {
   useEffect(() => {
     const shouldSubscribe =
       isAuthenticated &&
-      ((activeMenu === "tables" && platform === "MT") ||
+      (activeMenu === "curated" ||
+        (activeMenu === "tables" && platform === "MT") ||
         (activeMenu === "compare" && hasFocusedMt)) &&
       mtConnection === null;
     if (!shouldSubscribe) return;
@@ -2625,7 +2601,8 @@ export default function Home() {
     const shouldSubscribe =
       isAuthenticated &&
       !mtCollectorMode &&
-      ((activeMenu === "tables" && platform === "DG") ||
+      (activeMenu === "curated" ||
+        (activeMenu === "tables" && platform === "DG") ||
         (activeMenu === "compare" && hasFocusedDg));
     if (!shouldSubscribe) return;
     const abort = new AbortController();
@@ -2702,7 +2679,8 @@ export default function Home() {
     const shouldSubscribe =
       isAuthenticated &&
       !mtCollectorMode &&
-      ((activeMenu === "tables" && platform === "AB") ||
+      (activeMenu === "curated" ||
+        (activeMenu === "tables" && platform === "AB") ||
         (activeMenu === "compare" && hasFocusedAb));
     if (!shouldSubscribe) return;
     const abort = new AbortController();
@@ -2772,8 +2750,6 @@ export default function Home() {
     mtCollectorMode,
     platform,
   ]);
-
-  const statusInfo = statusView[status];
 
   if (!isAuthenticated) {
     return (
@@ -2920,6 +2896,15 @@ export default function Home() {
           >
             <button
               type="button"
+              title="J神嚴選"
+              onClick={() => setActiveMenu("curated")}
+              className={`flex items-center rounded-lg border px-3 py-3 text-sm transition ${menuCollapsed ? "justify-center" : "gap-3"} ${activeMenu === "curated" ? "border-amber-300/55 bg-amber-300/10 font-medium text-amber-100" : "border-transparent text-slate-400 hover:border-amber-300/30 hover:bg-amber-300/5"}`}
+            >
+              <Crown className="h-4 w-4 shrink-0" />
+              <span className={menuCollapsed ? "hidden" : ""}>J神嚴選</span>
+            </button>
+            <button
+              type="button"
               title="即時桌況"
               onClick={() => setActiveMenu("tables")}
               className={`flex items-center rounded-lg border px-3 py-3 text-sm transition ${menuCollapsed ? "justify-center" : "gap-3"} ${activeMenu === "tables" ? "border-cyan-400/45 bg-cyan-400/10 font-medium text-cyan-100" : "border-transparent text-slate-400 hover:border-cyan-400/30 hover:bg-cyan-400/5"}`}
@@ -2967,24 +2952,6 @@ export default function Home() {
               <OnlineUsersCard collapsed={menuCollapsed} />
             </div>
           </nav>
-          <div className="mt-5 hidden border-t border-[#765728]/30 pt-5 lg:block">
-            <p
-              className={`mb-2 px-2 text-[10px] font-semibold tracking-[.18em] text-[#756a55] ${menuCollapsed ? "hidden" : ""}`}
-            >
-              CONNECTION
-            </p>
-            <div
-              title={statusInfo.label}
-              className={`flex items-center rounded-lg border px-3 py-3 text-sm ${menuCollapsed ? "justify-center" : "gap-2"} ${statusInfo.className}`}
-            >
-              <CircleDot
-                className={`h-4 w-4 ${status === "connecting" || status === "authenticating" ? "animate-pulse" : ""}`}
-              />
-              <span className={menuCollapsed ? "hidden" : ""}>
-                {statusInfo.label}
-              </span>
-            </div>
-          </div>
         </aside>
 
         <div className="min-w-0 px-4 py-5 sm:px-7 sm:py-8 lg:px-8">
@@ -3103,7 +3070,9 @@ export default function Home() {
                   />
                 </div>
               )}
-            {activeMenu === "regression" ? (
+            {activeMenu === "curated" ? (
+              <JshenPicks tablesByPlatform={tablesByPlatform} connectedByPlatform={connectedByPlatform} cardsPerRow={cardsPerRow} onCardsPerRowChange={setCardsPerRow} onFocusTable={focusTable} />
+            ) : activeMenu === "regression" ? (
               <RegressionTest />
             ) : activeMenu === "payout" ? (
               <PayoutFeature />

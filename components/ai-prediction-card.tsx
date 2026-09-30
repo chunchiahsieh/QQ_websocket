@@ -25,7 +25,7 @@ function parseBigColumns(raw: string) {
   return raw.split('#').map(column => column.includes(',') ? column.split(',') : column.match(/.{4}/g) ?? []);
 }
 
-function predictionPerformance(raw: string, selected: readonly AiSource[]) {
+export function predictionPerformance(raw: string, selected: readonly AiSource[]) {
   const columns = parseBigColumns(raw).filter(column => column.length > 0);
   const rounds = columns.flatMap((column, columnIndex) => column
     .map((code, rowIndex) => ({ code, columnIndex, rowIndex }))

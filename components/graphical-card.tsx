@@ -5,7 +5,7 @@ import { BaccaratRoad, type RoadConnection, type RoadHighlight } from '@/compone
 import { evaluatePredictions } from '@/lib/prediction-performance';
 import type { PredictionDecision } from '@/lib/prediction-performance';
 
-type GraphicalMode = 'v3' | 'v5' | 'cross';
+export type GraphicalMode = 'v3' | 'v5' | 'cross';
 type ShapeOrientation = 'down' | 'up' | 'right' | 'left' | 'cross' | 'x';
 type Outcome = '1' | '2' | '3';
 type Side = '1' | '2';
@@ -159,7 +159,7 @@ function columnsFromOutcomes(outcomes: readonly Outcome[]): Cell[][] {
   return columns;
 }
 
-function graphicalPrediction(outcomes: readonly Outcome[], mode: GraphicalMode): Side | undefined {
+export function graphicalPrediction(outcomes: readonly Outcome[], mode: GraphicalMode): Side | undefined {
   const columns = columnsFromOutcomes(outcomes);
   const candidates = nextPatternCandidates(columns, mode);
   const candidateSides = new Set(candidates.filter(entry => entry.targetPoints.length).map(entry => entry.candidate.side).filter((side): side is Side => Boolean(side)));

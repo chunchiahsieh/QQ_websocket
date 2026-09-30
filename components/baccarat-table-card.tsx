@@ -158,6 +158,7 @@ export const BaccaratTableCard = memo(function BaccaratTableCard({
   onFocusTable,
   platformLabel,
   storageScope,
+  highlightShoeProfit = false,
 }: {
   table: TableInfo;
   connected: boolean;
@@ -165,6 +166,7 @@ export const BaccaratTableCard = memo(function BaccaratTableCard({
   onFocusTable?: (table: TableInfo) => void;
   platformLabel?: string;
   storageScope?: string;
+  highlightShoeProfit?: boolean;
 }) {
   const resolvedPlatformLabel =
     platformLabel ??
@@ -826,15 +828,15 @@ export const BaccaratTableCard = memo(function BaccaratTableCard({
             </span>
           </div>
           <div className="flex items-center gap-2 overflow-x-auto whitespace-nowrap border-t border-slate-700/70 pt-1">
-            <span className="rounded border border-slate-600/70 bg-slate-900/70 px-1.5 py-0.5">
+            <span className={`rounded border px-1.5 py-0.5 ${highlightShoeProfit ? "border-emerald-400/45 bg-emerald-400/10" : "border-slate-600/70 bg-slate-900/70"}`}>
               本靴：
               <strong
                 className={
-                  shoeLedger.profit >= 0 ? "text-emerald-300" : "text-rose-300"
+                  `${shoeLedger.profit >= 0 ? "text-emerald-300" : "text-rose-300"} ${highlightShoeProfit ? "mx-1 text-xl font-black tracking-wide drop-shadow-[0_0_8px_rgba(52,211,153,.35)]" : ""}`
                 }
               >
                 {shoeLedger.profit >= 0 ? "+" : ""}
-                {shoeLedger.profit.toFixed(2)}
+                {shoeLedger.profit.toFixed(2)}{highlightShoeProfit ? " 注" : ""}
               </strong>{" "}
               · {shoeLedger.bets} 注（{shoeLedger.wins}勝／{shoeLedger.losses}
               負）

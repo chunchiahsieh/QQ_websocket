@@ -40,12 +40,15 @@ const cardGroups: { code: string; name: string; cards: { code: string; mode: Car
   ] },
 ];
 
-const cardNames = Object.fromEntries(cardGroups.flatMap(group => group.cards.map(card => [card.mode, card.name]))) as Record<CardMode, string>;
+export const cardNames = Object.fromEntries(cardGroups.flatMap(group => group.cards.map(card => [card.mode, card.name]))) as Record<CardMode, string>;
 const bettingCards: { code: string; strategy: BettingStrategy; name: string }[] = [
   { code: '601', strategy: 'flat', name: '固定注碼' },
   { code: '602', strategy: '1326', name: '1－3－2－6' },
+  { code: '606', strategy: 'reverse-1326', name: '反1－3－2－6' },
   { code: '603', strategy: 'dalembert', name: '達朗貝爾' },
+  { code: '605', strategy: 'reverse-dalembert', name: '反達朗貝爾' },
   { code: '604', strategy: 'martingale', name: '馬丁格爾' },
+  { code: '607', strategy: 'reverse-martingale', name: '反馬丁格爾' },
 ];
 const actionCards: { code: string; strategy: ActionStrategy; name: string }[] = [
   { code: '701', strategy: 'always', name: '每次出手' },
