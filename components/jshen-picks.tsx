@@ -33,6 +33,14 @@ type Pick = { key: string; platform: Platform; sourceLabel: string; table: Table
 const minimumQualifyingBets = 10;
 const stableStrategies = new Set<BettingStrategy>(['flat', 'dalembert']);
 const routeLabels: Record<Route, string> = { stable: '穩健精選', bold: '高收益精選', hot: '近期強勢', watch: '觀察名單' };
+const defaultSortByRoute: Record<Route, SortMode> = { stable: 'win-rate', bold: 'profit', hot: 'profit', watch: 'win-rate' };
+const sortLabels: Record<SortMode, string> = { 'win-rate': '勝率排行', profit: '收益排行', roi: 'ROI 排行' };
+const routeDescriptions: Record<Route, string> = {
+  stable: '低波動、長期正收益；至少實際出手 20 次。',
+  bold: '依本靴淨贏注數尋找高收益組合，可接受較高波動。',
+  hot: '比較最近 20 次實際出手，找出目前表現較強的組合。',
+  watch: '最近 10 次出手開始轉強，但資料尚未達到正式精選門檻。',
+};
 
 const bettingStrategies = Object.keys(bettingStrategyLabels) as BettingStrategy[];
 const actionStrategies = Object.keys(actionStrategyLabels) as ActionStrategy[];
@@ -158,6 +166,10 @@ export function JshenPicks({ tablesByPlatform, connectedByPlatform, cardsPerRow,
   const [sortMode, setSortMode] = useState<SortMode>('win-rate');
   const rankHistory = useRef<Record<Route, Record<string, { rank: number; streak: number }>>>({ stable: {}, bold: {}, hot: {}, watch: {} });
   const [rankBadges, setRankBadges] = useState<Record<string, { movement: string; streak: number }>>({});
+  const selectRoute = (nextRoute: Route) => {
+    setRoute(nextRoute);
+    setSortMode(defaultSortByRoute[nextRoute]);
+  };
   const latestTables = useRef(tablesByPlatform);
   const [rankingTables, setRankingTables] = useState(tablesByPlatform);
   useEffect(() => {
@@ -166,7 +178,7 @@ export function JshenPicks({ tablesByPlatform, connectedByPlatform, cardsPerRow,
   useEffect(() => {
     const timer = window.setInterval(() => {
       setRankingTables(latestTables.current);
-    }, 15_000);
+    }, 10_000);
     return () => window.clearInterval(timer);
   }, []);
   useEffect(() => {
@@ -237,7 +249,7 @@ export function JshenPicks({ tablesByPlatform, connectedByPlatform, cardsPerRow,
   }
 
   return <section className="overflow-hidden rounded-2xl border border-amber-300/25 bg-[#0d111a] shadow-[0_24px_70px_rgba(0,0,0,.42)]">
-    <header className="border-b border-amber-300/20 px-5 py-4"><div className="flex flex-wrap items-center justify-between gap-3"><div className="flex items-center gap-2 text-amber-200"><Crown className="h-5 w-5" /><h1 className="text-lg font-semibold">J神嚴選</h1><span className="text-xs font-normal text-slate-400">每 15 秒更新</span></div><div className="flex items-center gap-2"><label className="flex items-center gap-1 text-xs text-slate-400">排序<select value={sortMode} onChange={event => setSortMode(event.target.value as SortMode)} className="rounded-md border border-slate-600 bg-slate-900 px-2 py-1.5 font-semibold text-white"><option value="win-rate">勝率排行</option><option value="profit">收益排行</option><option value="roi">ROI 排行</option></select></label><CardLayoutSelect value={cardsPerRow} onChange={onCardsPerRowChange} /></div></div><div className="mt-3 flex gap-2 overflow-x-auto">{(Object.keys(routeLabels) as Route[]).map(value => <button key={value} type="button" onClick={() => setRoute(value)} className={`shrink-0 rounded-lg border px-3 py-1.5 text-sm font-bold transition ${route === value ? "border-amber-300 bg-amber-300/15 text-amber-100" : "border-slate-600 bg-slate-900/60 text-slate-400 hover:border-amber-300/50"}`}>{routeLabels[value]}</button>)}</div></header>
+    <header className="border-b border-amber-300/20 px-5 py-4"><div className="flex flex-wrap items-center justify-between gap-3"><div className="flex items-center gap-2 text-amber-200"><Crown className="h-5 w-5" /><h1 className="text-lg font-semibold">J神嚴選</h1><span className="text-xs font-normal text-slate-400">每 10 秒更新</span></div><div className="flex items-center gap-2"><label className="flex items-center gap-1 text-xs text-slate-400">排序<select value={sortMode} onChange={event => setSortMode(event.target.value as SortMode)} className="rounded-md border border-slate-600 bg-slate-900 px-2 py-1.5 font-semibold text-white"><option value="win-rate">勝率排行</option><option value="profit">收益排行</option><option value="roi">ROI 排行</option></select></label><CardLayoutSelect value={cardsPerRow} onChange={onCardsPerRowChange} /></div></div><div className="mt-3 flex gap-2 overflow-x-auto">{(Object.keys(routeLabels) as Route[]).map(value => <button key={value} type="button" onClick={() => selectRoute(value)} className={`shrink-0 rounded-lg border px-3 py-1.5 text-sm font-bold transition ${route === value ? "border-amber-300 bg-amber-300/15 font-bold text-amber-100" : "border-slate-600 bg-slate-900/60 text-slate-400 hover:border-amber-300/50"}`}>{routeLabels[value]}</button>)}</div><div className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 rounded-lg border border-white/5 bg-black/20 px-3 py-2 text-xs text-slate-300"><strong className="text-amber-100">{routeLabels[route]}</strong><span>{routeDescriptions[route]}</span><span className="rounded bg-slate-800 px-1.5 py-0.5 text-cyan-100">目前依「{sortLabels[sortMode]}」顯示前 6 名</span></div></header>
     {picks.length ? <div className={`grid gap-3 p-3 ${cardGridColumns[cardsPerRow]}`}>
       {picks.map(pick => {
         const scope = `curated:${route}:${pick.platform}:${pick.table.id}:${pick.combination.cardMode}:${pick.combination.betting}:${pick.combination.action}`;
