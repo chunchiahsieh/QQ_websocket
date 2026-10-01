@@ -13,6 +13,50 @@ const snapshot = (outcomes, shuffling = false) => aiObservationSnapshot(
 );
 const observe = (previous, outcomes, side = '2', customKey = key) => advanceObservedAi(previous, customKey, snapshot(outcomes), candidate(side));
 
+test('complete snapshots reject a road with the same number of results but a different winner', () => {
+  assert.equal(aiObservationSnapshot('01', 1, false, 1, {
+    fullOutcomes: ['1'], road: '0902', bankerTotal: 0,
+  }), undefined);
+  assert.equal(aiObservationSnapshot('02', 1, false, 1, {
+    fullOutcomes: ['2'], road: '0901', bankerTotal: 1,
+  }), undefined);
+});
+
+test('complete snapshots reject differently ordered roads even when banker and player counts agree', () => {
+  const outcomes = ['1', '2', '1', '2'];
+  const mismatched = baccaratRoads([2, 1, 2, 1]).bigRoad;
+  assert.equal(aiObservationSnapshot(outcomes.map(side => `0${side}`).join(''), outcomes.length, false, 4, {
+    fullOutcomes: outcomes, road: mismatched, bankerTotal: 2,
+  }), undefined);
+  const coherent = baccaratRoads(outcomes.map(Number)).bigRoad;
+  assert.ok(aiObservationSnapshot(outcomes.map(side => `0${side}`).join(''), outcomes.length, false, 4, {
+    fullOutcomes: outcomes, road: coherent, bankerTotal: 2,
+  }));
+});
+
+test('road chronology validation also applies to complete bead history without a separate full-outcome field', () => {
+  assert.equal(aiObservationSnapshot('0102', 2, false, 2, {
+    road: baccaratRoads([2, 1]).bigRoad, bankerTotal: 1,
+  }), undefined);
+  assert.ok(aiObservationSnapshot('0102', 2, false, 2, {
+    road: baccaratRoads([1, 2]).bigRoad, bankerTotal: 1,
+  }));
+});
+
+test('empty, tied and interleaved dragon-tail histories remain valid when their roads agree', () => {
+  const histories = [[], ['3', '3'], ['1', '3', '2', '3', '1'],
+    [...Array(8).fill('2'), '1', '2', ...Array(7).fill('1'), '2', '3']];
+  for (const outcomes of histories) {
+    const nonTies = outcomes.filter(side => side !== '3').length;
+    const coherent = baccaratRoads(outcomes.map(Number)).bigRoad;
+    const value = aiObservationSnapshot(outcomes.map(side => `0${side}`).join(''), outcomes.length, false, nonTies, {
+      fullOutcomes: outcomes, road: coherent, bankerTotal: outcomes.filter(side => side === '2').length,
+    });
+    assert.ok(value, `coherent history ${outcomes.join('')}`);
+    assert.deepEqual(value.outcomes, outcomes);
+  }
+});
+
 test('live banker prediction followed by player resets a real hit streak even if a recalculated vote says player', () => {
   let ledger = observe(undefined, ['2']);
   assert.equal(ledger.decisions.length, 0, 'opening a card must not fabricate old displayed predictions');

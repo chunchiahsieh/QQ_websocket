@@ -1,10 +1,10 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useState, useSyncExternalStore } from 'react';
-import { BaccaratRoad, type RoadMarker } from '@/components/baccarat-road';
+import { AiPredictionHistory } from '@/components/ai-prediction-history';
 import { aiConsensus, aiSources, type AiSource } from '@/lib/ai-consensus';
 import { predictionPerformance } from '@/lib/ai-prediction-performance';
-import { appendAiPrediction } from '@/lib/ai-road-history';
+import { aiPredictionHistory } from '@/lib/ai-prediction-history';
 import { advanceObservedAi, aiObservationIdentity, aiObservationSnapshot, restoreObservedAi, type ObservedAiLedger } from '@/lib/ai-observed-predictions';
 import { summarizeAiShoe } from '@/lib/ai-shoe-performance';
 import { Dialog, DialogClose, DialogContent, DialogDescription, DialogTitle } from '@/components/ui/dialog';
@@ -14,9 +14,6 @@ export { predictionPerformance } from '@/lib/ai-prediction-performance';
 
 const sourceLabels: Record<AiSource, string> = {
   chartgpt: 'ChartGPT', gemini: 'Google Gemini', deepseek: 'DeepSeek', claude: 'Claude',
-};
-const sourceAbbreviations: Record<AiSource, string> = {
-  chartgpt: 'GPT', gemini: 'GM', deepseek: 'DS', claude: 'CL',
 };
 
 type SavedLedger = { ledger?: ObservedAiLedger };
@@ -51,19 +48,6 @@ function outcomeLabel(outcome?: string) {
   return outcome === '1' ? '閒' : outcome === '2' ? '莊' : '無訊號';
 }
 
-function RoadGrid({ raw, prediction, outcomes, surfaceColor, source }: { raw: string; prediction?: '1' | '2'; outcomes?: readonly ('1' | '2' | '3')[]; surfaceColor: string; source?: AiSource }) {
-  const appended = appendAiPrediction(raw, prediction, outcomes);
-  const marker: RoadMarker | undefined = prediction ? {
-    text: source ? sourceAbbreviations[source] : '共',
-    color: prediction === '2' ? '#ef3535' : '#2864e8',
-    label: `${source ? sourceLabels[source] : '共識'}訊號${outcomeLabel(prediction)}`,
-    position: appended.position,
-  } : undefined;
-  return <div className="ai-road-grid min-h-0 min-w-0 overflow-hidden">
-    <BaccaratRoad raw={appended.raw} kind="big" columnLimit={10} surfaceColor={surfaceColor} marker={appended.position ? marker : undefined} />
-  </div>;
-}
-
 export function AiPredictionCard({ raw, beadPlate, fullOutcomes, tableId, shoe, completedRounds, completedNonTies, completedBankers, tableState, shuffling, initialSource, onPredictionChange }: { raw: string; beadPlate: string; fullOutcomes?: ('1' | '2' | '3')[]; tableId: string; shoe: string; completedRounds: number; completedNonTies: number; completedBankers: number; tableState?: string; shuffling?: boolean; initialSource?: AiSource; onPredictionChange?: (side: '1' | '2' | undefined, history: PredictionDecision[], agreement?: number) => void }) {
   const [selected, setSelected] = useState<AiSource[]>(initialSource ? [initialSource] : [...aiSources]);
   const [selectionNotice, setSelectionNotice] = useState(false);
@@ -74,8 +58,6 @@ export function AiPredictionCard({ raw, beadPlate, fullOutcomes, tableId, shoe, 
   const { key: storageKey, persistent } = aiObservationIdentity(tableId, shoe, initialSource ?? 'ai-consensus', selected, observationSession ?? mountScope);
   const snapshot = useMemo(() => aiObservationSnapshot(beadPlate, completedRounds, isShuffling, completedNonTies,
     { fullOutcomes, road: raw, bankerTotal: completedBankers }), [beadPlate, completedRounds, completedNonTies, completedBankers, isShuffling, fullOutcomes, raw]);
-  const chronologicalOutcomes = fullOutcomes?.length === completedRounds ? fullOutcomes
-    : snapshot?.outcomes.length === completedRounds ? snapshot.outcomes : undefined;
   const saved = useSyncExternalStore(
     useCallback(listener => subscribeToLedger(storageKey, listener), [storageKey]),
     useCallback(() => readSavedLedger(storageKey, persistent), [storageKey, persistent]),
@@ -106,7 +88,11 @@ export function AiPredictionCard({ raw, beadPlate, fullOutcomes, tableId, shoe, 
       ? summarizeAiShoe(predictionPerformance(statisticsRoad, [source], statisticsOutcomes).decisions, statisticsOutcomes, ledger, source)
       : undefined,
   ])), [initialSource, statisticsRoad, statisticsOutcomes, ledger]);
-  const prediction = isShuffling || !synchronized ? undefined : ledger?.pending?.prediction;
+  const predictionReady = synchronized && performance !== undefined && !isShuffling;
+  const prediction = predictionReady ? ledger?.pending?.prediction : undefined;
+  const history = useMemo(() => performance && statisticsOutcomes
+    ? aiPredictionHistory(performance.decisions, statisticsOutcomes, ledger, predictionReady)
+    : undefined, [performance, statisticsOutcomes, ledger, predictionReady]);
   const agreement = prediction ? ledger?.pending?.agreement ?? 0 : 0;
   useEffect(() => { onPredictionChange?.(prediction, decisionHistory, agreement); }, [agreement, onPredictionChange, decisionHistory, prediction]);
   const toggle = (source: AiSource) => setSelected(current => {
@@ -127,18 +113,9 @@ export function AiPredictionCard({ raw, beadPlate, fullOutcomes, tableId, shoe, 
         <strong className="tabular-nums text-cyan-200" title="本靴命中局數 ÷ 本靴總局數（含和局及無訊號）。">{sourcePerformance[source]?.accuracy == null ? '—' : `${sourcePerformance[source]!.accuracy!.toFixed(1)}%（${sourcePerformance[source]!.correct}/${sourcePerformance[source]!.total}）`}</strong>
       </label>)}
     </div>}
-    <div className="grid min-h-0 grid-cols-2">
-      <div className="ai-road-panel ai-actual-panel grid min-h-0 grid-rows-[auto_minmax(0,1fr)] border-r border-slate-200">
-        <h3 className="ai-road-heading flex items-center justify-between gap-2 px-2 py-1 text-sm font-semibold"><span>實際路單</span><span className="ai-road-badge">已開獎</span></h3>
-        <RoadGrid raw={raw} surfaceColor="#edf6ff" />
-      </div>
-      <div className="ai-road-panel ai-prediction-panel grid min-h-0 grid-rows-[auto_minmax(0,1fr)]">
-        <h3 className="ai-road-heading flex items-center justify-between gap-2 px-2 py-1 text-sm font-semibold"><span>下一局共識</span><span className="ai-road-badge">{prediction ? outcomeLabel(prediction) : '無訊號'}</span></h3>
-        <RoadGrid raw={raw} prediction={prediction} outcomes={chronologicalOutcomes} surfaceColor="#fff8e1" source={initialSource} />
-      </div>
-    </div>
+    <AiPredictionHistory key={storageKey} rounds={history} status={isShuffling ? '洗牌中' : !predictionReady ? '同步中' : `下局${outcomeLabel(prediction)}`} />
     <footer className="ai-prediction-footer flex flex-wrap items-center gap-x-3 border-t border-slate-600 px-2 py-1 text-[11px] leading-4">
-      <span>下局預測：<strong className="font-bold" style={{ color: prediction === '1' ? '#60a5fa' : prediction === '2' ? '#f87171' : '#cbd5e1' }}>{isShuffling ? '洗牌中' : !synchronized ? '資料同步中' : outcomeLabel(prediction)}</strong>{!isShuffling && !prediction && <em className="ml-1 not-italic text-amber-200">（本局不出手）</em>}</span>
+      <span>下局預測：<strong className="font-bold" style={{ color: prediction === '1' ? '#60a5fa' : prediction === '2' ? '#f87171' : '#cbd5e1' }}>{isShuffling ? '洗牌中' : !predictionReady ? '資料同步中' : outcomeLabel(prediction)}</strong>{!isShuffling && !prediction && <em className="ml-1 not-italic text-amber-200">（本局不出手）</em>}</span>
       <span title="依本靴歷史逐局回測；已保存的當時預測優先採用，不以事後預測改寫結果。">上一局：<strong className={performance?.lastResult === '命中' ? 'text-emerald-300' : performance?.lastResult === '錯誤' ? 'text-orange-300' : 'text-slate-300'}>{performance?.lastResult ?? '資料同步中'}</strong></span>
       {performance ? <>
         <span>目前連中：<strong className="text-emerald-300">{performance.streak}</strong>（最高 {performance.maxStreak}）</span>

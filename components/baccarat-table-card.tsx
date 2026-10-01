@@ -679,7 +679,7 @@ export const BaccaratTableCard = memo(function BaccaratTableCard({
         </div>
       </div>
       <div
-        className={`relative grid aspect-[550/180] bg-white ${!showDealer ? "grid-cols-1" : beadOnly || roadOnly ? "grid-cols-[20%_minmax(0,1fr)]" : "grid-cols-[20%_21.8181818%_minmax(0,1fr)]"}`}
+        className={`relative grid aspect-[550/180] bg-white ${isAiCard ? "ai-history-table-body" : ""} ${!showDealer ? "grid-cols-1" : beadOnly || roadOnly ? "grid-cols-[20%_minmax(0,1fr)]" : "grid-cols-[20%_21.8181818%_minmax(0,1fr)]"}`}
       >
         <div
           className={`relative m-0.5 min-h-0 overflow-hidden rounded-md border-2 border-stone-400 bg-slate-200 ${showDealer ? "" : "hidden"}`}

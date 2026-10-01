@@ -1,6 +1,6 @@
 import { aiSources, type AiSource, type aiConsensus } from './ai-consensus.ts';
 import type { PredictionDecision, PredictionPerformance } from './prediction-performance.ts';
-import { isAiRoadCode, parseAiRoad } from './ai-road-history.ts';
+import { chronologicalAiRoad, isAiRoadCode, parseAiRoad } from './ai-road-history.ts';
 
 type Outcome = '1' | '2' | '3';
 type Vote = { source: AiSource; side?: '1' | '2' };
@@ -54,6 +54,11 @@ export function aiObservationSnapshot(beadPlate: string, total: number, shufflin
   }
   if (evidence.road !== undefined && nonTieTotal !== undefined
     && parseAiRoad(evidence.road).flat().filter(isAiRoadCode).length !== nonTieTotal) return undefined;
+  // Matching totals alone do not prove that road and bead updates describe the
+  // same completed rounds. Do not lock or settle votes against a different
+  // winner sequence that happened to arrive with the same counters.
+  if (evidence.road !== undefined && outcomes.length === total
+    && chronologicalAiRoad(evidence.road, outcomes) === undefined) return undefined;
   return { total, nonTieTotal, bankerTotal, outcomes, shuffling, road: evidence.road };
 }
 
