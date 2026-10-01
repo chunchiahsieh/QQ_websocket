@@ -81,6 +81,7 @@ export function advanceObservedAi(
   key: string,
   snapshot: AiObservationSnapshot,
   consensus: ReturnType<typeof aiConsensus>,
+  requireDirection = false,
 ): ObservedAiLedger {
   let current = previous?.key === key ? previous : undefined;
   // The same identity must move forward only. New shoes/unknown-shoe segments
@@ -107,7 +108,8 @@ export function advanceObservedAi(
     if (outcome) decisions.push({ ...current.pending, outcome });
   }
   const pending = snapshot.shuffling ? undefined
-    : current?.pending?.position === snapshot.total + 1 ? current.pending
+    : current?.pending?.position === snapshot.total + 1
+      && (!requireDirection || current.pending.prediction !== undefined || consensus.side === undefined) ? current.pending
       : {
         position: snapshot.total + 1,
         nonTiePosition: snapshot.nonTieTotal === undefined ? undefined : snapshot.nonTieTotal + 1,

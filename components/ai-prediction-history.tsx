@@ -6,8 +6,12 @@ import type { AiPredictionRound } from '@/lib/ai-prediction-history';
 const sideLabel = (side?: string) => side === '1' ? '閒' : side === '2' ? '莊' : side === '3' ? '和' : '無訊號';
 const sideColor = (side?: string) => side === '1' ? '#2563eb' : side === '2' ? '#dc2626' : side === '3' ? '#15803d' : '#64748b';
 const originLabel = (round: AiPredictionRound) => round.origin === 'observed' ? '當時紀錄'
-  : round.origin === 'replayed' ? '歷史回測' : round.origin === 'pending' ? '待開獎' : '未保存預測';
-const predictionLabel = (round: AiPredictionRound) => round.origin === 'unrecorded' ? '未記錄' : sideLabel(round.prediction);
+  : round.origin === 'replayed' ? '歷史回測' : round.origin === 'pending' ? '待開獎'
+    : round.outcome === '3' ? '不計命中／錯誤' : '未保存預測';
+// An unrecorded tie has no directional signal to display. Keep its underlying
+// record unchanged; never substitute the actual winner for a saved prediction.
+const predictionMissing = (round: AiPredictionRound) => round.origin === 'unrecorded' && round.outcome !== '3';
+const predictionLabel = (round: AiPredictionRound) => predictionMissing(round) ? '未記錄' : sideLabel(round.prediction);
 const roundDescription = (round: AiPredictionRound) =>
   `第 ${round.position} 局，預測${predictionLabel(round)}，實際${round.outcome ? sideLabel(round.outcome) : '待開獎'}，${round.result}，${originLabel(round)}`;
 
@@ -46,7 +50,7 @@ export function AiPredictionHistory({ rounds, status }: { rounds?: AiPredictionR
             const side = kind === 'actual' ? round.outcome : round.prediction;
             const pending = round.origin === 'pending';
             const symbol = kind === 'actual' ? round.outcome ? sideLabel(side) : '待'
-              : round.origin === 'unrecorded' ? '?' : side ? sideLabel(side) : '—';
+              : predictionMissing(round) ? '?' : side ? sideLabel(side) : '—';
             const verdict = round.result === '命中' ? '✓' : round.result === '錯誤' ? '×' : round.result === '和局' ? '和' : '';
             return <button type="button" key={round.position} className="ai-history-cell"
               data-selected={round.position === selected?.position} data-origin={round.origin}
@@ -64,7 +68,7 @@ export function AiPredictionHistory({ rounds, status }: { rounds?: AiPredictionR
         </div>
       </section>)}
     </div>
-    <div className="ai-history-legend">同局號對照 · ✓ 命中 · × 錯誤 · — 無訊號 · ? 未記錄 · * 回測 · 虛線待開獎</div>
+    <div className="ai-history-legend">同局號對照 · ✓ 命中 · × 錯誤 · — 無訊號 · * 回測 · 虛線待開獎</div>
     <div className="ai-history-detail" aria-live="polite">
       {selected ? <>
         <span>第 {selected.position} 局</span>

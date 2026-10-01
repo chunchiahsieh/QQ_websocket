@@ -43,3 +43,22 @@ export function aiConsensus(raw: string, selected: readonly AiSource[]) {
     : banker >= required ? '2' : player >= required ? '1' : undefined;
   return { votes, side, required, active };
 }
+
+// Direction-required card mode. Keep actual source votes/confidence intact;
+// only resolve an absent direction, using the same past-road input every time.
+export function completeAiConsensus(raw: string, selected: readonly AiSource[]) {
+  const consensus = aiConsensus(raw, selected);
+  if (consensus.side || !selected.length) return consensus;
+  // On the opening round aiConsensus deliberately leaves side unset. If the
+  // selected sources already agree, preserve their direction in this mode.
+  const banker = consensus.votes.filter(vote => vote.side === '2').length;
+  const player = consensus.votes.filter(vote => vote.side === '1').length;
+  if (banker >= consensus.required) return { ...consensus, side: '2' as const };
+  if (player >= consensus.required) return { ...consensus, side: '1' as const };
+  const input = JSON.stringify([canonicalAiRoad(raw), aiSources.filter(source => selected.includes(source))]);
+  let seed = 2166136261;
+  for (let index = 0; index < input.length; index += 1)
+    seed = Math.imul(seed ^ input.charCodeAt(index), 16777619) >>> 0;
+  const side: ConsensusSide = (seed & 1) === 0 ? '1' : '2';
+  return { ...consensus, side };
+}

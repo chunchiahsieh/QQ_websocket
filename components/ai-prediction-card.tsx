@@ -2,11 +2,9 @@
 
 import { useCallback, useEffect, useMemo, useState, useSyncExternalStore } from 'react';
 import { AiPredictionHistory } from '@/components/ai-prediction-history';
-import { aiConsensus, aiSources, type AiSource } from '@/lib/ai-consensus';
-import { predictionPerformance } from '@/lib/ai-prediction-performance';
-import { aiPredictionHistory } from '@/lib/ai-prediction-history';
+import { completeAiConsensus, aiSources, type AiSource } from '@/lib/ai-consensus';
+import { completeAiHistory } from '@/lib/ai-complete-history';
 import { advanceObservedAi, aiObservationIdentity, aiObservationSnapshot, restoreObservedAi, type ObservedAiLedger } from '@/lib/ai-observed-predictions';
-import { summarizeAiShoe } from '@/lib/ai-shoe-performance';
 import { Dialog, DialogClose, DialogContent, DialogDescription, DialogTitle } from '@/components/ui/dialog';
 import type { PredictionDecision } from '@/lib/prediction-performance';
 import { useAiObservationSession } from '@/components/ai-observation-provider';
@@ -54,7 +52,7 @@ export function AiPredictionCard({ raw, beadPlate, fullOutcomes, tableId, shoe, 
   const [mountScope] = useState(() => String(++observationMountSequence));
   const observationSession = useAiObservationSession(tableId);
   const isShuffling = shuffling || tableState === '2';
-  const consensus = useMemo(() => aiConsensus(raw, selected), [raw, selected]);
+  const consensus = useMemo(() => completeAiConsensus(raw, selected), [raw, selected]);
   const { key: storageKey, persistent } = aiObservationIdentity(tableId, shoe, initialSource ?? 'ai-consensus', selected, observationSession ?? mountScope);
   const snapshot = useMemo(() => aiObservationSnapshot(beadPlate, completedRounds, isShuffling, completedNonTies,
     { fullOutcomes, road: raw, bankerTotal: completedBankers }), [beadPlate, completedRounds, completedNonTies, completedBankers, isShuffling, fullOutcomes, raw]);
@@ -64,7 +62,7 @@ export function AiPredictionCard({ raw, beadPlate, fullOutcomes, tableId, shoe, 
     serverLedger,
   );
   const ledger = useMemo(() => saved && snapshot
-    ? advanceObservedAi(saved.ledger, storageKey, snapshot, consensus) : saved?.ledger, [saved, storageKey, snapshot, consensus]);
+    ? advanceObservedAi(saved.ledger, storageKey, snapshot, consensus, true) : saved?.ledger, [saved, storageKey, snapshot, consensus]);
   // Commit the same prediction the user just saw. Never reconstruct a live
   // decision from the current road after the next result has already arrived.
   useEffect(() => {
@@ -78,21 +76,24 @@ export function AiPredictionCard({ raw, beadPlate, fullOutcomes, tableId, shoe, 
   const statisticsSnapshot = ledger?.snapshot ?? snapshot;
   const statisticsOutcomes = statisticsSnapshot?.outcomes.length === statisticsSnapshot?.total ? statisticsSnapshot?.outcomes : undefined;
   const statisticsRoad = statisticsSnapshot?.road;
-  const simulated = useMemo(() => statisticsRoad !== undefined && statisticsOutcomes
-    ? predictionPerformance(statisticsRoad, selected, statisticsOutcomes) : undefined, [statisticsRoad, selected, statisticsOutcomes]);
-  const performance = useMemo(() => simulated && statisticsOutcomes
-    ? summarizeAiShoe(simulated.decisions, statisticsOutcomes, ledger) : undefined, [simulated, statisticsOutcomes, ledger]);
+  const completed = useMemo(() => statisticsRoad !== undefined && statisticsOutcomes
+    ? completeAiHistory(statisticsRoad, selected, statisticsOutcomes, ledger) : undefined,
+    [statisticsRoad, selected, statisticsOutcomes, ledger]);
+  const performance = completed?.performance;
   const decisionHistory = useMemo(() => performance?.decisions ?? [], [performance]);
   const sourcePerformance = useMemo(() => Object.fromEntries((initialSource ? [] : aiSources).map(source => [source,
     statisticsRoad !== undefined && statisticsOutcomes
-      ? summarizeAiShoe(predictionPerformance(statisticsRoad, [source], statisticsOutcomes).decisions, statisticsOutcomes, ledger, source)
+      ? completeAiHistory(statisticsRoad, [source], statisticsOutcomes, ledger, source)?.performance
       : undefined,
   ])), [initialSource, statisticsRoad, statisticsOutcomes, ledger]);
   const predictionReady = synchronized && performance !== undefined && !isShuffling;
   const prediction = predictionReady ? ledger?.pending?.prediction : undefined;
-  const history = useMemo(() => performance && statisticsOutcomes
-    ? aiPredictionHistory(performance.decisions, statisticsOutcomes, ledger, predictionReady)
-    : undefined, [performance, statisticsOutcomes, ledger, predictionReady]);
+  const history = useMemo(() => {
+    if (!completed) return undefined;
+    if (!predictionReady || !ledger?.pending) return completed.history;
+    return [...completed.history, { position: ledger.pending.position, prediction: ledger.pending.prediction,
+      origin: 'pending' as const, result: '待開獎' as const }];
+  }, [completed, ledger, predictionReady]);
   const agreement = prediction ? ledger?.pending?.agreement ?? 0 : 0;
   useEffect(() => { onPredictionChange?.(prediction, decisionHistory, agreement); }, [agreement, onPredictionChange, decisionHistory, prediction]);
   const toggle = (source: AiSource) => setSelected(current => {
@@ -120,7 +121,7 @@ export function AiPredictionCard({ raw, beadPlate, fullOutcomes, tableId, shoe, 
       {performance ? <>
         <span>目前連中：<strong className="text-emerald-300">{performance.streak}</strong>（最高 {performance.maxStreak}）</span>
         <span>目前連錯：<strong className="text-orange-300">{performance.missStreak}</strong>（最高 {performance.maxMissStreak}）</span>
-        <span className="text-slate-400" title="統計本靴第一局至目前；未保存的預測逐局回測補足，已保存的預測保留。最高為本靴最高紀錄，和局不增減連中／連錯。">本靴統計 {performance.total} 局</span>
+        <span className="text-slate-400" title="統計本靴第一局至目前，每局預測依該局之前的路單產生；已保存的莊閒預測優先。最高為本靴最高紀錄，和局不增減連中／連錯。">本靴統計 {performance.total} 局</span>
       </> : <span className="text-slate-400">連中／連錯：本靴資料同步中</span>}
     </footer>
     <Dialog open={selectionNotice} onOpenChange={setSelectionNotice}>

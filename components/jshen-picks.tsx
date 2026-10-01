@@ -7,7 +7,7 @@ import { BaccaratTableCard, type FocusedTableSettings, type TableInfo } from '@/
 import { CardLayoutSelect, cardGridColumns, type CardColumns } from '@/components/card-layout';
 import { cardNames, type CardMode } from '@/components/card-picker';
 import { graphicalPrediction } from '@/components/graphical-card';
-import { predictionPerformance } from '@/components/ai-prediction-card';
+import { completeAiHistory } from '@/lib/ai-complete-history';
 import { aiSources, type AiSource } from '@/lib/ai-consensus';
 import { applyActionStrategy, actionStrategyLabels, defaultActionConfig, type ActionStrategy } from '@/lib/action-strategy';
 import { bettingStrategyLabels, initialBettingLedger, replayBets, settleBet, type BettingLedger, type BettingStrategy } from '@/lib/betting-strategy';
@@ -89,10 +89,11 @@ function predictionSets(table: TableInfo): Array<{ cardMode: CardMode; decisions
   const aiCards: Array<[CardMode, readonly AiSource[]]> = [
     ['chartgpt', ['chartgpt']], ['gemini', ['gemini']], ['deepseek', ['deepseek']], ['claude', ['claude']], ['ai-consensus', aiSources],
   ];
+  const aiOutcomes = table.aiOutcomes
+    ?? (outcomes.length === Number(table.banker) + Number(table.player) + Number(table.tie) ? outcomes : undefined);
   for (const [cardMode, sources] of aiCards) sets.push({
     cardMode,
-    decisions: predictionPerformance(table.bigRoad, sources, table.aiOutcomes
-      ?? (outcomes.length === Number(table.banker) + Number(table.player) + Number(table.tie) ? outcomes : undefined)).decisions,
+    decisions: aiOutcomes ? completeAiHistory(table.bigRoad, sources, aiOutcomes)?.performance.decisions ?? [] : [],
     isAiConsensus: cardMode === 'ai-consensus',
   });
   return sets;

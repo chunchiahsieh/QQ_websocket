@@ -1,9 +1,18 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { aiPredictionHistory } from '../lib/ai-prediction-history.ts';
-import { advanceObservedAi, aiObservationSnapshot } from '../lib/ai-observed-predictions.ts';
+import { summarizeAiShoe } from '../lib/ai-shoe-performance.ts';
+import { advanceObservedAi, aiObservationSnapshot, restoreObservedAi } from '../lib/ai-observed-predictions.ts';
 
 const key = 'prediction-history-test';
+const candidate = side => ({ side, votes: [{ source: 'deepseek', side }], active: side ? 1 : 0, required: 1 });
+const snapshot = outcomes => aiObservationSnapshot(outcomes.map(side => `0${side}`).join(''),
+  outcomes.length, false, outcomes.filter(side => side !== '3').length);
+const reopen = ledger => {
+  const restored = restoreObservedAi(JSON.stringify(ledger), key);
+  assert.ok(restored, 'the serialized ledger must survive the real restore validation');
+  return restored;
+};
 const replay = (outcomes, predictions) => outcomes.filter(outcome => outcome !== '3')
   .map((outcome, index) => ({ outcome, prediction: predictions ? predictions[index] : outcome }));
 const savedLedger = (outcomes, records = [], pending) => ({
@@ -149,4 +158,106 @@ test('a same-round recalculation cannot replace the displayed pending vote or it
   assert.deepEqual(history[2], {
     position: 3, prediction: '2', origin: 'pending', result: '待開獎',
   });
+});
+
+for (const [saved, recalculated, result, correct, streak, missStreak] of [
+  ['1', '2', '命中', 2, 2, 0],
+  ['2', '1', '錯誤', 1, 0, 1],
+]) test(`restored ${saved === '1' ? 'player hit' : 'banker miss'} overrides contrary replay in history and shoe totals`, () => {
+  const pending = advanceObservedAi(undefined, key, snapshot(['2']), candidate(saved));
+  const outcomes = ['2', '1'];
+  const settled = advanceObservedAi(reopen(pending), key, snapshot(outcomes), candidate(recalculated));
+  const reopened = reopen(settled);
+  const decisions = replay(outcomes, ['2', recalculated]);
+  assert.deepEqual(aiPredictionHistory(decisions, outcomes, reopened)[1], {
+    position: 2, prediction: saved, outcome: '1', origin: 'observed', result,
+  });
+  const performance = summarizeAiShoe(decisions, outcomes, reopened);
+  assert.equal(performance.decisions[1].prediction, saved);
+  assert.equal(performance.correct, correct);
+  assert.equal(performance.streak, streak);
+  assert.equal(performance.missStreak, missStreak);
+  assert.equal(performance.lastResult, result);
+  assert.notEqual(performance.correct, summarizeAiShoe(decisions, outcomes).correct);
+  assert.equal(decisions[1].prediction, recalculated, 'replay remains unmodified');
+});
+
+test('restored observations retain whole-shoe positions across a tie and the following settlements', () => {
+  let ledger = advanceObservedAi(undefined, key, snapshot(['2']), candidate('1'));
+  ledger = advanceObservedAi(reopen(ledger), key, snapshot(['2', '3']), candidate('2'));
+  ledger = advanceObservedAi(reopen(ledger), key, snapshot(['2', '3', '1']), candidate('1'));
+  const outcomes = ['2', '3', '1', '1'];
+  ledger = reopen(advanceObservedAi(reopen(ledger), key, snapshot(outcomes), candidate('2')));
+  const decisions = replay(outcomes, ['2', '1', '2']);
+  assert.deepEqual(aiPredictionHistory(decisions, outcomes, ledger), [
+    { position: 1, prediction: '2', outcome: '2', origin: 'replayed', result: '命中' },
+    { position: 2, prediction: '1', outcome: '3', origin: 'observed', result: '和局' },
+    { position: 3, prediction: '2', outcome: '1', origin: 'observed', result: '錯誤' },
+    { position: 4, prediction: '1', outcome: '1', origin: 'observed', result: '命中' },
+  ]);
+  assert.deepEqual(ledger.decisions.map(record => [record.position, record.nonTiePosition]), [[2, 2], [3, 2], [4, 3]]);
+  const performance = summarizeAiShoe(decisions, outcomes, ledger);
+  assert.deepEqual(performance.decisions.map(record => record.prediction), ['2', '2', '1']);
+  assert.equal(performance.correct, 2);
+  assert.equal(performance.ties, 1);
+  assert.equal(performance.streak, 1);
+  assert.equal(performance.missStreak, 0);
+  assert.equal(performance.noSignal, 0);
+});
+
+test('a serialized abstention remains observed no-signal after reopening and settlement', () => {
+  const pending = advanceObservedAi(undefined, key, snapshot(['2']), candidate(undefined));
+  const restored = reopen(pending);
+  assert.deepEqual(aiPredictionHistory(replay(['2']), ['2'], restored, true).at(-1), {
+    position: 2, prediction: undefined, origin: 'pending', result: '待開獎',
+  });
+  const outcomes = ['2', '1'];
+  const settled = reopen(advanceObservedAi(restored, key, snapshot(outcomes), candidate('1')));
+  const decisions = replay(outcomes, ['2', '1']);
+  assert.deepEqual(aiPredictionHistory(decisions, outcomes, settled)[1], {
+    position: 2, prediction: undefined, outcome: '1', origin: 'observed', result: '無訊號',
+  });
+  const performance = summarizeAiShoe(decisions, outcomes, settled);
+  assert.equal(performance.decisions[1].prediction, undefined);
+  assert.equal(performance.correct, 1);
+  assert.equal(performance.noSignal, 1);
+  assert.equal(performance.lastResult, '無訊號');
+  assert.equal(summarizeAiShoe(decisions, outcomes).correct, 2);
+});
+
+test('a reopened pending prediction settles once across repeated updates and another reopening', () => {
+  const pending = advanceObservedAi(undefined, key, snapshot(['2']), candidate('1'));
+  const restored = reopen(pending);
+  const unchanged = advanceObservedAi(restored, key, snapshot(['2']), candidate('2'));
+  assert.equal(unchanged, restored);
+  assert.equal(unchanged.pending.prediction, '1');
+  const outcomes = ['2', '1'];
+  const settled = advanceObservedAi(unchanged, key, snapshot(outcomes), candidate('2'));
+  assert.equal(settled.decisions.length, 1);
+  assert.equal(advanceObservedAi(settled, key, snapshot(outcomes), candidate('1')), settled);
+  const reopened = reopen(settled);
+  assert.equal(advanceObservedAi(reopened, key, snapshot(outcomes), candidate('1')), reopened);
+  assert.equal(reopened.decisions.length, 1);
+  const decisions = replay(outcomes, ['2', '2']);
+  const history = aiPredictionHistory(decisions, outcomes, reopened, true);
+  assert.deepEqual(history.map(round => round.position), [1, 2, 3]);
+  assert.equal(history.filter(round => round.origin === 'observed').length, 1);
+  assert.deepEqual(history.at(-1), { position: 3, prediction: '2', origin: 'pending', result: '待開獎' });
+  assert.deepEqual(summarizeAiShoe(decisions, outcomes, reopened), summarizeAiShoe(decisions, outcomes, settled));
+  assert.equal(summarizeAiShoe(decisions, outcomes, reopened).correct, 2);
+});
+
+test('unrecorded intervening ties do not change hits, misses or no-signal counts', () => {
+  for (const predictions of [['2', '1'], ['1', '2'], [undefined, undefined]]) {
+    const outcomes = ['2', '1'];
+    const tiedOutcomes = ['2', '3', '1'];
+    const decisions = replay(outcomes, predictions);
+    const before = summarizeAiShoe(decisions, outcomes);
+    const after = summarizeAiShoe(decisions, tiedOutcomes);
+    for (const metric of ['correct', 'streak', 'missStreak', 'maxStreak', 'maxMissStreak', 'noSignal'])
+      assert.equal(after[metric], before[metric], metric);
+    assert.equal(after.total, 3);
+    assert.equal(after.ties, 1);
+    assert.equal(after.accuracy, after.correct / after.total * 100);
+  }
 });
