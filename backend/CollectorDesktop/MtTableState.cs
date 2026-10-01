@@ -10,6 +10,7 @@ public static class MtTableState
         "countdownDeadline", "countdownReceivedAt", "countdownValue", "countdownSource", "countdownRound",
         "tableState", "tablePhase", "shoe", "round", "mtEvent", "mtReceivedAt",
     ];
+    static readonly string[] RoadFields = ["beadPlate", "bigRoad", "bigEyeRoad", "smallRoad", "cockroachRoad"];
 
     public static void Merge(Dictionary<string, Dictionary<string, object?>> tables,
         IEnumerable<Dictionary<string, object?>> updates)
@@ -23,6 +24,12 @@ public static class MtTableState
         {
             var sourceId = Text(table, "sourceTableId");
             if (string.IsNullOrWhiteSpace(sourceId) || sourceId == id || !tables.TryGetValue(sourceId, out var source)) continue;
+            // The alias can receive the new lobby shoe before its source does.
+            if (ChangesOfficialShoe(table, source))
+            {
+                if (IsOlderRound(table, source)) continue;
+                ResetShoeState(table);
+            }
             foreach (var key in SharedFields)
                 if (source.TryGetValue(key, out var value)) table[key] = value;
         }
@@ -42,6 +49,7 @@ public static class MtTableState
         var passive = eventName is "snapshot" or "update";
         var authoritativeClock = Text(current, "countdownSource") is "wait" or "end";
         var olderRound = IsOlderRound(current, update);
+        var newShoe = !olderRound && ChangesOfficialShoe(current, update);
         var previousRound = Text(current, "countdownRound");
         var nextRound = Text(update, "countdownRound");
         var newRound = previousRound is { Length: > 0 } && nextRound is { Length: > 0 }
@@ -50,14 +58,17 @@ public static class MtTableState
         var nextValue = Number(update, "countdownValue");
         var backwardsWait = eventName == "wait" && authoritativeClock && !newRound
             && previousValue is not null && nextValue > previousValue;
-        var protectClock = olderRound || (passive && authoritativeClock) || backwardsWait;
+        var protectClock = olderRound || (!newShoe && ((passive && authoritativeClock) || backwardsWait));
         var previousDealer = Text(current, "dealer");
         var nextDealer = Text(update, "dealer");
         var previousDeadline = Number(current, "countdownDeadline");
         var nextDeadline = Number(update, "countdownDeadline");
         var previousReceivedAt = Number(current, "countdownReceivedAt");
 
-        if (!protectClock && newRound && eventName is "wait" or "show_poker" or "complete")
+        // Clock protection applies within a shoe. An official shoe transition
+        // replaces its identity and history together, including omitted fields.
+        if (newShoe) ResetShoeState(current);
+        else if (!protectClock && newRound && eventName is "wait" or "show_poker" or "complete")
         {
             foreach (var key in SharedFields.Where(key => key.StartsWith("countdown", StringComparison.Ordinal))) current.Remove(key);
             current["tablePhase"] = null;
@@ -74,7 +85,7 @@ public static class MtTableState
             current[key] = value;
         }
 
-        if (!protectClock && !newRound && previousDeadline is not null && nextDeadline is not null)
+        if (!protectClock && !newShoe && !newRound && previousDeadline is not null && nextDeadline is not null)
         {
             // Repeated frames and delayed lower counts cannot move the same
             // game's deadline forward. A first /wait may replace a placeholder
@@ -96,7 +107,26 @@ public static class MtTableState
         || key is "tableState" or "tablePhase" or "shoe" or "round" or "mtEvent" or "mtReceivedAt";
 
     static bool IsRoadField(string key) => key is "beadPlate" or "bigRoad" or "bigEyeRoad" or "smallRoad" or "cockroachRoad"
-        or "banker" or "player" or "tie";
+        or "banker" or "player" or "tie" or "aiOutcomes";
+
+    static void ResetShoeState(Dictionary<string, object?> table)
+    {
+        foreach (var key in SharedFields) table.Remove(key);
+        table["tablePhase"] = null;
+        foreach (var key in RoadFields) table[key] = "";
+        foreach (var key in new[] { "banker", "player", "tie" }) table[key] = "0";
+        table.Remove("aiOutcomes");
+    }
+
+    static bool ChangesOfficialShoe(IReadOnlyDictionary<string, object?> current, IReadOnlyDictionary<string, object?> update)
+    {
+        var previous = Text(current, "shoe");
+        var next = Text(update, "shoe");
+        return IsOfficialShoe(previous) && IsOfficialShoe(next) && previous != next;
+    }
+
+    static bool IsOfficialShoe(string? shoe) => !string.IsNullOrWhiteSpace(shoe)
+        && !System.Text.RegularExpressions.Regex.IsMatch(shoe.Trim(), "^(?:[-—–?]+|unknown|undefined|null|n/a|0)$", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
 
     static bool IsOlderRound(IReadOnlyDictionary<string, object?> current, IReadOnlyDictionary<string, object?> update)
     {

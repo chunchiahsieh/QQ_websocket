@@ -35,6 +35,9 @@ static class MtTableStateTests
         SnapshotCannotRestartAuthoritativeEvents();
         PositiveWaitEndsShuffleForSourceAndAlias();
         NewRoundRestartsAndOldRoundCannotRegress();
+        NewShoeSnapshotReplacesAuthoritativeEvents();
+        NewShoeClearsUnreportedState();
+        NewAliasShoeCannotBeRewoundByItsSource();
         EndEventsPreserveMediaAndRoads();
         Console.WriteLine("MT explicit source identity, event ordering, countdown, and official media tests passed.");
     }
@@ -210,6 +213,105 @@ static class MtTableStateTests
         Equal(Extract(Packet("summary", """{"table_id":"BAV01"}"""), ReceivedAt).Single(), "mtEvent", "complete", "Completion event metadata must be preserved.");
         Equal(Extract(Packet("update", """{"table_id":"BAV01","totalplayers":1}"""), ReceivedAt).Single(), "mtEvent", "update", "Ordinary updates must be classified without timer authority.");
     }
+
+    static void NewShoeSnapshotReplacesAuthoritativeEvents()
+    {
+        foreach (var authority in new[] { "wait", "end" })
+        foreach (var aliasFirst in new[] { false, true })
+        {
+            var tables = OldShoe(authority);
+            var source = NewShoeRow("BAV01", "010102", "0101#02");
+            var alias = NewShoeRow("BAV01_LIVE", "020101", "02#0101");
+            Apply(tables, aliasFirst ? Snapshot(alias, source) : Snapshot(source, alias), ReceivedAt + 5_000);
+            SharedState(tables, ReceivedAt + 25_000, 20L, "BAV01-S647-R3", null);
+            foreach (var id in new[] { "BAV01", "BAV01_LIVE" })
+            {
+                Equal(tables[id], "shoe", "647", "A new official shoe must replace the prior authoritative clock identity.");
+                Equal(tables[id], "round", "3", "New-shoe round 3 must not be treated as old-shoe round 56 rollback.");
+                Equal(tables[id], "banker", "1", "The new shoe banker count must arrive with its identity.");
+                Equal(tables[id], "player", "2", "The new shoe player count must arrive with its identity.");
+                Equal(tables[id], "tie", "0", "The new shoe tie count must arrive with its identity.");
+                Check(!tables[id].ContainsKey("aiOutcomes"), "An omitted full-history array must not survive from the old shoe.");
+            }
+            Equal(tables["BAV01"], "beadPlate", "010102", "The source must use its new three-round history.");
+            Equal(tables["BAV01_LIVE"], "beadPlate", "020101", "An already-new alias retains its own reported history.");
+
+            Apply(tables, Snapshot(BaseRow, LiveRow), ReceivedAt + 6_000);
+            Apply(tables, Wait(19, "BAV01-A056", 56), ReceivedAt + 7_000);
+            Apply(tables, Packet("summary", """{"table_id":"BAV01","shoe":646,"round":56}"""), ReceivedAt + 8_000);
+            SharedState(tables, ReceivedAt + 25_000, 20L, "BAV01-S647-R3", null);
+            Equal(tables["BAV01"], "shoe", "647", "A late older-shoe snapshot, wait, or end cannot restore the old identity.");
+            Equal(tables["BAV01"], "beadPlate", "010102", "A late older-shoe packet cannot replace the new history.");
+            Equal(tables["BAV01_LIVE"], "beadPlate", "020101", "A late older-shoe alias packet cannot replace the new alias history.");
+        }
+    }
+
+    static void NewShoeClearsUnreportedState()
+    {
+        var tables = OldShoe("end");
+        Apply(tables, Packet("wait", """{"table_id":"BAV01","shoe":647,"count":20}"""), ReceivedAt + 5_000);
+        foreach (var id in new[] { "BAV01", "BAV01_LIVE" })
+        {
+            var table = tables[id];
+            Equal(table, "shoe", "647", "A shoe-only wait must advance the source and alias identity.");
+            Equal(table, "countdownDeadline", ReceivedAt + 25_000, "The new shoe must start its own countdown.");
+            foreach (var key in new[] { "round", "countdownRound", "aiOutcomes" })
+                Check(!table.ContainsKey(key), $"A shoe-only wait must clear the previous shoe's {key}.");
+            foreach (var key in new[] { "banker", "player", "tie" })
+                Equal(table, key, "0", "A new identity cannot inherit old-shoe counters.");
+            foreach (var key in new[] { "beadPlate", "bigRoad", "bigEyeRoad", "smallRoad", "cockroachRoad" })
+                Equal(table, key, "", "A new identity cannot inherit old-shoe roads.");
+        }
+        Equal(tables["BAV01_LIVE"], "dealer", "Live dealer", "Resetting game state must preserve presentation metadata.");
+
+        tables = OldShoe("end");
+        Apply(tables, Snapshot("""{"table_id":"BAV01","trend":{"current_shoe":647,"current_round":3,"total_round_banker":1,"total_round_player":2,"total_round_tie":0,"bead_plate2":"010102","big2":"0101#02"}}"""), ReceivedAt + 5_000);
+        foreach (var id in new[] { "BAV01", "BAV01_LIVE" })
+        {
+            Equal(tables[id], "shoe", "647", "An untimed snapshot must advance both source and alias shoe identities.");
+            foreach (var key in new[] { "countdownDeadline", "countdownReceivedAt", "countdownValue", "countdownSource", "tableState" })
+                Check(!tables[id].ContainsKey(key), $"A new shoe snapshot without {key} must not inherit the old value.");
+            Equal(tables[id], "tablePhase", null, "The preceding shoe's dealing phase must be cleared.");
+        }
+        Equal(tables["BAV01_LIVE"], "beadPlate", "", "A source-only shoe transition clears the alias's old history until its own history arrives.");
+    }
+
+    static void NewAliasShoeCannotBeRewoundByItsSource()
+    {
+        var tables = OldShoe("wait");
+        Apply(tables, Snapshot(NewShoeRow("BAV01_LIVE", "020101", "02#0101")), ReceivedAt + 5_000);
+        Equal(tables["BAV01"], "shoe", "646", "The source has not received the new lobby shoe yet.");
+        Equal(tables["BAV01_LIVE"], "shoe", "647", "An older source cannot overwrite the alias's accepted new shoe.");
+        Equal(tables["BAV01_LIVE"], "beadPlate", "020101", "The new alias history stays associated with its new shoe.");
+        Apply(tables, Snapshot(NewShoeRow("BAV01", "010102", "0101#02")), ReceivedAt + 6_000);
+        Equal(tables["BAV01_LIVE"], "shoe", "647", "The alias remains in the new shoe after its source catches up.");
+        Equal(tables["BAV01_LIVE"], "beadPlate", "020101", "Source catch-up must preserve already-new alias roads.");
+    }
+
+    static Dictionary<string, Dictionary<string, object?>> OldShoe(string authority)
+    {
+        var tables = NewTables();
+        Apply(tables, Snapshot(BaseRow, LiveRow), ReceivedAt);
+        Apply(tables, Wait(19, "BAV01-A056", 56), ReceivedAt + 1_000);
+        if (authority == "end")
+            Apply(tables, Packet("summary", """{"table_id":"BAV01","game_sn":"BAV01-A056","shoe":646,"round":56}"""), ReceivedAt + 2_000);
+        foreach (var table in tables.Values)
+        {
+            table["banker"] = "28";
+            table["player"] = "28";
+            table["tie"] = "0";
+            table["beadPlate"] = string.Concat(Enumerable.Repeat("0201", 28));
+            table["aiOutcomes"] = Enumerable.Range(0, 56).Select(index => index % 2 == 0 ? "2" : "1").ToArray();
+        }
+        return tables;
+    }
+
+    static string NewShoeRow(string id, string beads, string road) => JsonSerializer.Serialize(new {
+        table_id = id, table_id_t = id == "BAV01_LIVE" ? "BAV01" : id,
+        game_sn = "BAV01-S647-R3", countDown = 20, state = 0,
+        trend = new { current_shoe = 647, current_round = 3, total_round_banker = 1, total_round_player = 2, total_round_tie = 0,
+            bead_plate2 = beads, big2 = road },
+    });
 
     static void DistinctPresentation(Dictionary<string, Dictionary<string, object?>> tables)
     {

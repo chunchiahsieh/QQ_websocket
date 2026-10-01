@@ -39,7 +39,7 @@ import {
 import { RegressionTest } from "@/components/regression-test";
 import { JshenPicks } from "@/components/jshen-picks";
 import { AiObservationProvider } from "@/components/ai-observation-provider";
-import { filterMtUpdate, synchronizeMtClocks } from "@/lib/mt-table-state";
+import { filterMtUpdate, mtMergeBase, synchronizeMtClocks } from "@/lib/mt-table-state";
 import {
   mtAuthenticateMessage,
   mtMemberMessage,
@@ -1187,8 +1187,9 @@ const mergeTableUpdates = (
 ) => {
   const tables = new Map(current.map((table) => [table.id, table]));
   updates.forEach((incoming) => {
-    const previous = tables.get(incoming.id);
-    const update = filterMtUpdate(previous, incoming);
+    const currentTable = tables.get(incoming.id);
+    const update = filterMtUpdate(currentTable, incoming);
+    const previous = mtMergeBase(currentTable, update);
     tables.set(update.id, {
       id: update.id,
       sourceTableId: update.sourceTableId ?? previous?.sourceTableId,
