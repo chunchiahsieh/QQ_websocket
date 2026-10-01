@@ -34,6 +34,7 @@ internal static class AbRoadNormalizer
 
         return new Dictionary<string, object?> {
             ["beadPlate"] = bead,
+            ["aiOutcomes"] = winners.Select(winner => winner.ToString()).ToArray(),
             ["bigRoad"] = Encode(marks, mark => $"{Math.Min(9, mark.Ties)}{results[mark.Index][mark.Winner == 1 ? 2 : 1]}0{mark.Winner}"),
             ["bigEyeRoad"] = Derived(1),
             ["smallRoad"] = Derived(2),

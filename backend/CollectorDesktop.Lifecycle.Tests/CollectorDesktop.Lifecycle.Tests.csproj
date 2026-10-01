@@ -10,5 +10,7 @@
     <Compile Include="..\CollectorDesktop\CollectorInstallationState.cs" Link="CollectorInstallationState.cs" />
     <Compile Include="..\CollectorDesktop\DgCardMapper.cs" Link="DgCardMapper.cs" />
     <Compile Include="..\CollectorDesktop\DgRoadNormalizer.cs" Link="DgRoadNormalizer.cs" />
+    <Compile Include="..\CollectorDesktop\MtTableNormalizer.cs" Link="MtTableNormalizer.cs" />
+    <Compile Include="..\CollectorDesktop\MtTableState.cs" Link="MtTableState.cs" />
   </ItemGroup>
 </Project>

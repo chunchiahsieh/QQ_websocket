@@ -38,6 +38,8 @@ import {
 } from "@/components/card-layout";
 import { RegressionTest } from "@/components/regression-test";
 import { JshenPicks } from "@/components/jshen-picks";
+import { AiObservationProvider } from "@/components/ai-observation-provider";
+import { filterMtUpdate, synchronizeMtClocks } from "@/lib/mt-table-state";
 import {
   mtAuthenticateMessage,
   mtMemberMessage,
@@ -1036,8 +1038,10 @@ const extractTableUpdates = (
       .map(photoUrl)
       .find(Boolean);
     const tableId = toText(table.table_id, "");
-    let videoUrl = Array.isArray(table.video)
-      ? table.video
+    const sourceTableId = optionalText(table.table_id_t) ?? tableId;
+    const video = sourceTableId !== tableId ? table.video_live : table.video;
+    const videoUrl = Array.isArray(video)
+      ? video
           .map((line) =>
             Array.isArray(line) && typeof line[2] === "string" ? line[2] : "",
           )
@@ -1050,17 +1054,6 @@ const extractTableUpdates = (
             }
           })
       : undefined;
-    if (videoUrl && /_LIVE$/i.test(tableId)) {
-      const liveCode = tableId.replace(/^BAV/i, "").replace(/_LIVE$/i, "").toLowerCase();
-      try {
-        const liveUrl = new URL(videoUrl);
-        liveUrl.pathname = `/livestream/blv${liveCode}-3.flv`;
-        liveUrl.search = "";
-        videoUrl = liveUrl.toString();
-      } catch {
-        // Keep the source value if MT changes to a non-URL transport.
-      }
-    }
     if (!tableId) return;
     const current = unique.get(tableId) ?? { id: tableId };
     const explicitDeadline = finiteNumber(
@@ -1118,6 +1111,9 @@ const extractTableUpdates = (
     unique.set(tableId, {
       ...current,
       id: tableId,
+      sourceTableId,
+      mtEvent: waitEvent ? "wait" : showPokerEvent ? "show_poker" : completedEvent ? "complete" : eventName.endsWith("/tables") ? "snapshot" : "update",
+      mtReceivedAt: receivedAt,
       ...(explicitDeadline !== undefined && {
         countdownDeadline: epochMilliseconds(explicitDeadline),
         countdownReceivedAt:
@@ -1128,9 +1124,9 @@ const extractTableUpdates = (
       }),
       ...(countdownRound !== undefined && { countdownRound }),
       ...(countdownSource !== undefined && { countdownSource }),
-      ...(Array.isArray(table.video) && { videoUrl: videoUrl ?? "" }),
-      ...(optionalText(table.state) !== undefined && {
-        tableState: optionalText(table.state),
+      ...(Array.isArray(video) && { videoUrl: videoUrl ?? "" }),
+      ...((optionalText(table.state) !== undefined || (waitEvent && countDown !== undefined && countDown > 0)) && {
+        tableState: waitEvent && countDown !== undefined && countDown > 0 ? "0" : optionalText(table.state),
       }),
       ...(tablePhase !== undefined && {
         tablePhase: tablePhase as TableInfo["tablePhase"],
@@ -1143,6 +1139,8 @@ const extractTableUpdates = (
       ...(endEvent && {
         countdownDeadline: receivedAt,
         countdownReceivedAt: receivedAt,
+        countdownValue: 0,
+        countdownSource: "end" as const,
       }),
       ...(optionalText(table.table_name) && {
         name: optionalText(table.table_name),
@@ -1153,8 +1151,8 @@ const extractTableUpdates = (
       ...(dealerName !== undefined && { dealer: dealerName }),
       ...(dealerPhoto !== undefined && { dealerPhoto }),
       ...(optionalText(table.room_id) && { room: optionalText(table.room_id) }),
-      ...(optionalText(trend.current_shoe) && {
-        shoe: optionalText(trend.current_shoe),
+      ...(optionalText(table.shoe ?? trend.current_shoe) && {
+        shoe: optionalText(table.shoe ?? trend.current_shoe),
       }),
       ...(roundValue !== undefined && { round: roundValue }),
       ...(optionalText(trend.total_round_banker) && {
@@ -1180,18 +1178,6 @@ const extractTableUpdates = (
       }),
     });
   });
-  for (const [liveId, live] of unique) {
-    if (!liveId.toUpperCase().endsWith("_LIVE")) continue;
-    const standard = unique.get(liveId.slice(0, -5));
-    if (!standard) continue;
-    if (standard.videoUrl && standard.videoUrl === live.videoUrl) {
-      delete live.videoUrl;
-    }
-    if (standard.dealerPhoto && standard.dealerPhoto === live.dealerPhoto) {
-      delete standard.dealerPhoto;
-      if (standard.dealer && standard.dealer === live.dealer) delete standard.dealer;
-    }
-  }
   return [...unique.values()];
 };
 
@@ -1200,57 +1186,25 @@ const mergeTableUpdates = (
   updates: Array<Partial<TableInfo> & { id: string }>,
 ) => {
   const tables = new Map(current.map((table) => [table.id, table]));
-  updates.forEach((update) => {
-    const previous = tables.get(update.id);
-    const sameCountdownRound =
-      update.countdownRound !== undefined &&
-      previous?.countdownRound !== undefined &&
-      update.countdownRound === previous.countdownRound;
-    const countdownWentBack =
-      sameCountdownRound &&
-      update.countdownValue !== undefined &&
-      previous?.countdownValue !== undefined &&
-      update.countdownValue > previous.countdownValue;
-    // A table snapshot may report 0 while the live /wait stream has not yet
-    // supplied its first value. Conversely, a later snapshot can still carry
-    // that placeholder and must not erase a running countdown. Allow the
-    // first positive /wait value to replace that placeholder, while retaining
-    // the no-jump guarantee for an already-running round.
-    const initialWaitValue =
-      sameCountdownRound &&
-      update.countdownSource === "wait" &&
-      update.countdownValue !== undefined &&
-      previous?.countdownValue === 0 &&
-      update.countdownValue > 0;
-    const staleSnapshotZero =
-      sameCountdownRound &&
-      update.countdownSource === "snapshot" &&
-      update.countdownValue === 0 &&
-      previous?.countdownValue !== undefined &&
-      previous.countdownValue > 0;
-    const acceptCountdown =
-      (!countdownWentBack || initialWaitValue) && !staleSnapshotZero;
+  updates.forEach((incoming) => {
+    const previous = tables.get(incoming.id);
+    const update = filterMtUpdate(previous, incoming);
     tables.set(update.id, {
       id: update.id,
+      sourceTableId: update.sourceTableId ?? previous?.sourceTableId,
+      mtEvent: update.mtEvent ?? previous?.mtEvent,
+      mtReceivedAt: update.mtReceivedAt ?? previous?.mtReceivedAt,
       videoUrl: update.videoUrl ?? previous?.videoUrl,
       tableState: update.tableState ?? previous?.tableState,
       tablePhase:
         update.tablePhase !== undefined
           ? update.tablePhase
           : previous?.tablePhase,
-      countdownDeadline: acceptCountdown
-        ? (update.countdownDeadline ?? previous?.countdownDeadline)
-        : previous?.countdownDeadline,
-      countdownReceivedAt: acceptCountdown
-        ? (update.countdownReceivedAt ?? previous?.countdownReceivedAt)
-        : previous?.countdownReceivedAt,
-      countdownValue: acceptCountdown
-        ? (update.countdownValue ?? previous?.countdownValue)
-        : previous?.countdownValue,
+      countdownDeadline: update.countdownDeadline ?? previous?.countdownDeadline,
+      countdownReceivedAt: update.countdownReceivedAt ?? previous?.countdownReceivedAt,
+      countdownValue: update.countdownValue ?? previous?.countdownValue,
       countdownRound: update.countdownRound ?? previous?.countdownRound,
-      countdownSource: acceptCountdown
-        ? (update.countdownSource ?? previous?.countdownSource)
-        : previous?.countdownSource,
+      countdownSource: update.countdownSource ?? previous?.countdownSource,
       name: update.name ?? previous?.name ?? update.id,
       gameType: update.gameType ?? previous?.gameType ?? "",
       dealer: update.dealer ?? previous?.dealer ?? "未指派",
@@ -1267,13 +1221,14 @@ const mergeTableUpdates = (
       tie: update.tie ?? previous?.tie ?? "0",
       players: update.players ?? previous?.players ?? "—",
       beadPlate: update.beadPlate ?? previous?.beadPlate ?? "",
+      aiOutcomes: update.aiOutcomes ?? previous?.aiOutcomes,
       bigRoad: update.bigRoad ?? previous?.bigRoad ?? "",
       bigEyeRoad: update.bigEyeRoad ?? previous?.bigEyeRoad ?? "",
       smallRoad: update.smallRoad ?? previous?.smallRoad ?? "",
       cockroachRoad: update.cockroachRoad ?? previous?.cockroachRoad ?? "",
     });
   });
-  const next = [...tables.values()]
+  const next = synchronizeMtClocks([...tables.values()])
     .filter((table) => table.gameType === "BAC" || table.gameType === "BAS")
     .sort((left, right) =>
       left.name.localeCompare(right.name, "en", {
@@ -2900,6 +2855,7 @@ export default function Home() {
   }
 
   return (
+    <AiObservationProvider tablesByPlatform={tablesByPlatform} connectedByPlatform={connectedByPlatform}>
     <main className="ofa-shell min-h-screen text-[#f7edda]">
       <PayoutWinnerNotification />
       <PayoutBroadcastNotification />
@@ -3231,5 +3187,6 @@ export default function Home() {
         </div>
       </div>
     </main>
+    </AiObservationProvider>
   );
 }

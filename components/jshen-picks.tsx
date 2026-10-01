@@ -15,8 +15,10 @@ import { recentPointResults } from '@/lib/point-analysis';
 import { evaluatePredictions, type PredictionDecision } from '@/lib/prediction-performance';
 import { followRoad, markovRoad, reverseRoad, sequenceRoad, streakRoad } from '@/lib/road-strategies';
 import { beadWinners, weightedConsensus, weightedSignal, winningPointSignal } from '@/lib/statistical-cards';
+import { parsePickPlatforms, pickPlatforms, pickPlatformStorageKey, selectedPlatformTables, togglePickPlatform, type PickPlatform } from '@/lib/jshen-platform-filter';
+import { findLivePickTable } from '@/lib/jshen-live-table';
 
-type Platform = 'MT' | 'DG' | 'AB';
+type Platform = PickPlatform;
 type Route = 'stable' | 'bold' | 'hot' | 'watch';
 type SortMode = 'win-rate' | 'profit' | 'roi';
 type Combination = {
@@ -89,7 +91,8 @@ function predictionSets(table: TableInfo): Array<{ cardMode: CardMode; decisions
   ];
   for (const [cardMode, sources] of aiCards) sets.push({
     cardMode,
-    decisions: predictionPerformance(table.bigRoad, sources).decisions,
+    decisions: predictionPerformance(table.bigRoad, sources, table.aiOutcomes
+      ?? (outcomes.length === Number(table.banker) + Number(table.player) + Number(table.tie) ? outcomes : undefined)).decisions,
     isAiConsensus: cardMode === 'ai-consensus',
   });
   return sets;
@@ -215,14 +218,40 @@ export function JshenPicks({ tablesByPlatform, connectedByPlatform, cardsPerRow,
 }) {
   const [route, setRoute] = useState<Route>('stable');
   const [sortMode, setSortMode] = useState<SortMode>('win-rate');
-  const rankHistory = useRef<Record<Route, Record<string, { rank: number; streak: number }>>>({ stable: {}, bold: {}, hot: {}, watch: {} });
-  const [rankBadges, setRankBadges] = useState<Record<string, { movement: string; streak: number }>>({});
+  const [selectedPlatforms, setSelectedPlatforms] = useState<Platform[]>([...pickPlatforms]);
+  const [platformsReady, setPlatformsReady] = useState(false);
+  const [platformMessage, setPlatformMessage] = useState('');
+  const rankingScope = `${route}:${sortMode}:${selectedPlatforms.join(',')}`;
+  const rankHistory = useRef<{ scope: string; entries: Record<string, { rank: number; streak: number }> }>({ scope: '', entries: {} });
+  const [rankBadges, setRankBadges] = useState<{ scope: string; entries: Record<string, { movement: string; streak: number }> }>({ scope: '', entries: {} });
   const selectRoute = (nextRoute: Route) => {
     setRoute(nextRoute);
     setSortMode(defaultSortByRoute[nextRoute]);
   };
   const latestTables = useRef(tablesByPlatform);
   const [rankingTables, setRankingTables] = useState(tablesByPlatform);
+  useEffect(() => {
+    try {
+      setSelectedPlatforms(parsePickPlatforms(window.localStorage.getItem(pickPlatformStorageKey)));
+    } catch { /* Keep the default when browser storage is unavailable. */ }
+    setPlatformsReady(true);
+  }, []);
+  const selectPlatforms = (next: Platform[]) => {
+    if (next.join(',') === selectedPlatforms.join(',')) return;
+    setSelectedPlatforms(next);
+    setPlatformMessage('');
+    setRankingTables(latestTables.current);
+    try {
+      window.localStorage.setItem(pickPlatformStorageKey, JSON.stringify(next));
+    } catch { /* Filtering still works without persisted preferences. */ }
+  };
+  const togglePlatform = (value: Platform) => {
+    if (selectedPlatforms.length === 1 && selectedPlatforms.includes(value)) {
+      setPlatformMessage('請至少保留一個平台。');
+      return;
+    }
+    selectPlatforms(togglePickPlatform(selectedPlatforms, value));
+  };
   useEffect(() => {
     latestTables.current = tablesByPlatform;
   }, [tablesByPlatform]);
@@ -240,8 +269,9 @@ export function JshenPicks({ tablesByPlatform, connectedByPlatform, cardsPerRow,
     return () => window.clearTimeout(timer);
   }, [rankingTables, tablesByPlatform]);
   const picks = useMemo(() => {
+    if (!platformsReady) return [];
     const candidates: Pick[] = [];
-    (Object.entries(rankingTables) as Array<[Platform, TableInfo[]]>).forEach(([platform, tables]) => {
+    selectedPlatformTables(rankingTables, selectedPlatforms).forEach(([platform, tables]) => {
       const sourceLabel = platformLabel(platform);
       const uniqueTables = new Map<string, TableInfo>();
       for (const table of tables) {
@@ -281,11 +311,11 @@ export function JshenPicks({ tablesByPlatform, connectedByPlatform, cardsPerRow,
       const leftRate = leftLedger.wins / leftLedger.bets;
       return rightRate - leftRate;
     }).slice(0, 6);
-  }, [rankingTables, route, sortMode]);
+  }, [rankingTables, route, sortMode, selectedPlatforms, platformsReady]);
 
 
   useEffect(() => {
-    const previous = rankHistory.current[route];
+    const previous = rankHistory.current.scope === rankingScope ? rankHistory.current.entries : {};
     const next: Record<string, { rank: number; streak: number }> = {};
     const badges: Record<string, { movement: string; streak: number }> = {};
     picks.forEach((pick, index) => {
@@ -299,31 +329,50 @@ export function JshenPicks({ tablesByPlatform, connectedByPlatform, cardsPerRow,
         streak,
       };
     });
-    rankHistory.current[route] = next;
-    const timer = window.setTimeout(() => setRankBadges(badges), 0);
+    rankHistory.current = { scope: rankingScope, entries: next };
+    const timer = window.setTimeout(() => setRankBadges({ scope: rankingScope, entries: badges }), 0);
     return () => window.clearTimeout(timer);
-  }, [picks, route]);
+  }, [picks, rankingScope]);
 
   if (typeof window !== 'undefined') for (const pick of picks) {
     const scope = `curated:${route}:${pick.platform}:${pick.table.id}:${pick.combination.cardMode}:${pick.combination.betting}:${pick.combination.action}`;
-    window.localStorage.setItem(`jshen-card-mode:${pick.sourceLabel}:${scope}`, pick.combination.cardMode);
-    window.localStorage.setItem(`jshen-betting:${pick.sourceLabel}:${scope}`, JSON.stringify({ strategy: pick.combination.betting, ledger: pick.combination.ledger, lastSettledRound: beadWinners(pick.table.beadPlate).length }));
-    window.localStorage.setItem(`jshen-action:${pick.sourceLabel}:${scope}`, JSON.stringify({ strategy: pick.combination.action, config: defaultActionConfig }));
+    try {
+      window.localStorage.setItem(`jshen-card-mode:${pick.sourceLabel}:${scope}`, pick.combination.cardMode);
+      window.localStorage.setItem(`jshen-betting:${pick.sourceLabel}:${scope}`, JSON.stringify({ strategy: pick.combination.betting, ledger: pick.combination.ledger, lastSettledRound: beadWinners(pick.table.beadPlate).length }));
+      window.localStorage.setItem(`jshen-action:${pick.sourceLabel}:${scope}`, JSON.stringify({ strategy: pick.combination.action, config: defaultActionConfig }));
+    } catch { /* Keep displaying rankings if browser storage is full or unavailable. */ }
   }
 
   if (simulationOnly) return <SimulationDashboard />;
 
   return <section className="overflow-hidden rounded-2xl border border-amber-300/25 bg-[#0d111a] shadow-[0_24px_70px_rgba(0,0,0,.42)]">
-    <header className="border-b border-amber-300/20 px-5 py-4"><div className="flex flex-wrap items-center justify-between gap-3"><div className="flex items-center gap-2 text-amber-200"><Crown className="h-5 w-5" /><h1 className="text-lg font-semibold">J神嚴選</h1><span className="text-xs font-normal text-slate-400">每 10 秒更新</span></div><div className="flex items-center gap-2"><label className="flex items-center gap-1 text-xs text-slate-400">排序<select value={sortMode} onChange={event => setSortMode(event.target.value as SortMode)} className="rounded-md border border-slate-600 bg-slate-900 px-2 py-1.5 font-semibold text-white"><option value="win-rate">勝率排行</option><option value="profit">收益排行</option><option value="roi">ROI 排行</option></select></label><CardLayoutSelect value={cardsPerRow} onChange={onCardsPerRowChange} /></div></div><div className="mt-3 flex gap-2 overflow-x-auto">{(Object.keys(routeLabels) as Route[]).map(value => <button key={value} type="button" onClick={() => selectRoute(value)} className={`shrink-0 rounded-lg border px-3 py-1.5 text-sm font-bold transition ${route === value ? "border-amber-300 bg-amber-300/15 font-bold text-amber-100" : "border-slate-600 bg-slate-900/60 text-slate-400 hover:border-amber-300/50"}`}>{routeLabels[value]}</button>)}</div><div className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 rounded-lg border border-white/5 bg-black/20 px-3 py-2 text-xs text-slate-300"><strong className="text-amber-100">{routeLabels[route]}</strong><span>{routeDescriptions[route]}</span><span className="rounded bg-slate-800 px-1.5 py-0.5 text-cyan-100">目前依「{sortLabels[sortMode]}」顯示前 6 名</span></div></header>
+    <header className="border-b border-amber-300/20 px-5 py-4">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex items-center gap-2 text-amber-200"><Crown className="h-5 w-5" /><h1 className="text-lg font-semibold">J神嚴選</h1><span className="text-xs font-normal text-slate-400">每 10 秒更新</span></div>
+        <div className="flex flex-wrap items-center gap-2"><label className="flex items-center gap-1 text-xs text-slate-400">排序<select value={sortMode} onChange={event => setSortMode(event.target.value as SortMode)} className="rounded-md border border-slate-600 bg-slate-900 px-2 py-1.5 font-semibold text-white"><option value="win-rate">勝率排行</option><option value="profit">收益排行</option><option value="roi">ROI 排行</option></select></label><CardLayoutSelect value={cardsPerRow} onChange={onCardsPerRowChange} /></div>
+      </div>
+      <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-2" role="group" aria-label="平台篩選">
+        <span className="text-xs text-slate-400">平台</span>
+        {pickPlatforms.map(value => <label key={value} className={`flex min-h-8 cursor-pointer items-center gap-1.5 rounded-md border px-2.5 text-xs font-semibold transition ${selectedPlatforms.includes(value) ? 'border-cyan-300/60 bg-cyan-400/10 text-cyan-100' : 'border-slate-600 text-slate-400'}`}>
+          <input type="checkbox" checked={selectedPlatforms.includes(value)} disabled={!platformsReady} onChange={() => togglePlatform(value)} className="h-3.5 w-3.5 accent-cyan-400" />
+          {platformLabel(value)}
+        </label>)}
+        <button type="button" onClick={() => selectPlatforms([...pickPlatforms])} disabled={!platformsReady || selectedPlatforms.length === pickPlatforms.length} className="min-h-8 px-1 text-xs text-cyan-200 underline-offset-4 hover:underline disabled:cursor-default disabled:text-slate-500 disabled:no-underline">全選</button>
+        {platformMessage && <span role="status" className="text-xs text-amber-200">{platformMessage}</span>}
+      </div>
+      <div className="mt-3 flex gap-2 overflow-x-auto">{(Object.keys(routeLabels) as Route[]).map(value => <button key={value} type="button" onClick={() => selectRoute(value)} className={`shrink-0 rounded-lg border px-3 py-1.5 text-sm font-bold transition ${route === value ? "border-amber-300 bg-amber-300/15 font-bold text-amber-100" : "border-slate-600 bg-slate-900/60 text-slate-400 hover:border-amber-300/50"}`}>{routeLabels[value]}</button>)}</div>
+      <div className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 rounded-lg border border-white/5 bg-black/20 px-3 py-2 text-xs text-slate-300"><strong className="text-amber-100">{routeLabels[route]}</strong><span>{routeDescriptions[route]}</span><span className="rounded bg-slate-800 px-1.5 py-0.5 text-cyan-100">{selectedPlatforms.map(platformLabel).join('／')} · 依「{sortLabels[sortMode]}」顯示前 6 名</span></div>
+    </header>
     {picks.length ? <div className={`grid gap-3 p-3 ${cardGridColumns[cardsPerRow]}`}>
       {picks.map(pick => {
         const scope = `curated:${route}:${pick.platform}:${pick.table.id}:${pick.combination.cardMode}:${pick.combination.betting}:${pick.combination.action}`;
+        const liveTable = findLivePickTable(tablesByPlatform, pick.platform, pick.table.id);
         const metric = route === 'watch' ? pick.combination.recent10Ledger : route === 'hot' ? pick.combination.recentLedger : pick.combination.ledger;
         const winRate = metric.bets ? metric.wins / metric.bets * 100 : 0;
         const roi = metric.totalStake ? metric.profit / metric.totalStake * 100 : 0;
         const recent10 = pick.combination.recent10Ledger;
         const confidence = pick.combination.ledger.bets >= 30 ? '高' : pick.combination.ledger.bets >= 20 ? '中' : pick.combination.ledger.bets >= 10 ? '觀察中' : '資料累積中';
-        const rankBadge = rankBadges[pick.key];
+        const rankBadge = rankBadges.scope === rankingScope ? rankBadges.entries[pick.key] : undefined;
         const periodLabel = route === 'watch' ? '最近10注' : route === 'hot' ? '最近20注' : '本靴';
         const reason = route === 'stable'
           ? `長期正收益・樣本充足・近 10 注 ${recent10.wins} 勝`
@@ -348,9 +397,11 @@ export function JshenPicks({ tablesByPlatform, connectedByPlatform, cardsPerRow,
               <span className="basis-full text-[11px] text-slate-400 sm:basis-auto sm:ml-auto"><b className="text-slate-300">入選亮點：</b>{reason}</span>
             </div>
           </div>
-          <BaccaratTableCard key={scope} table={pick.table} connected={connectedByPlatform[pick.platform]} platformLabel={pick.sourceLabel} onFocusTable={onFocusTable} storageScope={scope} />
+          {liveTable
+            ? <BaccaratTableCard key={scope} table={liveTable} connected={connectedByPlatform[pick.platform]} platformLabel={pick.sourceLabel} onFocusTable={onFocusTable} storageScope={scope} />
+            : <div role="status" className="p-4 text-sm text-slate-400">{pick.sourceLabel} · {pick.table.name || pick.table.id}：等待最新桌況，暫停顯示預測。</div>}
         </div>;
       })}
-    </div> : <div className="grid min-h-56 place-items-center p-6 text-center text-sm text-slate-400">目前沒有符合「{routeLabels[route]}」條件的正收益組合</div>}
+    </div> : <div className="grid min-h-56 place-items-center p-6 text-center text-sm text-slate-400">{platformsReady ? `所選平台（${selectedPlatforms.map(platformLabel).join('／')}）目前沒有符合「${routeLabels[route]}」條件的正收益組合` : '正在載入平台設定…'}</div>}
   </section>;
 }

@@ -24,6 +24,17 @@ static void Expect(bool condition, string message)
 static void ExpectAction(ViewerLifecycleAction actual, ViewerLifecycleAction expected, string message) =>
     Expect(actual == expected, $"{message} Expected {expected}, got {actual}.");
 
+MtTableStateTests.Run();
+
+var dgFullHistory = DgRoadNormalizer.Normalize(new Dictionary<string, object> {
+    ["roads"] = Enumerable.Range(1, 40).Reverse().Select(round => $"{round}#{(round % 2 == 1 ? 1 : 5)}").ToArray(),
+});
+var dgOutcomes = (string[])dgFullHistory["aiOutcomes"]!;
+Expect(dgOutcomes.Length == 40 && dgOutcomes[0] == "2" && dgOutcomes[^1] == "1",
+    "AI settlement needs the full chronological DG results, not just the last 36 displayed beads.");
+Expect(((string)dgFullHistory["beadPlate"]!).Replace("#", "").Length == 72,
+    "Exposing full settlement results must preserve the existing 36-bead UI window.");
+
 // DG's official lobby advances one visible second after approximately 950 ms,
 // whereas MT/AB intentionally keep their existing countdown contracts.
 const long dgReceivedAt = 1_000_000;
@@ -181,7 +192,7 @@ finally
     Directory.Delete(exactDirectory, recursive: true);
 }
 
-Console.WriteLine("Collector DG phase/countdown mapper, demand, lifecycle, and installation handoff tests passed.");
+Console.WriteLine("Collector MT/DG mapping, demand, lifecycle, and installation handoff tests passed.");
 
 sealed class ManualClock : TimeProvider
 {

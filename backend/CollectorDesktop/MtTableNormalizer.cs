@@ -9,12 +9,12 @@ namespace CollectorDesktop;
 // data that arrived in the full response.
 public static class MtTableNormalizer
 {
-    public static List<Dictionary<string, object?>> Extract(JsonElement root)
+    public static List<Dictionary<string, object?>> Extract(JsonElement root, long? receivedAtMilliseconds = null)
     {
         var records = new List<JsonElement>();
         Visit(root, records, 0);
         var actionName = ActionName(root);
-        var receivedAt = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+        var receivedAt = receivedAtMilliseconds ?? DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
         var result = new Dictionary<string, Dictionary<string, object?>>(StringComparer.Ordinal);
 
         foreach (var table in records)
@@ -52,12 +52,18 @@ public static class MtTableNormalizer
                 || actionName.EndsWith("/result", StringComparison.OrdinalIgnoreCase)
                 || actionName.EndsWith("/end", StringComparison.OrdinalIgnoreCase);
             var endEvent = showPokerEvent || completedEvent;
+            // LIVE is a separate presentation of the game named by table_id_t.
+            // Never infer this relationship from a display-name suffix.
+            row["sourceTableId"] = Text(table, "table_id_t") is { Length: > 0 } sourceId ? sourceId : id;
+            row["mtEvent"] = IsTableSnapshot(root) ? "snapshot" : waitEvent ? "wait"
+                : showPokerEvent ? "show_poker" : completedEvent ? "complete" : "update";
+            row["mtReceivedAt"] = receivedAt;
 
             if (explicitDeadline is > 0)
             {
                 row["countdownDeadline"] = explicitDeadline;
                 row["countdownReceivedAt"] = receivedAt;
-                row["countdownSource"] = "explicit";
+                row["countdownSource"] = waitEvent ? "wait" : "explicit";
             }
             else if (countdown is { } seconds)
             {
@@ -68,24 +74,29 @@ public static class MtTableNormalizer
             }
             if (endEvent)
             {
+                row["countdownValue"] = 0L;
                 row["countdownDeadline"] = receivedAt;
                 row["countdownReceivedAt"] = receivedAt;
+                row["countdownSource"] = "end";
             }
             Put(row, "countdownRound", countdownRound);
             Put(row, "name", Text(table, "table_name"));
             Put(row, "gameType", Text(table, "table_type"));
             var sourceState = Text(table, "state");
             Put(row, "tableState", sourceState);
+            // /wait normally has no state field. A positive official countdown
+            // is itself proof that the preceding shuffle has ended.
+            if (waitEvent && countdown is > 0) row["tableState"] = "0";
             // /wait count=0 is an explicit official end-of-betting event;
             // /show_poker confirms the reveal phase. The next positive /wait
             // or result clears the overlay. Never infer it from a locally
             // expired timer, which can be stale after a missed packet.
-            if (sourceState == "2" || completedEvent || (waitEvent && countdown is > 0))
-                row["tablePhase"] = null;
-            else if (showPokerEvent || (waitEvent && countdown == 0))
+            if (showPokerEvent || (waitEvent && countdown == 0))
                 row["tablePhase"] = "dealing";
+            else if (sourceState == "2" || completedEvent || (waitEvent && countdown is > 0))
+                row["tablePhase"] = null;
             Put(row, "room", Text(table, "room_id"));
-            Put(row, "shoe", Text(trend, "current_shoe"));
+            Put(row, "shoe", Text(table, "shoe") ?? Text(table, "shoe_id") ?? Text(trend, "current_shoe"));
             Put(row, "round", Text(table, "round") ?? Text(table, "round_id") ?? Text(trend, "current_round"));
             Put(row, "banker", Text(trend, "total_round_banker"));
             Put(row, "player", Text(trend, "total_round_player"));
@@ -108,33 +119,8 @@ public static class MtTableNormalizer
             var video = VideoUrl(table);
             if (video is not null) row["videoUrl"] = video;
         }
-        SuppressDuplicatedLiveMedia(result);
         return result.Values.ToList();
     }
-
-    // MT currently publishes some *_LIVE variants with the base table's exact
-    // same stream URL, and occasionally gives the base table the live dealer's
-    // portrait too.  Treat those values as missing instead of showing a
-    // confidently wrong dealer/video.  A genuinely distinct source remains.
-    static void SuppressDuplicatedLiveMedia(Dictionary<string, Dictionary<string, object?>> tables)
-    {
-        foreach (var (liveId, live) in tables.Where(item => item.Key.EndsWith("_LIVE", StringComparison.OrdinalIgnoreCase)).ToArray())
-        {
-            var baseId = liveId[..^5];
-            if (!tables.TryGetValue(baseId, out var standard)) continue;
-            if (SameText(standard, live, "videoUrl")) live.Remove("videoUrl");
-            if (SameText(standard, live, "dealerPhoto"))
-            {
-                standard.Remove("dealerPhoto");
-                if (SameText(standard, live, "dealer")) standard.Remove("dealer");
-            }
-        }
-    }
-
-    static bool SameText(IReadOnlyDictionary<string, object?> left, IReadOnlyDictionary<string, object?> right, string key) =>
-        left.TryGetValue(key, out var leftValue) && right.TryGetValue(key, out var rightValue)
-        && leftValue is string leftText && rightValue is string rightText
-        && !string.IsNullOrWhiteSpace(leftText) && string.Equals(leftText, rightText, StringComparison.OrdinalIgnoreCase);
 
     public static string ActionName(JsonElement value)
     {
@@ -155,22 +141,15 @@ public static class MtTableNormalizer
 
     static string? VideoUrl(JsonElement table)
     {
-        if (!table.TryGetProperty("video", out var video) || video.ValueKind != JsonValueKind.Array) return null;
-        var tableId = Text(table, "table_id") ?? "";
+        var alias = Text(table, "table_id_t");
+        var property = !string.IsNullOrWhiteSpace(alias) && alias != Text(table, "table_id") ? "video_live" : "video";
+        if (!table.TryGetProperty(property, out var video) || video.ValueKind != JsonValueKind.Array) return null;
         foreach (var line in video.EnumerateArray())
         {
             if (line.ValueKind != JsonValueKind.Array || line.GetArrayLength() < 3) continue;
             var candidate = line[2].ValueKind == JsonValueKind.String ? line[2].GetString() : null;
             if (Uri.TryCreate(candidate, UriKind.Absolute, out var url) && url.Scheme == Uri.UriSchemeHttps && url.AbsolutePath.EndsWith(".flv", StringComparison.OrdinalIgnoreCase))
-            {
-                if (tableId.EndsWith("_LIVE", StringComparison.OrdinalIgnoreCase))
-                {
-                    var liveCode = tableId[..^5].Replace("BAV", "", StringComparison.OrdinalIgnoreCase).Trim('_').ToLowerInvariant();
-                    if (liveCode.Length > 0)
-                        return new UriBuilder(url) { Path = $"/livestream/blv{liveCode}-3.flv", Query = "" }.Uri.ToString();
-                }
                 return url.ToString();
-            }
         }
         return null;
     }

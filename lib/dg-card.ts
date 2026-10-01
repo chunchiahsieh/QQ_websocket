@@ -54,6 +54,7 @@ export function baccaratRoads(winners: Winner[], details: { point: string; pair:
     return encode(place(colors).marks, mark => String(mark.winner));
   };
   return { beadPlate, bigRoad: encode(marks, m => `${Math.min(9, m.ties)}${details[m.index]?.point ?? '?'}${details[m.index]?.pair ?? '0'}${m.winner}`),
+    aiOutcomes: winners.map(winner => String(winner) as '1' | '2' | '3'),
     bigEyeRoad: derived(1), smallRoad: derived(2), cockroachRoad: derived(3),
     banker: String(winners.filter(w => w === 2).length), player: String(winners.filter(w => w === 1).length), tie: String(winners.filter(w => w === 3).length) };
 }

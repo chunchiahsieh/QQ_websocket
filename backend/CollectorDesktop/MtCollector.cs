@@ -58,11 +58,7 @@ public sealed class MtCollector
         if (action == "/api/v1/member/logout") throw new InvalidOperationException("MT 官方工作階段已登出。");
         var updates = MtTableNormalizer.Extract(root);
         if (updates.Count == 0) return;
-        foreach (var update in updates) {
-            var id = (string)update["id"]!;
-            if (!tables.TryGetValue(id, out var current)) tables[id] = current = new(StringComparer.Ordinal);
-            foreach (var item in update) current[item.Key] = item.Value;
-        }
+        MtTableState.Merge(tables, updates);
         if (action == "/api/v1/gametype/*/game/*/room/*/tables") {
             var ids = tables.Keys.Order().ToArray();
             if (ids.Length > 0) await SendAsync(socket, MultipleJoin(ids), ct);

@@ -141,10 +141,20 @@ internal static class SimulationModel {
         if (seed % 9 == 0) return null;
         return ((seed >> 28) & 1) == 0 ? '1' : '2';
     }
+    static string CanonicalAiRoad(string raw) {
+        var columns = BigColumns(raw);
+        if (!columns.Any(column => column.Any(code => Regex.IsMatch(code, @"^\d[\d?]\d[1-3]$")))) return raw;
+        return string.Join('#', columns.Select(column => {
+            var last = Array.FindLastIndex(column, code => Regex.IsMatch(code, @"^\d[\d?]\d[1-3]$"));
+            return last < 0 ? "" : string.Join(',', column.Take(last + 1)
+                .Select(code => Regex.IsMatch(code, @"^\d[\d?]\d[1-3]$") ? "0" + code[1..] : ""));
+        }).Where(column => column.Length > 0));
+    }
     static (char? Side, int Agreement) AiPrediction(string raw, string card) {
         var sources = card == "ai-consensus" ? new[] { "chartgpt", "gemini", "deepseek", "claude" } : new[] { card };
         if (string.IsNullOrEmpty(raw)) return (null, 0);
-        var votes = sources.Select(source => LocalAiSignal(raw, source)).ToArray();
+        var canonical = CanonicalAiRoad(raw);
+        var votes = sources.Select(source => LocalAiSignal(canonical, source)).ToArray();
         var banker = votes.Count(side => side == '2'); var player = votes.Count(side => side == '1');
         var active = banker + player; var required = active / 2 + 1;
         var side = banker >= required ? '2' : player >= required ? '1' : (char?)null;

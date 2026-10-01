@@ -130,7 +130,7 @@ public sealed class MtBrowserCollector
             string? joinIds = null;
             lock (tableGate)
             {
-                foreach (var update in updates) MergeUpdateUnsafe(update);
+                MtTableState.Merge(tables, updates);
                 if (MtTableNormalizer.IsTableSnapshot(root))
                 {
                     // This is the one authoritative lobby response. It is the
@@ -157,38 +157,6 @@ public sealed class MtBrowserCollector
         {
             // MT also sends text heartbeats/control frames that are not JSON.
         }
-    }
-
-    void MergeUpdateUnsafe(IReadOnlyDictionary<string, object?> update)
-    {
-        if (!update.TryGetValue("id", out var idValue) || idValue is not string id || string.IsNullOrWhiteSpace(id)) return;
-        if (!tables.TryGetValue(id, out var current))
-        {
-            tables[id] = new Dictionary<string, object?>(update, StringComparer.Ordinal);
-            return;
-        }
-
-        var previousDealer = Text(current, "dealer");
-        var nextDealer = Text(update, "dealer");
-        var sameRound = !string.IsNullOrWhiteSpace(Text(current, "countdownRound"))
-            && string.Equals(Text(current, "countdownRound"), Text(update, "countdownRound"), StringComparison.Ordinal);
-        var previousCountdown = Number(current, "countdownValue");
-        var nextCountdown = Number(update, "countdownValue");
-        var source = Text(update, "countdownSource");
-        var wentBack = sameRound && previousCountdown is not null && nextCountdown is not null && nextCountdown > previousCountdown;
-        var initialWait = sameRound && string.Equals(source, "wait", StringComparison.Ordinal)
-            && previousCountdown == 0 && nextCountdown is > 0;
-        var staleSnapshotZero = sameRound && string.Equals(source, "snapshot", StringComparison.Ordinal)
-            && nextCountdown == 0 && previousCountdown is > 0;
-        var acceptCountdown = (!wentBack || initialWait) && !staleSnapshotZero;
-
-        foreach (var pair in update)
-        {
-            if (!acceptCountdown && pair.Key is "countdownDeadline" or "countdownReceivedAt" or "countdownValue" or "countdownSource") continue;
-            current[pair.Key] = pair.Value;
-        }
-        if (nextDealer is not null && !string.Equals(nextDealer, previousDealer, StringComparison.Ordinal) && !update.ContainsKey("dealerPhoto"))
-            current.Remove("dealerPhoto");
     }
 
     async Task PublishLoopAsync(CancellationToken ct)
@@ -285,7 +253,6 @@ public sealed class MtBrowserCollector
 
     static long? ReadLong(JsonElement value, string name) => value.TryGetProperty(name, out var field) && field.TryGetInt64(out var number) ? number : null;
     static string? Text(IReadOnlyDictionary<string, object?> source, string name) => source.TryGetValue(name, out var value) ? Convert.ToString(value) : null;
-    static long? Number(IReadOnlyDictionary<string, object?> source, string name) => source.TryGetValue(name, out var value) && value is not null && long.TryParse(Convert.ToString(value), out var number) ? number : null;
 
     static bool AllowedGameUrl(string raw) => Uri.TryCreate(raw, UriKind.Absolute, out var uri)
         && uri.Scheme == Uri.UriSchemeHttps

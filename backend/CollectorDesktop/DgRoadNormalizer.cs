@@ -41,6 +41,7 @@ public static class DgRoadNormalizer
 
         return new Dictionary<string, object?> {
             ["beadPlate"] = beadPlate,
+            ["aiOutcomes"] = winners.Select(winner => winner.ToString()).ToArray(),
             ["bigRoad"] = Encode(marks, mark => $"{Math.Min(9, mark.Ties)}?0{mark.Winner}"),
             ["bigEyeRoad"] = Derived(1),
             ["smallRoad"] = Derived(2),

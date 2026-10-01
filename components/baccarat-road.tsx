@@ -5,7 +5,7 @@ import { memo, useEffect, useRef, useState } from 'react';
 type Kind = 'bead' | 'big' | 'eye' | 'small' | 'cockroach';
 export type RoadHighlight = { column: number; row: number; color: string; label?: string; marker?: string; markerColor?: string; fillOpacity?: number; dashed?: boolean };
 export type RoadConnection = { points: { column: number; row: number }[]; color: string; label?: string };
-export type RoadMarker = { text: string; color: string; label?: string };
+export type RoadMarker = { text: string; color: string; label?: string; position?: { column: number; row: number } };
 const labels = { bead: '珠盤路', big: '大路', eye: '大眼路', small: '小路', cockroach: '曱甴路' };
 
 export const BaccaratRoad = memo(function BaccaratRoad({ raw = '', kind, columnLimit, highlights = [], connections = [], surfaceColor = 'white', marker }: { raw?: string; kind: Kind; columnLimit?: number; highlights?: RoadHighlight[]; connections?: RoadConnection[]; surfaceColor?: string; marker?: RoadMarker }) {
@@ -38,9 +38,9 @@ export const BaccaratRoad = memo(function BaccaratRoad({ raw = '', kind, columnL
     ? visibleColumns : Math.max(1, Math.floor(width / cell + 0.001));
   const offset = Math.max(0, columns.length - capacity);
   const renderedColumns = columns.slice(offset);
-  const markerColumn = marker && renderedColumns.length - 1;
-  const markerRow = marker && renderedColumns.at(-1)?.reduce((last, code, row) =>
-    (kind === 'big' ? /^\d[\d?]\d[1-3]$/.test(code) : kind === 'bead' ? /^[0-3][1-3]$/.test(code) : /^[12]$/.test(code)) ? row : last, -1);
+  const markerColumn = marker && (marker.position ? marker.position.column - offset : renderedColumns.length - 1);
+  const markerRow = marker && (marker.position?.row ?? renderedColumns.at(-1)?.reduce((last, code, row) =>
+    (kind === 'big' ? /^\d[\d?]\d[1-3]$/.test(code) : kind === 'bead' ? /^[0-3][1-3]$/.test(code) : /^[12]$/.test(code)) ? row : last, -1));
   const derived = kind !== 'bead' && kind !== 'big';
   return <div ref={host} className="h-full min-h-0 min-w-0 overflow-hidden" style={{ background: surfaceColor }}>
     <svg className="block" width="100%" height="100%" viewBox={`0 0 ${Math.max(1, width)} ${height}`} preserveAspectRatio="none" role="img" aria-label={labels[kind]}>

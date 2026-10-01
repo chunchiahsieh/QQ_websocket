@@ -98,6 +98,13 @@ try {
     Check(SimulationModel.ShouldAct("confirm", '2', [new SimDecision('2', '1')], false, 0), "Consecutive confirmation uses the current card's prior signal");
     Check(SimulationModel.ShouldAct("ai-consensus", '2', [], true, 3), "AI consensus threshold accepts three agreeing votes");
     Check(!SimulationModel.ShouldAct("ai-consensus", '2', [], false, 3), "AI consensus threshold must not activate another card");
+    const string aiRoadBefore = "0102,,,,,";
+    Check(SimulationModel.CurrentPrediction(new SimTable("AB", "B601", "B601", "", aiRoadBefore), "deepseek").Side == '2',
+        "C# DeepSeek signal must match the browser's normalized banker signal");
+    var aiRoadAfter = new SimTable("AB", "B601", "B601", "", aiRoadBefore + "#0101,,,,,");
+    var lastAiDecision = SimulationModel.Decisions(aiRoadAfter, "deepseek")[^1];
+    Check(lastAiDecision.Prediction == '2' && lastAiDecision.Outcome == '1',
+        "C# simulation must count a live DeepSeek banker signal followed by player as a miss");
     var allBanker = new SimTable("MT", "B01", "B01", string.Join('#', Enumerable.Repeat("020202020202", 7)), "");
     Check(SimulationModel.Rank([allBanker]).Count == 1, "A positive shoe must produce a candidate without a browser");
     var startRanking = System.Diagnostics.Stopwatch.StartNew();

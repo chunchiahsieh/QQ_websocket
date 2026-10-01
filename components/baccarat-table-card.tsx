@@ -50,6 +50,9 @@ export type TableInfo = {
   countdownSource?: "wait" | "snapshot" | "explicit" | "end";
   dealerPhoto?: string;
   id: string;
+  sourceTableId?: string;
+  mtEvent?: "snapshot" | "wait" | "show_poker" | "complete" | "update";
+  mtReceivedAt?: number;
   name: string;
   gameType: string;
   dealer: string;
@@ -61,6 +64,7 @@ export type TableInfo = {
   tie: string;
   players: string;
   beadPlate: string;
+  aiOutcomes?: ('1' | '2' | '3')[];
   bigRoad: string;
   bigEyeRoad: string;
   smallRoad: string;
@@ -716,8 +720,16 @@ export const BaccaratTableCard = memo(function BaccaratTableCard({
           />
         ) : isAiCard ? (
           <AiPredictionCard
-            key={cardMode}
+            key={`${table.id}:${table.shoe}:${cardMode}`}
             raw={table.bigRoad}
+            beadPlate={table.beadPlate}
+            fullOutcomes={table.aiOutcomes}
+            tableId={table.id}
+            shoe={table.shoe}
+            completedRounds={Number(table.banker) + Number(table.player) + Number(table.tie)}
+            completedNonTies={Number(table.banker) + Number(table.player)}
+            completedBankers={Number(table.banker)}
+            shuffling={table.tablePhase === "shuffling"}
             initialSource={
               cardMode === "ai-consensus" ? undefined : (cardMode as AiSource)
             }
@@ -856,7 +868,7 @@ export const BaccaratTableCard = memo(function BaccaratTableCard({
           </div>
           <div className="flex items-center gap-2 overflow-x-auto whitespace-nowrap border-t border-slate-700/70 pt-1">
             <span className={`rounded border px-1.5 py-0.5 ${highlightShoeProfit ? "border-emerald-400/45 bg-emerald-400/10" : "border-slate-600/70 bg-slate-900/70"}`}>
-              本靴：
+              {isAiCard ? "本靴回測：" : "本靴："}
               <strong
                 className={
                   `${shoeLedger.profit >= 0 ? "text-emerald-300" : "text-rose-300"} ${highlightShoeProfit ? "mx-1 text-xl font-black tracking-wide drop-shadow-[0_0_8px_rgba(52,211,153,.35)]" : ""}`

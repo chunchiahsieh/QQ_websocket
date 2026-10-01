@@ -4,7 +4,7 @@ namespace CollectorDesktop;
 
 public sealed class CollectorForm : Form
 {
-    const string BuildLabel = "2026.09.21.RENDER-ENV-SELECT";
+    const string BuildLabel = "2026.10.01.MT-TIMER-SHOE-HISTORY";
     readonly TextBox renderUrl = new() { Width = 410, ReadOnly = true };
     readonly TextBox testRenderUrl = new() { Width = 410 };
     readonly TextBox testRelayUrl = new() { Width = 410 };

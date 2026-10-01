@@ -119,7 +119,7 @@ internal static class Program
             var settings = CollectorSettingsStore.Load(out var warning);
             var diagnosticPath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "JshenCollector", "diagnostic.json");
             File.WriteAllText(diagnosticPath, System.Text.Json.JsonSerializer.Serialize(new {
-                build = "2026.09.21.RENDER-ENV-SELECT",
+                build = "2026.10.01.MT-TIMER-SHOE-HISTORY",
                 uiUsesFixedDefaults = false,
                 settingsFile = CollectorSettingsStore.SettingsFilePath,
                 renderUrl = settings.RenderUrl,

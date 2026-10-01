@@ -52,5 +52,5 @@ test('shoe history can be replayed independently from a reset ledger', () => {
   assert.equal(shoe.bets, 2);
   assert.equal(shoe.wins, 2);
   assert.equal(shoe.profit, 1.95);
-  assert.deepEqual(initialBettingLedger(), { step: 0, nextStake: 1, profit: 0, bets: 0, wins: 0, losses: 0 });
+  assert.deepEqual(initialBettingLedger(), { step: 0, nextStake: 1, profit: 0, bets: 0, wins: 0, losses: 0, totalStake: 0 });
 });

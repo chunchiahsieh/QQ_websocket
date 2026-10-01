@@ -2,8 +2,25 @@ export const aiSources = ['chartgpt', 'gemini', 'deepseek', 'claude'] as const;
 export type AiSource = typeof aiSources[number];
 export type ConsensusSide = '1' | '2';
 
+const bigRoadCode = /^\d[\d?]\d[1-3]$/;
+
+// The collector can pad each road column to six cells, while historical
+// prefixes omit those empty cells. Tie counters can also change a previously
+// displayed mark. Neither difference should change a prediction for the same
+// settled history.
+export function canonicalAiRoad(raw: string): string {
+  const columns = raw.split('#').map(column => column.includes(',') ? column.split(',') : column.match(/.{4}/g) ?? []);
+  if (!columns.some(column => column.some(code => bigRoadCode.test(code)))) return raw;
+  return columns.map(column => {
+    const last = column.findLastIndex(code => bigRoadCode.test(code));
+    return last < 0 ? '' : column.slice(0, last + 1)
+      .map(code => bigRoadCode.test(code) ? `0${code.slice(1)}` : '').join(',');
+  }).filter(Boolean).join('#');
+}
+
 // These are deterministic local demo signals, not responses from the named AI services.
 export function localSignal(raw: string, source: AiSource): ConsensusSide | undefined {
+  raw = canonicalAiRoad(raw);
   const offset = { chartgpt: 17, gemini: 31, deepseek: 47, claude: 61 }[source];
   let seed = (offset * 2654435761) >>> 0;
   for (let index = 0; index < raw.length; index += 1)
