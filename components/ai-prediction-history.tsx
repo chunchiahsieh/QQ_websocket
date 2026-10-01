@@ -68,15 +68,5 @@ export function AiPredictionHistory({ rounds, status }: { rounds?: AiPredictionR
         </div>
       </section>)}
     </div>
-    <div className="ai-history-legend">同局號對照 · ✓ 命中 · × 錯誤 · — 無訊號 · * 回測 · 虛線待開獎</div>
-    <div className="ai-history-detail" aria-live="polite">
-      {selected ? <>
-        <span>第 {selected.position} 局</span>
-        <span>預測 <strong style={{ color: sideColor(selected.prediction) }}>{predictionLabel(selected)}</strong></span>
-        <span>實際 <strong style={{ color: sideColor(selected.outcome) }}>{selected.outcome ? sideLabel(selected.outcome) : '待開獎'}</strong></span>
-        <strong data-result={selected.result}>{selected.result}</strong>
-        <span className="ai-history-origin">{originLabel(selected)}</span>
-      </> : <span>{rounds ? '等待第一局預測' : '資料同步中'}</span>}
-    </div>
   </div>;
 }

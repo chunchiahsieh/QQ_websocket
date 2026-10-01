@@ -25,6 +25,13 @@ runInNewContext(compiled, {
 const renderRound = round => renderToStaticMarkup(React.createElement(module.exports.AiPredictionHistory,
   { rounds: [round], status: '下局無訊號' }));
 
+test('AI card restores the original two-panel layout without added legend and detail rows', () => {
+  const html = renderRound({ position: 1, prediction: '1', outcome: '1', origin: 'observed', result: '命中' });
+  assert.doesNotMatch(html, /ai-history-legend|ai-history-detail/);
+  assert.equal([...html.matchAll(/<section\b/g)].length, 2);
+  assert.match(html, /AI預測/);
+});
+
 test('AI history keeps ten responsive columns per panel without visible scrollbars', async () => {
   const css = await readFile(new URL('../app/globals.css', import.meta.url), 'utf8');
   const gridRule = css.match(/\.ai-history-grid\s*\{([^}]+)\}/)?.[1];
@@ -37,6 +44,26 @@ test('AI history keeps ten responsive columns per panel without visible scrollba
   assert.match(webkitRule, /display:\s*none\s*;/);
   const html = renderRound({ position: 1, prediction: '1', outcome: '1', origin: 'observed', result: '命中' });
   assert.equal([...html.matchAll(/class="ai-history-grid" tabindex="0"/g)].length, 2);
+});
+
+test('AI card and nested history grids can shrink within narrow table cards', async () => {
+  const css = await readFile(new URL('../app/globals.css', import.meta.url), 'utf8');
+  const rules = [...css.matchAll(/([^{}]+)\{([^{}]*)\}/g)];
+  for (const className of ['ai-prediction-card', 'ai-history-comparison', 'ai-history-panels', 'ai-history-panel', 'ai-history-grid']) {
+    const target = new RegExp(`\\.${className}\\s*$`);
+    const declarations = rules.filter(([, selectors]) => selectors.split(',').some(selector => target.test(selector.trim())))
+      .map(([, , body]) => body).join('\n');
+    assert.match(declarations, /(?:^|[;\n])\s*min-width:\s*0(?:px)?\s*;/,
+      `${className} must not let an automatic grid minimum push either panel outside the card`);
+  }
+});
+
+test('AI table bodies retain responsive card proportions without a 280px minimum height', async () => {
+  const css = await readFile(new URL('../app/globals.css', import.meta.url), 'utf8');
+  const bodyRules = [...css.matchAll(/\.ai-history-table-body\s*\{([^}]+)\}/g)].map(match => match[1]);
+  assert.ok(bodyRules.length > 0);
+  assert.match(bodyRules.join('\n'), /min-height:\s*0(?:px)?\s*;/);
+  for (const rule of bodyRules) assert.doesNotMatch(rule, /min-height:\s*280px\s*;/);
 });
 
 test('a complete 80-round shoe renders exactly 80 actual and 80 directional prediction cells', () => {
