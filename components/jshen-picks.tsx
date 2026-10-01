@@ -339,7 +339,7 @@ export function JshenPicks({ tablesByPlatform, connectedByPlatform, cardsPerRow,
     const scope = `curated:${route}:${pick.platform}:${pick.table.id}:${pick.combination.cardMode}:${pick.combination.betting}:${pick.combination.action}`;
     try {
       window.localStorage.setItem(`jshen-card-mode:${pick.sourceLabel}:${scope}`, pick.combination.cardMode);
-      window.localStorage.setItem(`jshen-betting:${pick.sourceLabel}:${scope}`, JSON.stringify({ strategy: pick.combination.betting, ledger: pick.combination.ledger, lastSettledRound: beadWinners(pick.table.beadPlate).length }));
+      window.localStorage.setItem(`jshen-betting:${pick.sourceLabel}:${scope}`, JSON.stringify({ strategy: pick.combination.betting, ledger: pick.combination.ledger, lastSettledRound: Number(pick.table.banker) + Number(pick.table.player) + Number(pick.table.tie), shoe: pick.table.shoe, roundPositionVersion: 2 }));
       window.localStorage.setItem(`jshen-action:${pick.sourceLabel}:${scope}`, JSON.stringify({ strategy: pick.combination.action, config: defaultActionConfig }));
     } catch { /* Keep displaying rankings if browser storage is full or unavailable. */ }
   }

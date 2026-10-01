@@ -1954,6 +1954,8 @@ export default function Home() {
               ledger: settings.bettingLedger,
               lastSettledRound: settings.lastSettledRound,
               pendingPrediction: settings.pendingPrediction,
+              shoe: settings.bettingShoe,
+              roundPositionVersion: settings.bettingRoundPositionVersion,
             }),
           );
           window.localStorage.setItem(

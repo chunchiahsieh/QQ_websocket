@@ -1,5 +1,5 @@
 "use client";
-import { memo, useCallback, useEffect, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { CheckCircle2, Crown } from "lucide-react";
 import { BaccaratRoad } from "@/components/baccarat-road";
 import { TableCountdown } from "@/components/table-countdown";
@@ -20,12 +20,13 @@ import { WeightedConsensusCard } from "@/components/weighted-consensus-card";
 import { CardPicker, type CardMode } from "@/components/card-picker";
 import { RoadStrategyCard } from "@/components/road-strategy-card";
 import { tableOverlayLabel, type TablePhase } from "@/lib/table-state";
-import { beadWinners } from "@/lib/statistical-cards";
+import { advanceLiveBetting, liveBettingSnapshot } from "@/lib/live-betting";
+import { useAiObservationSession } from "@/components/ai-observation-provider";
+import { hasOfficialShoe } from "@/lib/ai-observation-session";
 import {
   bettingStrategyLabels,
   initialBettingLedger,
   replayBets,
-  settleBet,
   type BetSide,
   type BettingLedger,
   type BettingStrategy,
@@ -76,6 +77,8 @@ export type FocusedTableSettings = {
   bettingLedger: BettingLedger;
   lastSettledRound: number;
   pendingPrediction: { round: number; side?: BetSide };
+  bettingShoe?: string;
+  bettingRoundPositionVersion?: 2;
   actionStrategy: ActionStrategy;
   actionConfig: ActionConfig;
 };
@@ -235,8 +238,11 @@ export const BaccaratTableCard = memo(function BaccaratTableCard({
     cardMode === "points" ||
     cardMode === "weighted" ||
     cardMode === "weighted-consensus";
-  const completedOutcomes = beadWinners(table.beadPlate);
-  const completedRoundCount = completedOutcomes.length;
+  const completedRoundCount = Number(table.banker) + Number(table.player) + Number(table.tie);
+  const settlementSnapshot = useMemo(() => liveBettingSnapshot(table),
+    [table.banker, table.player, table.tie, table.beadPlate, table.bigRoad, table.aiOutcomes]);
+  const observationSession = useAiObservationSession(table.id);
+  const bettingShoeIdentity = hasOfficialShoe(table.shoe) ? table.shoe : observationSession ?? table.shoe;
   const [bettingStrategy, setBettingStrategy] =
     useState<BettingStrategy>("flat");
   const [bettingLedger, setBettingLedger] =
@@ -251,6 +257,7 @@ export const BaccaratTableCard = memo(function BaccaratTableCard({
   const [actionDecision, setActionDecision] = useState(false);
   const strategyRef = useRef<BettingStrategy>("flat");
   const ledgerRef = useRef<BettingLedger>(initialBettingLedger());
+  const bettingShoe = useRef(bettingShoeIdentity);
   const lastSettledRound = useRef(completedRoundCount);
   const pendingPrediction = useRef<{ round: number; side?: BetSide }>({
     round: completedRoundCount,
@@ -283,6 +290,8 @@ export const BaccaratTableCard = memo(function BaccaratTableCard({
             ledger,
             lastSettledRound: lastSettledRound.current,
             pendingPrediction: pendingPrediction.current,
+            shoe: bettingShoe.current,
+            roundPositionVersion: 2,
           }),
         );
       } catch {
@@ -306,6 +315,8 @@ export const BaccaratTableCard = memo(function BaccaratTableCard({
         ledger?: BettingLedger;
         lastSettledRound?: number;
         pendingPrediction?: { round: number; side?: BetSide };
+        shoe?: string;
+        roundPositionVersion?: number;
       } | null;
       if (saved && Object.hasOwn(bettingStrategyLabels, saved.strategy ?? ""))
         strategy = saved.strategy!;
@@ -317,20 +328,43 @@ export const BaccaratTableCard = memo(function BaccaratTableCard({
             ? saved.ledger.totalStake
             : 0,
         };
-      if (Number.isFinite(saved?.lastSettledRound))
-        lastRound = saved!.lastSettledRound!;
-      if (saved?.pendingPrediction) pending = saved.pendingPrediction;
+      // Legacy cursors counted only visible beads (at most 36). Preserve their
+      // ledger, but do not reinterpret a stale display index as a live bet.
+      if (saved?.roundPositionVersion === 2 && saved.shoe === bettingShoeIdentity) {
+        if (Number.isFinite(saved.lastSettledRound)) lastRound = saved.lastSettledRound!;
+        if (saved.pendingPrediction) pending = saved.pendingPrediction;
+      }
     } catch {
       /* Use a fresh simulation when stored data is invalid. */
     }
     strategyRef.current = strategy;
     ledgerRef.current = ledger;
+    bettingShoe.current = bettingShoeIdentity;
     lastSettledRound.current = lastRound;
     pendingPrediction.current = pending;
     setBettingStrategy(strategy);
     setBettingLedger(ledger);
     setBettingReady(true);
   }, [bettingStorageKey]);
+  const settlePendingBet = useCallback(() => {
+    if (!bettingReady || !settlementSnapshot) return false;
+    const previous = {
+      shoe: bettingShoe.current, ledger: ledgerRef.current,
+      lastSettledRound: lastSettledRound.current,
+      pendingPrediction: pendingPrediction.current,
+    };
+    const next = advanceLiveBetting(previous, strategyRef.current, bettingShoeIdentity, settlementSnapshot);
+    if (next === previous && settlementSnapshot.total < previous.lastSettledRound) return false;
+    if (next !== previous) {
+      bettingShoe.current = next.shoe;
+      lastSettledRound.current = next.lastSettledRound;
+      pendingPrediction.current = next.pendingPrediction;
+      ledgerRef.current = next.ledger;
+      setBettingLedger(next.ledger);
+      persistBetting(strategyRef.current, next.ledger);
+    }
+    return true;
+  }, [bettingReady, bettingShoeIdentity, settlementSnapshot, persistBetting]);
   const handlePredictionChange = useCallback(
     (
       side: BetSide | undefined,
@@ -338,6 +372,9 @@ export const BaccaratTableCard = memo(function BaccaratTableCard({
       agreement?: number,
     ) => {
       if (!bettingReady) return;
+      // Child prediction effects can run before the parent's settlement effect.
+      // Settle the previous captured bet before replacing it with the next one.
+      const canCapture = settlePendingBet();
       predictionHistory.current = history;
       latestPrediction.current = { side, agreement };
       const isConsensus = cardMode === "ai-consensus";
@@ -362,7 +399,7 @@ export const BaccaratTableCard = memo(function BaccaratTableCard({
         isConsensus,
         agreement,
       );
-      pendingPrediction.current = {
+      if (canCapture) pendingPrediction.current = {
         round: completedRoundCount,
         side: willAct ? side : undefined,
       };
@@ -371,6 +408,7 @@ export const BaccaratTableCard = memo(function BaccaratTableCard({
     },
     [
       bettingReady,
+      settlePendingBet,
       completedRoundCount,
       persistBetting,
       actionStrategy,
@@ -379,22 +417,8 @@ export const BaccaratTableCard = memo(function BaccaratTableCard({
     ],
   );
   useEffect(() => {
-    if (!bettingReady || completedRoundCount <= lastSettledRound.current)
-      return;
-    const outcome = completedOutcomes.at(-1);
-    let next = ledgerRef.current;
-    if (outcome && pendingPrediction.current.round === completedRoundCount - 1)
-      next = settleBet(
-        strategyRef.current,
-        next,
-        pendingPrediction.current.side,
-        outcome,
-      );
-    lastSettledRound.current = completedRoundCount;
-    ledgerRef.current = next;
-    setBettingLedger(next);
-    persistBetting(strategyRef.current, next);
-  }, [bettingReady, completedOutcomes, completedRoundCount, persistBetting]);
+    settlePendingBet();
+  }, [settlePendingBet]);
   const selectBettingStrategy = (strategy: BettingStrategy) => {
     const ledger = replayBets(
       strategy,
@@ -637,6 +661,8 @@ export const BaccaratTableCard = memo(function BaccaratTableCard({
                 bettingLedger,
                 lastSettledRound: lastSettledRound.current,
                 pendingPrediction: pendingPrediction.current,
+                bettingShoe: bettingShoe.current,
+                bettingRoundPositionVersion: 2,
                 actionStrategy,
                 actionConfig,
               });
