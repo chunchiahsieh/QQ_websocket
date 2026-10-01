@@ -25,6 +25,20 @@ runInNewContext(compiled, {
 const renderRound = round => renderToStaticMarkup(React.createElement(module.exports.AiPredictionHistory,
   { rounds: [round], status: '下局無訊號' }));
 
+test('AI history keeps ten responsive columns per panel without visible scrollbars', async () => {
+  const css = await readFile(new URL('../app/globals.css', import.meta.url), 'utf8');
+  const gridRule = css.match(/\.ai-history-grid\s*\{([^}]+)\}/)?.[1];
+  const webkitRule = css.match(/\.ai-history-grid::-webkit-scrollbar\s*\{([^}]+)\}/)?.[1];
+  assert.ok(gridRule);
+  assert.ok(webkitRule);
+  assert.match(gridRule, /grid-auto-columns:\s*calc\(100% \/ 10\)\s*;/);
+  assert.match(gridRule, /overflow-x:\s*auto\s*;/);
+  assert.match(gridRule, /scrollbar-width:\s*none\s*;/);
+  assert.match(webkitRule, /display:\s*none\s*;/);
+  const html = renderRound({ position: 1, prediction: '1', outcome: '1', origin: 'observed', result: '命中' });
+  assert.equal([...html.matchAll(/class="ai-history-grid" tabindex="0"/g)].length, 2);
+});
+
 test('a complete 80-round shoe renders exactly 80 actual and 80 directional prediction cells', () => {
   const outcomes = Array.from({ length: 80 }, (_, index) => ['3', '2', '1', '2', '2', '1', '3'][index % 7]);
   const result = completeAiHistory(baccaratRoads(outcomes.map(Number)).bigRoad, ['deepseek'], outcomes);
