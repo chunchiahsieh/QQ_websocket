@@ -16,6 +16,16 @@ const officialBase = "https://www.tz6868.com";
 const lastUsernameKey = "jshen:tz-last-username";
 const emptyUrls: Record<Platform, string> = { MT: "", DG: "", 歐博: "" };
 
+async function fetchWithTimeout(url: string, options: RequestInit): Promise<Response> {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 20000);
+  try {
+    return await fetch(url, { ...options, signal: controller.signal });
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
 function getToken(payload: unknown): string {
   if (!payload || typeof payload !== "object") return "";
   const value = payload as { token?: unknown; access_token?: unknown; data?: { token?: unknown; access_token?: unknown } };
@@ -39,7 +49,7 @@ function getGameUrl(payload: unknown): string {
 }
 
 async function getOfficialGameUrl(token: string, platform: Platform): Promise<string> {
-  const response = await fetch(`${officialBase}/api/v2/game/${gameCodes[platform]}/login`, {
+  const response = await fetchWithTimeout(`${officialBase}/api/v2/game/${gameCodes[platform]}/login`, {
     method: "POST",
     mode: "cors",
     headers: { "Content-Type": "application/json", Accept: "application/json", Authorization: `Bearer ${token}` },
@@ -55,6 +65,8 @@ async function getOfficialGameUrl(token: string, platform: Platform): Promise<st
 export function FloatingBrowser() {
   const [visible, setVisible] = useState(false);
   const [large, setLarge] = useState(false);
+  const [mobileLarge, setMobileLarge] = useState(true);
+  const [mobile, setMobile] = useState(false);
   const [platform, setPlatform] = useState<Platform>("MT");
   const [selectedTables, setSelectedTables] = useState<Record<Platform, string>>({ MT: "", DG: "", 歐博: "" });
   const [mtSelectionVersion, setMtSelectionVersion] = useState(0);
@@ -69,6 +81,14 @@ export function FloatingBrowser() {
   const token = useRef("");
   const deviceId = useRef("");
   const retrying = useRef<Partial<Record<Platform, boolean>>>({});
+
+  useEffect(() => {
+    const media = window.matchMedia("(max-width: 1023px)");
+    const updateMobile = () => setMobile(media.matches);
+    updateMobile();
+    media.addEventListener("change", updateMobile);
+    return () => media.removeEventListener("change", updateMobile);
+  }, []);
 
   useEffect(() => {
     try {
@@ -126,7 +146,7 @@ export function FloatingBrowser() {
         crypto.getRandomValues(bytes);
         deviceId.current = Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("");
       }
-      const response = await fetch(`${officialBase}/api/v1/login`, {
+      const response = await fetchWithTimeout(`${officialBase}/api/v1/login`, {
         method: "POST",
         mode: "cors",
         headers: { "Content-Type": "application/json", Accept: "application/json" },
@@ -141,9 +161,9 @@ export function FloatingBrowser() {
       } catch { /* Login still works without browser storage. */ }
       setAuthenticated(true);
       setPassword("");
-      await refresh(platforms, memberToken);
+      await refresh(mobile ? [platform] : platforms, memberToken);
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "TZ 登入失敗");
+      setError(cause instanceof Error && cause.name === "AbortError" ? "TZ 連線逾時，請重試" : cause instanceof Error ? cause.message : "TZ 登入失敗");
     } finally {
       setBusy(false);
     }
@@ -170,12 +190,12 @@ export function FloatingBrowser() {
           <PanelTopOpen className="h-4 w-4" />浮動視窗
         </button>
       )}
-      <section aria-label="浮動視窗" className={`fixed inset-0 z-50 flex h-dvh w-screen flex-col overflow-hidden bg-[#0e1727] text-white shadow-2xl lg:rounded-xl lg:border lg:border-cyan-400/60 ${visible ? "" : "hidden"} ${large ? "lg:inset-4 lg:h-auto lg:w-auto" : "lg:bottom-5 lg:left-auto lg:right-5 lg:top-auto lg:h-[min(72vh,650px)] lg:w-[min(92vw,760px)]"}`}>
+      <section aria-label="浮動視窗" data-floating-visible={visible} className={`fixed z-50 flex flex-col overflow-hidden bg-[#0e1727] text-white shadow-2xl ${mobileLarge ? "inset-0 h-dvh w-screen" : "bottom-[calc(0.75rem+env(safe-area-inset-bottom))] right-3 h-[min(60dvh,520px)] w-[min(92vw,380px)] rounded-xl border border-cyan-400/60"} lg:rounded-xl lg:border lg:border-cyan-400/60 ${visible ? "" : "hidden"} ${large ? "lg:inset-4 lg:h-auto lg:w-auto" : "lg:bottom-5 lg:left-auto lg:right-5 lg:top-auto lg:h-[min(72vh,650px)] lg:w-[min(92vw,760px)]"}`}>
         <div className="flex items-center justify-between border-b border-slate-600 px-3 py-2">
           <span className="text-sm font-semibold">TZ官網</span>
           <div className="flex items-center gap-1">
             {authenticated && <button type="button" onClick={logout} className="flex items-center gap-1 rounded p-2 text-sm hover:bg-white/10" aria-label="登出 TZ 官網"><LogOut className="h-4 w-4" />登出</button>}
-            <button type="button" onClick={() => setVisible(false)} className="rounded p-2 hover:bg-white/10" aria-label="縮小浮動視窗"><Minimize2 className="h-4 w-4" /></button>
+            <button type="button" onClick={() => setVisible(false)} className="hidden rounded p-2 hover:bg-white/10 lg:block" aria-label="縮小浮動視窗"><Minimize2 className="h-4 w-4" /></button>
             <button type="button" onClick={() => setLarge((current) => !current)} className="hidden rounded p-2 hover:bg-white/10 lg:block" aria-label={large ? "還原浮動視窗" : "放大浮動視窗"}><Maximize2 className="h-4 w-4" /></button>
           </div>
         </div>
@@ -191,7 +211,7 @@ export function FloatingBrowser() {
           <>
             <div role="tablist" aria-label="遊戲平台" className="flex gap-1 border-b border-slate-700 p-2">
               {platforms.map((item) => (
-                <button key={item} type="button" role="tab" aria-selected={platform === item} onClick={() => { setPlatform(item); setError(""); }} className={`rounded px-4 py-1.5 text-sm ${platform === item ? "bg-cyan-700 text-white" : "text-slate-300 hover:bg-white/10"}`}>{item}</button>
+                <button key={item} type="button" role="tab" aria-selected={platform === item} onClick={() => { setPlatform(item); setError(""); if (mobile && !urls[item]) void refresh([item]); }} className={`rounded px-4 py-1.5 text-sm ${platform === item ? "bg-cyan-700 text-white" : "text-slate-300 hover:bg-white/10"}`}>{item}</button>
               ))}
             </div>
             <div className="flex items-center justify-between border-b border-slate-700 px-3 py-2 text-xs text-slate-300">
@@ -199,17 +219,21 @@ export function FloatingBrowser() {
               <button type="button" disabled={busy} onClick={() => void refresh([platform])} className="rounded border border-slate-600 px-2 py-1 hover:bg-white/10 disabled:opacity-50">更新連結</button>
             </div>
             {error && <p role="alert" className="px-3 py-1 text-xs text-rose-300">{error}</p>}
-            {platforms.map((item) => urls[item] ? (
-              <iframe key={item === "MT" ? `MT-${mtSelectionVersion}` : item === "DG" ? `DG-${dgSelectionVersion}` : item} title={`${item} 遊戲內容`} src={item === "MT" ? mtGameUrlForTable(urls[item], selectedTables[item]) : item === "DG" ? dgGameUrlForTable(urls[item], selectedTables[item]) : urls[item]} allow="autoplay; fullscreen" allowFullScreen onError={() => {
+            {platforms.map((item) => mobile && platform !== item ? null : urls[item] ? (
+              <iframe key={item === "MT" ? `MT-${mtSelectionVersion}` : item === "DG" ? `DG-${dgSelectionVersion}` : item} title={`${item} 遊戲內容`} src={item === "MT" ? mtGameUrlForTable(urls[item], selectedTables[item]) : item === "DG" ? dgGameUrlForTable(urls[item], selectedTables[item]) : urls[item]} allow={mobile ? "autoplay" : "autoplay; fullscreen"} allowFullScreen={!mobile} onError={() => {
                 if (retrying.current[item]) return;
                 retrying.current[item] = true;
                 void refresh([item]).finally(() => { retrying.current[item] = false; });
-              }} className={`min-h-0 flex-1 bg-white ${platform === item ? "" : "hidden"}`} />
+              }} className={`min-h-0 min-w-0 w-full flex-1 bg-white ${platform === item ? "" : "hidden"}`} />
             ) : platform === item ? (
               <div key={item} className="grid flex-1 place-items-center text-sm text-slate-400">{errors[item] || "取得遊戲網址中…"}</div>
             ) : null)}
           </>
         )}
+        <div className="relative z-10 flex shrink-0 gap-2 border-t border-slate-600 bg-[#0e1727] px-3 py-2 pb-[calc(0.5rem+env(safe-area-inset-bottom))] lg:hidden">
+          <button type="button" onClick={() => setMobileLarge((current) => !current)} className="flex flex-1 items-center justify-center gap-2 rounded-lg border border-cyan-400/60 bg-[#193047] px-2 py-2 text-sm font-semibold text-cyan-100" aria-label={mobileLarge ? "縮小 TZ 官網視窗" : "放大 TZ 官網視窗"}>{mobileLarge ? <Minimize2 className="h-4 w-4" /> : <Maximize2 className="h-4 w-4" />}{mobileLarge ? "縮小視窗" : "放大視窗"}</button>
+          <button type="button" onClick={() => setVisible(false)} className="flex flex-1 items-center justify-center gap-2 rounded-lg border border-cyan-400/60 bg-[#193047] px-2 py-2 text-sm font-semibold text-cyan-100" aria-label="返回桌況"><PanelTopOpen className="h-4 w-4" />返回桌況</button>
+        </div>
       </section>
     </>
   );

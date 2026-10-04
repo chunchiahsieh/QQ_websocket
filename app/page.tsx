@@ -1645,6 +1645,7 @@ export default function Home() {
   >("idle");
   const [loginMessage, setLoginMessage] = useState("");
   const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [checkingSession, setCheckingSession] = useState(true);
   const [platform, setPlatform] = useState<"MT" | "DG" | "AB">("MT");
   const [activeMenu, setActiveMenu] = useState<
     "tables" | "payout" | "compare" | "regression" | "curated"
@@ -1675,6 +1676,34 @@ export default function Home() {
     const collectorMode =
       new URLSearchParams(window.location.search).get("collector") === "1";
     setMtCollectorMode(collectorMode);
+  }, []);
+
+  useEffect(() => {
+    if (new URLSearchParams(window.location.search).get("collector") === "1") {
+      setCheckingSession(false);
+      return;
+    }
+    const abort = new AbortController();
+    let active = true;
+    const timeout = window.setTimeout(() => abort.abort(), 5000);
+    const restore = async () => {
+      try {
+        const response = await fetch("/api/session", { cache: "no-store", signal: abort.signal });
+        if (!response.ok) return;
+        const result = (await response.json()) as { username?: string };
+        if (!active || abort.signal.aborted || !result.username) return;
+        setUsername(result.username);
+        setPassword("");
+        setLoginStatus("success");
+        setIsAuthenticated(true);
+      } catch { /* A missing or expired session leaves the normal login available. */ }
+      finally {
+        window.clearTimeout(timeout);
+        if (active) setCheckingSession(false);
+      }
+    };
+    void restore();
+    return () => { active = false; window.clearTimeout(timeout); abort.abort(); };
   }, []);
 
   // Presence is based on being logged in to this system, not on which
@@ -2761,6 +2790,10 @@ export default function Home() {
     mtCollectorMode,
     platform,
   ]);
+
+  if (!isAuthenticated && checkingSession) {
+    return <main className="grid min-h-screen place-items-center bg-[#101a2c] text-sm text-white">正在確認登入狀態…</main>;
+  }
 
   if (!isAuthenticated) {
     return (

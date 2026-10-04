@@ -28,6 +28,7 @@ export function VersionWatcher() {
           return;
         }
         if (loadedVersion !== version) {
+          if (document.querySelector('[data-floating-visible="true"]')) return;
           sessionStorage.setItem(VERSION_KEY, version);
           const url = new URL(window.location.href);
           url.searchParams.set('_version', version.slice(0, 12));
