@@ -1,9 +1,16 @@
-import type { Metadata } from 'next';
+import type { Metadata, Viewport } from 'next';
 import './globals.css';
 import { VersionWatcher } from '@/components/version-watcher';
 
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
+
+export const viewport: Viewport = {
+  width: 'device-width',
+  initialScale: 1,
+  maximumScale: 1,
+  userScalable: false,
+};
 
 export const metadata: Metadata = {
   title: 'J神・圖形來世',

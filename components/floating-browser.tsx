@@ -65,7 +65,6 @@ async function getOfficialGameUrl(token: string, platform: Platform): Promise<st
 export function FloatingBrowser() {
   const [visible, setVisible] = useState(false);
   const [large, setLarge] = useState(false);
-  const [mobileLarge, setMobileLarge] = useState(true);
   const [mobile, setMobile] = useState(false);
   const [platform, setPlatform] = useState<Platform>("MT");
   const [selectedTables, setSelectedTables] = useState<Record<Platform, string>>({ MT: "", DG: "", 歐博: "" });
@@ -89,6 +88,17 @@ export function FloatingBrowser() {
     media.addEventListener("change", updateMobile);
     return () => media.removeEventListener("change", updateMobile);
   }, []);
+
+  useEffect(() => {
+    if (!visible || !mobile) return;
+    const preventZoom = (event: Event) => event.preventDefault();
+    document.addEventListener("gesturestart", preventZoom, { passive: false });
+    document.addEventListener("gesturechange", preventZoom, { passive: false });
+    return () => {
+      document.removeEventListener("gesturestart", preventZoom);
+      document.removeEventListener("gesturechange", preventZoom);
+    };
+  }, [visible, mobile]);
 
   useEffect(() => {
     try {
@@ -190,7 +200,7 @@ export function FloatingBrowser() {
           <PanelTopOpen className="h-4 w-4" />浮動視窗
         </button>
       )}
-      <section aria-label="浮動視窗" data-floating-visible={visible} className={`fixed z-50 flex flex-col overflow-hidden bg-[#0e1727] text-white shadow-2xl ${mobileLarge ? "inset-0 h-dvh w-screen" : "bottom-[calc(0.75rem+env(safe-area-inset-bottom))] right-3 h-[min(60dvh,520px)] w-[min(92vw,380px)] rounded-xl border border-cyan-400/60"} lg:rounded-xl lg:border lg:border-cyan-400/60 ${visible ? "" : "hidden"} ${large ? "lg:inset-4 lg:h-auto lg:w-auto" : "lg:bottom-5 lg:left-auto lg:right-5 lg:top-auto lg:h-[min(72vh,650px)] lg:w-[min(92vw,760px)]"}`}>
+      <section aria-label="浮動視窗" data-floating-visible={visible} className={`fixed inset-x-0 top-0 bottom-[calc(3.5rem+env(safe-area-inset-bottom))] z-50 flex w-screen flex-col overflow-hidden bg-[#0e1727] text-white shadow-2xl lg:rounded-xl lg:border lg:border-cyan-400/60 ${visible ? "" : "hidden"} ${large ? "lg:inset-4 lg:h-auto lg:w-auto" : "lg:bottom-5 lg:left-auto lg:right-5 lg:top-auto lg:h-[min(72vh,650px)] lg:w-[min(92vw,760px)]"}`}>
         <div className="flex items-center justify-between border-b border-slate-600 px-3 py-2">
           <span className="text-sm font-semibold">TZ官網</span>
           <div className="flex items-center gap-1">
@@ -230,11 +240,10 @@ export function FloatingBrowser() {
             ) : null)}
           </>
         )}
-        <div className="relative z-10 flex shrink-0 gap-2 border-t border-slate-600 bg-[#0e1727] px-3 py-2 pb-[calc(0.5rem+env(safe-area-inset-bottom))] lg:hidden">
-          <button type="button" onClick={() => setMobileLarge((current) => !current)} className="flex flex-1 items-center justify-center gap-2 rounded-lg border border-cyan-400/60 bg-[#193047] px-2 py-2 text-sm font-semibold text-cyan-100" aria-label={mobileLarge ? "縮小 TZ 官網視窗" : "放大 TZ 官網視窗"}>{mobileLarge ? <Minimize2 className="h-4 w-4" /> : <Maximize2 className="h-4 w-4" />}{mobileLarge ? "縮小視窗" : "放大視窗"}</button>
-          <button type="button" onClick={() => setVisible(false)} className="flex flex-1 items-center justify-center gap-2 rounded-lg border border-cyan-400/60 bg-[#193047] px-2 py-2 text-sm font-semibold text-cyan-100" aria-label="返回桌況"><PanelTopOpen className="h-4 w-4" />返回桌況</button>
-        </div>
       </section>
+      {visible && <nav aria-label="TZ 官網視窗操作" className="fixed inset-x-0 bottom-0 z-[60] flex h-[calc(3.5rem+env(safe-area-inset-bottom))] gap-2 border-t border-slate-600 bg-[#0e1727] px-3 pt-2 pb-[env(safe-area-inset-bottom)] text-white lg:hidden">
+          <button type="button" onClick={() => setVisible(false)} className="flex w-full items-center justify-center gap-2 rounded-lg border border-cyan-400/60 bg-[#193047] px-2 py-2 text-sm font-semibold text-cyan-100" aria-label="返回桌況"><PanelTopOpen className="h-4 w-4" />返回桌況</button>
+      </nav>}
     </>
   );
 }
