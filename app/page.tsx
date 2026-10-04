@@ -29,6 +29,7 @@ import { DgMonitor } from "@/components/dg-monitor";
 import { DgSharedMonitor } from "@/components/dg-shared-monitor";
 import { AbMonitor } from "@/components/ab-monitor";
 import { ContactLinks } from "@/components/contact-links";
+import { FloatingBrowser } from "@/components/floating-browser";
 import {
   CardLayoutSelect,
   cardGridColumns,
@@ -2875,6 +2876,7 @@ export default function Home() {
     <main className="ofa-shell min-h-screen text-[#f7edda]">
       <PayoutWinnerNotification />
       <PayoutBroadcastNotification />
+      <FloatingBrowser />
       <div
         className={`min-h-screen lg:grid ${menuCollapsed ? "lg:grid-cols-[78px_minmax(0,1fr)]" : "lg:grid-cols-[250px_minmax(0,1fr)]"}`}
       >
