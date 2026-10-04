@@ -2860,7 +2860,7 @@ export default function Home() {
 
   return (
     <AiObservationProvider tablesByPlatform={tablesByPlatform} connectedByPlatform={connectedByPlatform}>
-    <main className="ofa-shell min-h-screen text-[#f7edda]">
+    <main className="ofa-shell min-h-screen pb-[calc(6rem+env(safe-area-inset-bottom))] text-[#f7edda] lg:pb-0">
       <PayoutWinnerNotification />
       <PayoutBroadcastNotification />
       <FloatingBrowser />
@@ -2904,7 +2904,7 @@ export default function Home() {
             )}
           </button>
           <nav
-            className="mt-4 grid grid-cols-2 gap-2 lg:mt-10 lg:grid-cols-1"
+            className="mt-4 hidden grid-cols-2 gap-2 lg:mt-10 lg:grid lg:grid-cols-1"
             aria-label="主選單"
           >
             <button
@@ -2966,6 +2966,30 @@ export default function Home() {
             </div>
           </nav>
         </aside>
+
+        <nav aria-label="手機版主選單" className="fixed inset-x-0 bottom-0 z-40 grid grid-cols-5 border-t border-[#86632f]/45 bg-[#0a0806]/95 px-1 pt-2 pb-[calc(0.5rem+env(safe-area-inset-bottom))] backdrop-blur lg:hidden">
+          {([
+            { key: "curated", label: "J神嚴選", icon: Crown },
+            { key: "tables", label: "即時桌況", icon: LayoutGrid },
+            { key: "compare", label: "關注牌桌", icon: LayoutGrid },
+            { key: "regression", label: "回歸測試", icon: CircleDot },
+            { key: "payout", label: "獎池", icon: Gift },
+          ] as const).map(({ key, label, icon: Icon }) => (
+            <button
+              key={key}
+              type="button"
+              aria-current={activeMenu === key ? "page" : undefined}
+              onClick={() => {
+                if (key === "regression" || key === "payout") disconnect();
+                setActiveMenu(key);
+              }}
+              className={`flex min-w-0 flex-col items-center justify-center gap-1 rounded-lg px-0.5 py-1 text-[10px] leading-tight ${activeMenu === key ? "bg-amber-300/10 text-amber-100" : "text-slate-400"}`}
+            >
+              <Icon className="h-5 w-5" />
+              <span className="whitespace-nowrap">{label}</span>
+            </button>
+          ))}
+        </nav>
 
         <div className="min-w-0 px-4 py-5 sm:px-7 sm:py-8 lg:px-8">
           <div className="min-w-0">

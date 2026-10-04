@@ -149,7 +149,7 @@ export function FloatingBrowser() {
   return (
     <>
       {!visible && (
-        <button type="button" onClick={expand} className="fixed bottom-5 right-5 z-50 flex items-center gap-2 rounded-full border border-cyan-400/60 bg-[#101a2b] px-4 py-3 text-sm font-medium text-cyan-100 shadow-xl hover:bg-[#193047]" aria-label="展開浮動視窗">
+        <button type="button" onClick={expand} className="fixed bottom-24 right-5 z-50 flex items-center gap-2 rounded-full border border-cyan-400/60 bg-[#101a2b] px-4 py-3 text-sm font-medium text-cyan-100 shadow-xl hover:bg-[#193047] lg:bottom-5" aria-label="展開浮動視窗">
           <PanelTopOpen className="h-4 w-4" />浮動視窗
         </button>
       )}
