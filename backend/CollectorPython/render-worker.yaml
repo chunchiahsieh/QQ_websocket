@@ -1,0 +1,27 @@
+services:
+  - type: worker
+    name: jason-mt-python-collector
+    runtime: docker
+    plan: 0.5c-512mb
+    region: oregon
+    repo: https://github.com/chunchiahsieh/QQ_websocket
+    branch: codex/jason-test-sync
+    autoDeployTrigger: off
+    dockerfilePath: ./backend/CollectorPython/Dockerfile
+    dockerContext: ./backend/CollectorPython
+    envVars:
+      - key: COLLECTOR_DESTINATIONS
+        value: '["https://jason-mt.onrender.com"]'
+      - key: TZ_OFFICIAL_URL
+        value: https://www.tz6868.com/
+      - key: TZ_DEVICE_ID
+        value: python-render-collector
+      - key: TZ_USERNAME
+        sync: false
+      - key: TZ_PASSWORD
+        sync: false
+      - key: COLLECTOR_INGEST_KEY
+        fromService:
+          type: web
+          name: jason-mt
+          envVarKey: COLLECTOR_INGEST_KEY
