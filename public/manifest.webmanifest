@@ -1,0 +1,14 @@
+{
+  "name": "J神・圖形來世",
+  "short_name": "J神",
+  "description": "即時牌卡預測系統",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#101b2c",
+  "theme_color": "#101b2c",
+  "icons": [
+    { "src": "/jshen-icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "/jshen-icon-512.png", "sizes": "512x512", "type": "image/png" }
+  ]
+}
