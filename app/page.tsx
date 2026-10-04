@@ -2790,13 +2790,15 @@ export default function Home() {
                 .env.development.local。
               </div>
             )}
-            <form onSubmit={login} className="grid gap-4">
+            <form onSubmit={login} name="jshen-login" className="grid gap-4">
               <label className="grid gap-2 text-sm font-medium text-[#cbb894]">
                 帳號
                 <input
+                  id="jshen-username"
+                  name="jshen-username"
                   value={username}
                   onChange={(event) => setUsername(event.target.value)}
-                  autoComplete="username"
+                  autoComplete="section-jshen username"
                   placeholder="輸入帳號"
                   className="h-12 rounded-lg border border-[#705429]/55 bg-black/40 px-4 text-sm text-[#fff4dc] outline-none transition placeholder:text-[#675b48] focus:border-[#d0a653] focus:ring-2 focus:ring-[#d0a653]/10"
                 />
@@ -2804,10 +2806,12 @@ export default function Home() {
               <label className="grid gap-2 text-sm font-medium text-[#cbb894]">
                 密碼
                 <input
+                  id="jshen-password"
+                  name="jshen-password"
                   type="password"
                   value={password}
                   onChange={(event) => setPassword(event.target.value)}
-                  autoComplete="current-password"
+                  autoComplete="section-jshen current-password"
                   placeholder="輸入密碼"
                   className="h-12 rounded-lg border border-[#705429]/55 bg-black/40 px-4 text-sm text-[#fff4dc] outline-none transition placeholder:text-[#675b48] focus:border-[#d0a653] focus:ring-2 focus:ring-[#d0a653]/10"
                 />

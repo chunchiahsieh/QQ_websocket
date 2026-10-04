@@ -13,6 +13,7 @@ export function openFloatingBrowser(platform: Platform, tableId: string) {
 const platforms: Platform[] = ["MT", "DG", "歐博"];
 const gameCodes: Record<Platform, string> = { MT: "MTLI", DG: "DGLI", 歐博: "AB01" };
 const officialBase = "https://www.tz6868.com";
+const lastUsernameKey = "jshen:tz-last-username";
 const emptyUrls: Record<Platform, string> = { MT: "", DG: "", 歐博: "" };
 
 function getToken(payload: unknown): string {
@@ -70,6 +71,9 @@ export function FloatingBrowser() {
   const retrying = useRef<Partial<Record<Platform, boolean>>>({});
 
   useEffect(() => {
+    try {
+      setUsername(window.localStorage.getItem(lastUsernameKey) || "");
+    } catch { /* Browser storage may be unavailable. */ }
     const handleOpen = (event: Event) => {
       const detail = (event as CustomEvent<{ platform?: Platform; tableId?: string }>).detail;
       if (detail?.platform && platforms.includes(detail.platform)) {
@@ -131,9 +135,11 @@ export function FloatingBrowser() {
       const memberToken = getToken(payload);
       if (!response.ok || !memberToken) throw new Error("TZ 登入失敗，請確認帳號密碼");
       token.current = memberToken;
+      try {
+        window.localStorage.setItem(lastUsernameKey, username.trim());
+      } catch { /* Login still works without browser storage. */ }
       setAuthenticated(true);
       setPassword("");
-      setUsername("");
       await refresh(platforms, memberToken);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "TZ 登入失敗");
@@ -153,19 +159,19 @@ export function FloatingBrowser() {
           <PanelTopOpen className="h-4 w-4" />浮動視窗
         </button>
       )}
-      <section aria-label="浮動視窗" className={`fixed z-50 flex flex-col overflow-hidden rounded-xl border border-cyan-400/60 bg-[#0e1727] text-white shadow-2xl ${visible ? "" : "hidden"} ${large ? "inset-4" : "bottom-5 right-5 h-[min(72vh,650px)] w-[min(92vw,760px)]"}`}>
+      <section aria-label="浮動視窗" className={`fixed inset-0 z-50 flex h-dvh w-screen flex-col overflow-hidden bg-[#0e1727] text-white shadow-2xl lg:rounded-xl lg:border lg:border-cyan-400/60 ${visible ? "" : "hidden"} ${large ? "lg:inset-4 lg:h-auto lg:w-auto" : "lg:bottom-5 lg:left-auto lg:right-5 lg:top-auto lg:h-[min(72vh,650px)] lg:w-[min(92vw,760px)]"}`}>
         <div className="flex items-center justify-between border-b border-slate-600 px-3 py-2">
           <span className="text-sm font-semibold">浮動視窗</span>
           <div className="flex items-center gap-1">
             <button type="button" onClick={() => setVisible(false)} className="rounded p-2 hover:bg-white/10" aria-label="縮小浮動視窗"><Minimize2 className="h-4 w-4" /></button>
-            <button type="button" onClick={() => setLarge((current) => !current)} className="rounded p-2 hover:bg-white/10" aria-label={large ? "還原浮動視窗" : "放大浮動視窗"}><Maximize2 className="h-4 w-4" /></button>
+            <button type="button" onClick={() => setLarge((current) => !current)} className="hidden rounded p-2 hover:bg-white/10 lg:block" aria-label={large ? "還原浮動視窗" : "放大浮動視窗"}><Maximize2 className="h-4 w-4" /></button>
           </div>
         </div>
         {!authenticated ? (
-          <form onSubmit={login} className="flex flex-1 flex-col justify-center gap-3 p-5">
+          <form onSubmit={login} name="tz-login" className="flex flex-1 flex-col justify-center gap-3 p-5">
             <h2 className="text-base font-semibold">請輸入 TZ 帳號密碼</h2>
-            <input value={username} onChange={(event) => setUsername(event.target.value)} autoComplete="username" placeholder="TZ 帳號" aria-label="TZ 帳號" className="rounded border border-slate-600 bg-[#18243a] px-3 py-2 text-sm" />
-            <input type="password" value={password} onChange={(event) => setPassword(event.target.value)} autoComplete="current-password" placeholder="TZ 密碼" aria-label="TZ 密碼" className="rounded border border-slate-600 bg-[#18243a] px-3 py-2 text-sm" />
+            <input id="tz-username" name="tz-username" value={username} onChange={(event) => setUsername(event.target.value)} autoComplete="section-tz username" placeholder="TZ 帳號" aria-label="TZ 帳號" className="rounded border border-slate-600 bg-[#18243a] px-3 py-2 text-sm" />
+            <input id="tz-password" name="tz-password" type="password" value={password} onChange={(event) => setPassword(event.target.value)} autoComplete="section-tz current-password" placeholder="TZ 密碼" aria-label="TZ 密碼" className="rounded border border-slate-600 bg-[#18243a] px-3 py-2 text-sm" />
             <button type="submit" disabled={busy} className="rounded bg-cyan-700 px-3 py-2 text-sm hover:bg-cyan-600 disabled:opacity-50">{busy ? "登入中…" : "登入"}</button>
             {error && <p role="alert" className="text-xs text-rose-300">{error}</p>}
           </form>
