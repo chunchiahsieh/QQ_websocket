@@ -1,7 +1,7 @@
 "use client";
 
 import { FormEvent, useEffect, useRef, useState } from "react";
-import { Maximize2, Minimize2, PanelTopOpen } from "lucide-react";
+import { LogOut, Maximize2, Minimize2, PanelTopOpen } from "lucide-react";
 import { dgGameUrlForTable } from "@/lib/dg-game-url";
 import { mtGameUrlForTable } from "@/lib/mt-game-url";
 
@@ -94,6 +94,7 @@ export function FloatingBrowser() {
     if (!activeToken) { setAuthenticated(false); setError("請輸入 TZ 帳號密碼"); return; }
     setBusy(true);
     const result = await Promise.allSettled(selected.map((item) => getOfficialGameUrl(activeToken, item)));
+    if (token.current !== activeToken) return;
     if (result.some((item) => item.status === "rejected" && item.reason instanceof Error && item.reason.message === "AUTH_EXPIRED")) {
       token.current = "";
       setAuthenticated(false);
@@ -152,6 +153,16 @@ export function FloatingBrowser() {
     setVisible(true);
   };
 
+  const logout = () => {
+    token.current = "";
+    setAuthenticated(false);
+    setUrls(emptyUrls);
+    setErrors({});
+    setError("");
+    setPassword("");
+    setBusy(false);
+  };
+
   return (
     <>
       {!visible && (
@@ -161,8 +172,9 @@ export function FloatingBrowser() {
       )}
       <section aria-label="浮動視窗" className={`fixed inset-0 z-50 flex h-dvh w-screen flex-col overflow-hidden bg-[#0e1727] text-white shadow-2xl lg:rounded-xl lg:border lg:border-cyan-400/60 ${visible ? "" : "hidden"} ${large ? "lg:inset-4 lg:h-auto lg:w-auto" : "lg:bottom-5 lg:left-auto lg:right-5 lg:top-auto lg:h-[min(72vh,650px)] lg:w-[min(92vw,760px)]"}`}>
         <div className="flex items-center justify-between border-b border-slate-600 px-3 py-2">
-          <span className="text-sm font-semibold">浮動視窗</span>
+          <span className="text-sm font-semibold">TZ官網</span>
           <div className="flex items-center gap-1">
+            {authenticated && <button type="button" onClick={logout} className="flex items-center gap-1 rounded p-2 text-sm hover:bg-white/10" aria-label="登出 TZ 官網"><LogOut className="h-4 w-4" />登出</button>}
             <button type="button" onClick={() => setVisible(false)} className="rounded p-2 hover:bg-white/10" aria-label="縮小浮動視窗"><Minimize2 className="h-4 w-4" /></button>
             <button type="button" onClick={() => setLarge((current) => !current)} className="hidden rounded p-2 hover:bg-white/10 lg:block" aria-label={large ? "還原浮動視窗" : "放大浮動視窗"}><Maximize2 className="h-4 w-4" /></button>
           </div>
