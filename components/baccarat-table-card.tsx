@@ -4,6 +4,7 @@ import { CheckCircle2, Crown } from "lucide-react";
 import { BaccaratRoad } from "@/components/baccarat-road";
 import { TableCountdown } from "@/components/table-countdown";
 import { DealerVideo } from "@/components/dealer-video";
+import { openFloatingBrowser } from "@/components/floating-browser";
 import { AiPredictionCard } from "@/components/ai-prediction-card";
 import type { AiSource } from "@/lib/ai-consensus";
 import { GraphicalCard } from "@/components/graphical-card";
@@ -142,20 +143,22 @@ const availableCardModes = new Set<CardMode>([
 const dealerPhotos: Record<string, string> = {
   艾希: "https://ds.ofalive99.net/static/imagesx/ad/2FMz3PC89Dsp2ZTfvCbL.png",
 };
-function DealerPortrait({ name, photo }: { name: string; photo?: string }) {
+function DealerPortrait({ name, photo, onOpen }: { name: string; photo?: string; onOpen: () => void }) {
   const source = photo || dealerPhotos[name];
   const [failedSource, setFailedSource] = useState<string>();
   return (
     <div className="relative h-full min-h-0 overflow-hidden bg-slate-200">
       {source && source !== failedSource ? (
-        <img
-          src={source}
-          alt={`荷官 ${name}`}
-          loading="lazy"
-          referrerPolicy="no-referrer"
-          className="absolute inset-0 h-full w-full object-cover object-top"
-          onError={() => setFailedSource(source)}
-        />
+        <button type="button" onClick={onOpen} aria-label={`點擊荷官圖片開啟浮動視窗`} className="absolute inset-0 h-full w-full cursor-pointer">
+          <img
+            src={source}
+            alt={`荷官 ${name}`}
+            loading="lazy"
+            referrerPolicy="no-referrer"
+            className="h-full w-full object-cover object-top"
+            onError={() => setFailedSource(source)}
+          />
+        </button>
       ) : (
         <div
           className="grid h-full place-items-center text-slate-500"
@@ -715,7 +718,7 @@ export const BaccaratTableCard = memo(function BaccaratTableCard({
             connected={connected}
             tableName={table.name}
           >
-            <DealerPortrait name={table.dealer} photo={table.dealerPhoto} />
+            <DealerPortrait name={table.dealer} photo={table.dealerPhoto} onOpen={() => openFloatingBrowser(resolvedPlatformLabel as "MT" | "DG" | "歐博", table.id)} />
             <div
               title={`房間 ${table.room} · Shoe ${table.shoe} · 第 ${table.round} 把`}
               className="absolute inset-x-0 bottom-0 z-10 bg-gradient-to-r from-purple-800 via-amber-100/90 to-amber-200/80 px-1.5 py-1 text-center text-sm leading-4"
