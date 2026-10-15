@@ -12,7 +12,8 @@ export function openFloatingBrowser(platform: Platform, tableId: string) {
 }
 const platforms: Platform[] = ["MT", "DG", "歐博"];
 const gameCodes: Record<Platform, string> = { MT: "MTLI", DG: "DGLI", 歐博: "AB01" };
-const officialBase = "https://www.tz6868.com";
+type Site = "TZ" | "OFA";
+const officialBases: Record<Site, string> = { TZ: "https://www.tz6868.com", OFA: "https://www.ofa1188.net" };
 const emptyUrls: Record<Platform, string> = { MT: "", DG: "", 歐博: "" };
 
 function getToken(payload: unknown): string {
@@ -22,7 +23,7 @@ function getToken(payload: unknown): string {
     .find((item): item is string => typeof item === "string" && item.trim().length > 0)?.trim() || "";
 }
 
-function getGameUrl(payload: unknown): string {
+function getGameUrl(payload: unknown, requireQuery = true): string {
   if (!payload || typeof payload !== "object") return "";
   const value = payload as { data?: { game_url?: unknown; url?: unknown }; raw?: { game_url?: unknown; url?: unknown } | string };
   const raw = value.raw;
@@ -31,30 +32,36 @@ function getGameUrl(payload: unknown): string {
     if (typeof candidate !== "string") continue;
     try {
       const url = new URL(candidate.trim().replace(/\\\//g, "/"));
-      if (url.protocol === "https:" && url.search) return url.href;
+      if (url.protocol === "https:" && (!requireQuery || url.search)) return url.href;
     } catch { /* Try the next official response field. */ }
   }
   return "";
 }
 
-async function getOfficialGameUrl(token: string, platform: Platform): Promise<string> {
-  const response = await fetch(`${officialBase}/api/v2/game/${gameCodes[platform]}/login`, {
+async function getOfficialGameUrl(token: string, platform: Platform, site: Site): Promise<string> {
+  const officialBase = officialBases[site];
+  const gameCode = gameCodes[platform];
+  const response = await fetch(`${officialBase}/api/v2/game/${gameCode}/login`, {
     method: "POST",
     mode: "cors",
     headers: { "Content-Type": "application/json", Accept: "application/json", Authorization: `Bearer ${token}` },
-    body: JSON.stringify({ game_return_url: `${officialBase}/`, game_kind: "", game_type: "", game_device: "Desktop" }),
+    body: JSON.stringify(site === "OFA"
+      ? { game_return_url: officialBase, game_device: "Desktop", game_money: "-1" }
+      : { game_return_url: `${officialBase}/`, game_kind: "", game_type: "", game_device: "Desktop" }),
   });
-  const payload = await response.json().catch(() => null) as { code?: unknown } | null;
+  const payload = await response.json().catch(() => null) as { code?: unknown; message?: unknown; error_code?: unknown } | null;
   if (response.status === 401 || response.status === 403 || [401, 403].includes(Number(payload?.code))) throw new Error("AUTH_EXPIRED");
-  const url = getGameUrl(payload);
-  if (!response.ok || (payload?.code != null && Number(payload.code) !== 200) || !url) throw new Error(`${platform} 遊戲網址取得失敗`);
+  const url = getGameUrl(payload, site !== "OFA");
+  if (!response.ok || (payload?.code != null && Number(payload.code) !== 200) || !url) throw new Error(`${platform} 遊戲網址取得失敗${site === "OFA" ? `：${typeof payload?.message === "string" ? payload.message : "OFA 未回傳有效遊戲網址"}${payload?.error_code != null ? ` (${payload.error_code})` : ""}` : ""}`);
   return url;
 }
 
 export function FloatingBrowser() {
   const [visible, setVisible] = useState(false);
   const [large, setLarge] = useState(false);
+  const [site, setSite] = useState<"TZ" | "OFA">("TZ");
   const [platform, setPlatform] = useState<Platform>("MT");
+  const availablePlatforms: Platform[] = platforms;
   const [selectedTables, setSelectedTables] = useState<Record<Platform, string>>({ MT: "", DG: "", 歐博: "" });
   const [mtSelectionVersion, setMtSelectionVersion] = useState(0);
   const [dgSelectionVersion, setDgSelectionVersion] = useState(0);
@@ -84,17 +91,17 @@ export function FloatingBrowser() {
     };
     window.addEventListener(openEvent, handleOpen);
     return () => window.removeEventListener(openEvent, handleOpen);
-  }, []);
+  }, [site]);
 
-  const refresh = async (selected: Platform[] = platforms, activeToken = token.current) => {
-    if (!activeToken) { setAuthenticated(false); setError("請輸入 TZ 帳號密碼"); return; }
+  const refresh = async (selected: Platform[] = availablePlatforms, activeToken = token.current) => {
+    if (!activeToken) { setAuthenticated(false); setError(`請輸入 ${site} 帳號密碼`); return; }
     setBusy(true);
-    const result = await Promise.allSettled(selected.map((item) => getOfficialGameUrl(activeToken, item)));
+    const result = await Promise.allSettled(selected.map((item) => getOfficialGameUrl(activeToken, item, site)));
     if (result.some((item) => item.status === "rejected" && item.reason instanceof Error && item.reason.message === "AUTH_EXPIRED")) {
       token.current = "";
       setAuthenticated(false);
       setUrls(emptyUrls);
-      setError("TZ 登入已失效，請重新輸入帳號密碼");
+      setError(`${site} 登入已失效，請重新輸入帳號密碼`);
       setBusy(false);
       return;
     }
@@ -103,7 +110,7 @@ export function FloatingBrowser() {
     result.forEach((item, index) => {
       const name = selected[index];
       if (item.status === "fulfilled") nextUrls[name] = item.value;
-      else nextErrors[name] = `${name} 遊戲網址取得失敗`;
+      else nextErrors[name] = item.reason instanceof Error ? item.reason.message : `${name} 遊戲網址取得失敗`;
     });
     setUrls((current) => ({ ...current, ...Object.fromEntries(selected.map((name) => [name, nextUrls[name] || ""])) }));
     setErrors((current) => ({ ...current, ...Object.fromEntries(selected.map((name) => [name, nextErrors[name] || ""])) }));
@@ -112,7 +119,7 @@ export function FloatingBrowser() {
 
   const login = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    if (!username.trim() || !password) { setError("請輸入 TZ 帳號密碼"); return; }
+    if (!username.trim() || !password) { setError(`請輸入 ${site} 帳號密碼`); return; }
     setBusy(true);
     setError("");
     try {
@@ -121,7 +128,7 @@ export function FloatingBrowser() {
         crypto.getRandomValues(bytes);
         deviceId.current = Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("");
       }
-      const response = await fetch(`${officialBase}/api/v1/login`, {
+      const response = await fetch(`${officialBases[site]}/api/v1/login`, {
         method: "POST",
         mode: "cors",
         headers: { "Content-Type": "application/json", Accept: "application/json" },
@@ -129,14 +136,14 @@ export function FloatingBrowser() {
       });
       const payload = await response.json().catch(() => null);
       const memberToken = getToken(payload);
-      if (!response.ok || !memberToken) throw new Error("TZ 登入失敗，請確認帳號密碼");
+      if (!response.ok || !memberToken) throw new Error(`${site} 登入失敗，請確認帳號密碼`);
       token.current = memberToken;
       setAuthenticated(true);
       setPassword("");
       setUsername("");
-      await refresh(platforms, memberToken);
+      await refresh(availablePlatforms, memberToken);
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "TZ 登入失敗");
+      setError(cause instanceof Error ? cause.message : `${site} 登入失敗`);
     } finally {
       setBusy(false);
     }
@@ -157,22 +164,40 @@ export function FloatingBrowser() {
         <div className="flex items-center justify-between border-b border-slate-600 px-3 py-2">
           <span className="text-sm font-semibold">浮動視窗</span>
           <div className="flex items-center gap-1">
+            {authenticated && <button type="button" disabled={busy} onClick={() => {
+              token.current = "";
+              setAuthenticated(false);
+              setUrls(emptyUrls);
+              setErrors({});
+              setError("");
+              setUsername("");
+              setPassword("");
+              setPlatform("MT");
+              retrying.current = {};
+            }} className="rounded border border-slate-600 px-3 py-1 text-sm hover:bg-white/10 disabled:opacity-50" aria-label="登出浮動視窗">登出</button>}
             <button type="button" onClick={() => setVisible(false)} className="rounded p-2 hover:bg-white/10" aria-label="縮小浮動視窗"><Minimize2 className="h-4 w-4" /></button>
             <button type="button" onClick={() => setLarge((current) => !current)} className="rounded p-2 hover:bg-white/10" aria-label={large ? "還原浮動視窗" : "放大浮動視窗"}><Maximize2 className="h-4 w-4" /></button>
           </div>
         </div>
+        {!authenticated && <div className="flex gap-1 border-b border-slate-700 p-2">
+          <select aria-label="官網平台" value={site} disabled={busy} onChange={(event) => { setSite(event.target.value as Site); setPlatform("MT"); token.current = ""; setAuthenticated(false); setUrls(emptyUrls); setErrors({}); setError(""); setUsername(""); setPassword(""); }} className="rounded border border-slate-600 bg-[#18243a] px-3 py-1.5 text-sm text-white">
+            <option value="TZ">TZ</option>
+            <option value="OFA">OFA</option>
+          </select>
+        </div>}
+        <div className="flex min-h-0 flex-1 flex-col">
         {!authenticated ? (
           <form onSubmit={login} className="flex flex-1 flex-col justify-center gap-3 p-5">
-            <h2 className="text-base font-semibold">請輸入 TZ 帳號密碼</h2>
-            <input value={username} onChange={(event) => setUsername(event.target.value)} autoComplete="username" placeholder="TZ 帳號" aria-label="TZ 帳號" className="rounded border border-slate-600 bg-[#18243a] px-3 py-2 text-sm" />
-            <input type="password" value={password} onChange={(event) => setPassword(event.target.value)} autoComplete="current-password" placeholder="TZ 密碼" aria-label="TZ 密碼" className="rounded border border-slate-600 bg-[#18243a] px-3 py-2 text-sm" />
+            <h2 className="text-base font-semibold">請輸入 {site} 帳號密碼</h2>
+            <input value={username} onChange={(event) => setUsername(event.target.value)} autoComplete="username" placeholder={`${site} 帳號`} aria-label={`${site} 帳號`} className="rounded border border-slate-600 bg-[#18243a] px-3 py-2 text-sm" />
+            <input type="password" value={password} onChange={(event) => setPassword(event.target.value)} autoComplete="current-password" placeholder={`${site} 密碼`} aria-label={`${site} 密碼`} className="rounded border border-slate-600 bg-[#18243a] px-3 py-2 text-sm" />
             <button type="submit" disabled={busy} className="rounded bg-cyan-700 px-3 py-2 text-sm hover:bg-cyan-600 disabled:opacity-50">{busy ? "登入中…" : "登入"}</button>
             {error && <p role="alert" className="text-xs text-rose-300">{error}</p>}
           </form>
         ) : (
           <>
             <div role="tablist" aria-label="遊戲平台" className="flex gap-1 border-b border-slate-700 p-2">
-              {platforms.map((item) => (
+              {availablePlatforms.map((item) => (
                 <button key={item} type="button" role="tab" aria-selected={platform === item} onClick={() => { setPlatform(item); setError(""); }} className={`rounded px-4 py-1.5 text-sm ${platform === item ? "bg-cyan-700 text-white" : "text-slate-300 hover:bg-white/10"}`}>{item}</button>
               ))}
             </div>
@@ -181,7 +206,7 @@ export function FloatingBrowser() {
               <button type="button" disabled={busy} onClick={() => void refresh([platform])} className="rounded border border-slate-600 px-2 py-1 hover:bg-white/10 disabled:opacity-50">更新連結</button>
             </div>
             {error && <p role="alert" className="px-3 py-1 text-xs text-rose-300">{error}</p>}
-            {platforms.map((item) => urls[item] ? (
+            {availablePlatforms.map((item) => urls[item] ? (
               <iframe key={item === "MT" ? `MT-${mtSelectionVersion}` : item === "DG" ? `DG-${dgSelectionVersion}` : item} title={`${item} 遊戲內容`} src={item === "MT" ? mtGameUrlForTable(urls[item], selectedTables[item]) : item === "DG" ? dgGameUrlForTable(urls[item], selectedTables[item]) : urls[item]} allow="autoplay; fullscreen" allowFullScreen onError={() => {
                 if (retrying.current[item]) return;
                 retrying.current[item] = true;
@@ -192,6 +217,7 @@ export function FloatingBrowser() {
             ) : null)}
           </>
         )}
+        </div>
       </section>
     </>
   );

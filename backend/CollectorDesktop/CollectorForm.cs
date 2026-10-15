@@ -37,6 +37,11 @@ public sealed class CollectorForm : Form
         destination.SelectedIndex = startupTarget?.Equals("lan", StringComparison.OrdinalIgnoreCase) == true
             ? 2
             : startupTarget?.Equals("test", StringComparison.OrdinalIgnoreCase) == true ? 1 : 0;
+        renderUrl.Text = destination.SelectedIndex switch {
+            1 => testRenderUrl.Text.Trim(),
+            2 => "http://192.168.8.231:3000/",
+            _ => CollectorDefaults.RenderUrl
+        };
         destination.SelectedIndexChanged += (_, _) => {
             renderUrl.Text = destination.SelectedIndex switch {
                 1 => testRenderUrl.Text.Trim(),
