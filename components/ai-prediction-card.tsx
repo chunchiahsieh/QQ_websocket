@@ -80,6 +80,9 @@ export function AiPredictionCard({ raw, beadPlate, fullOutcomes, tableId, shoe, 
     ? completeAiHistory(statisticsRoad, selected, statisticsOutcomes, ledger) : undefined,
     [statisticsRoad, selected, statisticsOutcomes, ledger]);
   const performance = completed?.performance;
+  // Retained statistics may belong to the previous coherent round while the
+  // latest official outcome is still arriving. Do not label them as its result.
+  const lastResult = synchronized ? performance?.lastResult : undefined;
   const decisionHistory = useMemo(() => performance?.decisions ?? [], [performance]);
   const sourcePerformance = useMemo(() => Object.fromEntries((initialSource ? [] : aiSources).map(source => [source,
     statisticsRoad !== undefined && statisticsOutcomes
@@ -117,7 +120,7 @@ export function AiPredictionCard({ raw, beadPlate, fullOutcomes, tableId, shoe, 
     <AiPredictionHistory key={storageKey} rounds={history} status={isShuffling ? '洗牌中' : !predictionReady ? '同步中' : `下局${outcomeLabel(prediction)}`} />
     <footer className="ai-prediction-footer flex flex-wrap items-center gap-x-3 border-t border-slate-600 px-2 py-1 text-[11px] leading-4">
       <span>下局預測：<strong className="font-bold" style={{ color: prediction === '1' ? '#60a5fa' : prediction === '2' ? '#f87171' : '#cbd5e1' }}>{isShuffling ? '洗牌中' : !predictionReady ? '資料同步中' : outcomeLabel(prediction)}</strong>{!isShuffling && !prediction && <em className="ml-1 not-italic text-amber-200">（本局不出手）</em>}</span>
-      <span title="依本靴歷史逐局回測；已保存的當時預測優先採用，不以事後預測改寫結果。">上一局：<strong className={performance?.lastResult === '命中' ? 'text-emerald-300' : performance?.lastResult === '錯誤' ? 'text-orange-300' : 'text-slate-300'}>{performance?.lastResult ?? '資料同步中'}</strong></span>
+      <span title="依本靴歷史逐局回測；已保存的當時預測優先採用，不以事後預測改寫結果。">上一局：<strong className={lastResult === '命中' ? 'text-emerald-300' : lastResult === '錯誤' ? 'text-orange-300' : 'text-slate-300'}>{lastResult ?? '資料同步中'}</strong></span>
       {performance ? <>
         <span>目前連中：<strong className="text-emerald-300">{performance.streak}</strong>（最高 {performance.maxStreak}）</span>
         <span>目前連錯：<strong className="text-orange-300">{performance.missStreak}</strong>（最高 {performance.maxMissStreak}）</span>

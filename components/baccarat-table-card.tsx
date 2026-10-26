@@ -771,6 +771,10 @@ export const BaccaratTableCard = memo(function BaccaratTableCard({
           <PointAnalysisCard
             bigRoad={table.bigRoad}
             beadPlate={table.beadPlate}
+            fullOutcomes={table.aiOutcomes}
+            tableId={table.id}
+            shoe={table.shoe}
+            completedRounds={Number(table.banker) + Number(table.player) + Number(table.tie)}
             distributionOnly={cardMode === "value-distribution"}
             onPredictionChange={handlePredictionChange}
           />
