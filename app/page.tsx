@@ -2778,24 +2778,8 @@ export default function Home() {
 
   if (!isAuthenticated) {
     return (
-      <main className="ofa-shell tech-login min-h-screen px-4 py-6 text-[#f7edda] sm:px-8">
-        <header className="tech-login-header mx-auto flex w-full max-w-7xl items-center justify-between gap-4 px-4 py-3 sm:px-6">
-          <div className="flex items-center gap-3">
-            <img src="/jshen-logo.svg" alt="J神 Logo" width="36" height="36" />
-            <span className="text-base font-bold tracking-wide text-white sm:text-lg">J神・圖形來世</span>
-          </div>
-          <span className="hidden text-xs tracking-[.25em] text-cyan-200/70 sm:inline">即時牌卡預測系統</span>
-        </header>
-        <div className="tech-login-layout mx-auto grid w-full max-w-7xl items-center gap-10 py-10 lg:min-h-[calc(100vh-110px)] lg:grid-cols-[minmax(0,1fr)_430px] lg:gap-16 lg:py-8">
-        <div className="tech-login-hero relative hidden min-h-[600px] flex-col justify-center lg:flex">
-          <div className="tech-login-orbit" aria-hidden="true"><img src="/jshen-logo.svg" alt="" width="220" height="220" /></div>
-          <p className="relative z-10 text-xs font-bold tracking-[.45em] text-cyan-300">LIVE DATA · INTELLIGENT INSIGHT</p>
-          <h1 className="relative z-10 mt-5 text-6xl font-black tracking-tight text-white xl:text-7xl">J神・圖形來世</h1>
-          <p className="relative z-10 mt-5 text-3xl font-semibold tracking-[.2em] text-cyan-100">數據驅動判斷</p>
-          <p className="relative z-10 mt-5 max-w-md text-base leading-8 text-slate-300">結合即時資料與牌局分析，掌握每一局的關鍵資訊。</p>
-          <div className="relative z-10 mt-10 flex gap-4 text-xs text-cyan-100/80"><span>◉ 即時數據</span><span>✦ 智慧分析</span><span>◎ 專業視角</span></div>
-        </div>
-        <section className="tech-login-panel w-full overflow-hidden rounded-2xl border border-cyan-300/35 bg-[#0d1830]/90 shadow-[0_30px_100px_rgba(0,0,0,.58)] backdrop-blur-xl">
+      <main className="ofa-shell grid min-h-screen place-items-center px-4 py-10 text-[#f7edda]">
+        <section className="w-full max-w-md overflow-hidden rounded-2xl border border-[#9d7536]/40 bg-[#0d0b08]/95 shadow-[0_30px_100px_rgba(0,0,0,.58)] backdrop-blur-xl">
           <div className="h-px bg-gradient-to-r from-transparent via-[#e5bd69] to-transparent" />
           <div className="p-6 sm:p-8">
             <div className="mb-8 text-center">
@@ -2884,13 +2868,12 @@ export default function Home() {
             </section>
           </div>
         </section>
-        </div>
       </main>
     );
   }
 
   return (
-    <main className="ofa-shell tech-app min-h-screen text-[#f7edda]">
+    <main className="ofa-shell min-h-screen text-[#f7edda]">
       <PayoutWinnerNotification />
       <PayoutBroadcastNotification />
       <FloatingBrowser />
